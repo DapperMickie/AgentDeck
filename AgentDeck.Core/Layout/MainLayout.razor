@@ -1,7 +1,71 @@
 @inherits LayoutComponentBase
+@inject IAgentDeckClient Client
+@inject ISessionStateService SessionState
+@inject NavigationManager Nav
+@implements IDisposable
 
-<div class="layout">
-    <main>
-        @Body
+<div class="app-shell @(SidebarOpen ? "sidebar-open" : "")">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <span class="app-logo">⬡ AgentDeck</span>
+            <button class="icon-btn" @onclick="ToggleSidebar" title="Toggle sidebar">☰</button>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a class="nav-item @(IsActive("/") ? "active" : "")" href="/">
+                <span class="nav-icon">⊟</span>
+                <span class="nav-label">Terminals</span>
+            </a>
+            <a class="nav-item @(IsActive("/settings") ? "active" : "")" href="/settings">
+                <span class="nav-icon">⚙</span>
+                <span class="nav-label">Settings</span>
+            </a>
+        </nav>
+
+        <div class="connection-status @GetStatusClass()">
+            <span class="status-dot"></span>
+            <span class="status-label">@GetStatusLabel()</span>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <CascadingValue Value="this">
+            @Body
+        </CascadingValue>
     </main>
 </div>
+
+@code {
+    private bool SidebarOpen { get; set; } = true;
+
+    protected override void OnInitialized()
+    {
+        Client.ConnectionStateChanged += OnConnectionStateChanged;
+    }
+
+    private void OnConnectionStateChanged(object? sender, HubConnectionState state) =>
+        InvokeAsync(StateHasChanged);
+
+    private void ToggleSidebar() => SidebarOpen = !SidebarOpen;
+
+    private bool IsActive(string href) =>
+        href == "/" ? Nav.Uri.EndsWith("/") || Nav.Uri.EndsWith("index") : Nav.Uri.Contains(href);
+
+    private string GetStatusClass() => Client.ConnectionState switch
+    {
+        HubConnectionState.Connected    => "status-connected",
+        HubConnectionState.Connecting   => "status-connecting",
+        HubConnectionState.Reconnecting => "status-connecting",
+        _                               => "status-disconnected"
+    };
+
+    private string GetStatusLabel() => Client.ConnectionState switch
+    {
+        HubConnectionState.Connected    => "Connected",
+        HubConnectionState.Connecting   => "Connecting…",
+        HubConnectionState.Reconnecting => "Reconnecting…",
+        _                               => "Disconnected"
+    };
+
+    public void Dispose() => Client.ConnectionStateChanged -= OnConnectionStateChanged;
+}

@@ -1,4 +1,76 @@
 @page "/"
+@inject IAgentDeckClient Client
+@inject ISessionStateService SessionState
+@implements IDisposable
 
-<h1>AgentDeck</h1>
-<p>Welcome to AgentDeck. Connect to a runner to manage your CLI agents.</p>
+<div class="page-header">
+    <h1>Terminals</h1>
+    <div class="header-actions">
+        @if (Client.ConnectionState == HubConnectionState.Connected)
+        {
+            <span class="badge badge-connected">● Connected</span>
+        }
+        else
+        {
+            <span class="badge badge-disconnected">● Not connected — go to Settings to connect</span>
+        }
+    </div>
+</div>
+
+@if (SessionState.Sessions.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-icon">⬡</div>
+        <h2>No active terminals</h2>
+        <p>
+            @if (Client.ConnectionState != HubConnectionState.Connected)
+            {
+                <span>Connect to a runner in <a href="/settings">Settings</a> to get started.</span>
+            }
+            else
+            {
+                <span>Create a new terminal session to get started.</span>
+            }
+        </p>
+    </div>
+}
+else
+{
+    <div class="session-list">
+        @foreach (var session in SessionState.Sessions)
+        {
+            <div class="session-card">
+                <div class="session-card-header">
+                    <span class="session-name">@session.Name</span>
+                    <span class="session-badge session-badge-@session.Status.ToString().ToLower()">
+                        @session.Status
+                    </span>
+                </div>
+                <div class="session-card-meta">
+                    <code>@session.Command</code>
+                    <span class="session-dir">📁 @session.WorkingDirectory</span>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        Client.ConnectionStateChanged += OnConnectionStateChanged;
+        SessionState.SessionsChanged += OnSessionsChanged;
+    }
+
+    private void OnConnectionStateChanged(object? sender, HubConnectionState _) =>
+        InvokeAsync(StateHasChanged);
+
+    private void OnSessionsChanged(object? sender, EventArgs _) =>
+        InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Client.ConnectionStateChanged -= OnConnectionStateChanged;
+        SessionState.SessionsChanged -= OnSessionsChanged;
+    }
+}

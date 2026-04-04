@@ -38,3 +38,264 @@ main {
     overflow: auto;
     padding: 1rem;
 }
+
+/* ========== App Shell ========== */
+.app-shell {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ========== Sidebar ========== */
+.sidebar {
+    background: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid rgba(255,255,255,0.06);
+    overflow: hidden;
+}
+
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.app-logo {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-accent);
+    letter-spacing: 0.05em;
+}
+
+.sidebar-nav {
+    flex: 1;
+    padding: 0.5rem 0;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    color: var(--color-subtext);
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+    border-radius: 6px;
+    margin: 0.1rem 0.5rem;
+}
+
+.nav-item:hover, .nav-item.active {
+    background: rgba(137,180,250,0.12);
+    color: var(--color-text);
+}
+
+.nav-item.active {
+    color: var(--color-accent);
+}
+
+.nav-icon { font-size: 1rem; width: 1.25rem; text-align: center; }
+
+/* ========== Connection Status ========== */
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.75rem;
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-connected .status-dot    { background: var(--color-green); box-shadow: 0 0 6px var(--color-green); }
+.status-connecting .status-dot   { background: var(--color-yellow); animation: pulse 1.2s infinite; }
+.status-disconnected .status-dot { background: var(--color-subtext); }
+
+.status-connected .status-label    { color: var(--color-green); }
+.status-connecting .status-label   { color: var(--color-yellow); }
+.status-disconnected .status-label { color: var(--color-subtext); }
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+}
+
+/* ========== Main Content ========== */
+.main-content {
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ========== Page Header ========== */
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.page-header h1 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+/* ========== Empty State ========== */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    padding: 3rem;
+    text-align: center;
+    color: var(--color-subtext);
+}
+
+.empty-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }
+.empty-state h2 { color: var(--color-text); margin-bottom: 0.5rem; }
+.empty-state a { color: var(--color-accent); text-decoration: none; }
+
+/* ========== Session Cards ========== */
+.session-list { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; }
+
+.session-card {
+    background: var(--color-surface);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 0.875rem 1rem;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.session-card:hover {
+    border-color: rgba(137,180,250,0.3);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+
+.session-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.4rem;
+}
+
+.session-name { font-weight: 600; color: var(--color-text); }
+
+.session-badge {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.session-badge-running     { background: rgba(166,227,161,0.15); color: var(--color-green); }
+.session-badge-stopped     { background: rgba(166,173,200,0.15); color: var(--color-subtext); }
+.session-badge-error       { background: rgba(243,139,168,0.15); color: var(--color-red); }
+
+.session-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.75rem;
+    color: var(--color-subtext);
+}
+
+.session-card-meta code {
+    background: rgba(0,0,0,0.2);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+}
+
+/* ========== Settings ========== */
+.settings-card {
+    background: var(--color-surface);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin: 1rem 1.5rem;
+}
+
+.settings-card h2 { font-size: 0.9rem; font-weight: 600; margin-bottom: 1rem; color: var(--color-text); }
+
+.form-field { margin-bottom: 1rem; }
+.form-field label { display: block; font-size: 0.8rem; color: var(--color-subtext); margin-bottom: 0.3rem; }
+
+.input {
+    width: 100%;
+    background: var(--color-base);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    color: var(--color-text);
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.input:focus { border-color: var(--color-accent); }
+
+.checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: var(--color-text); font-size: 0.875rem; }
+
+.form-actions { display: flex; gap: 0.75rem; margin-top: 1.25rem; }
+
+.btn {
+    padding: 0.5rem 1.25rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+}
+
+.btn:hover:not(:disabled) { opacity: 0.88; }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary  { background: var(--color-accent); color: #1e1e2e; }
+.btn-accent   { background: rgba(137,180,250,0.15); color: var(--color-accent); border: 1px solid rgba(137,180,250,0.3); }
+.btn-danger   { background: rgba(243,139,168,0.15); color: var(--color-red); border: 1px solid rgba(243,139,168,0.3); }
+
+.error-message { color: var(--color-red); font-size: 0.8rem; margin-top: 0.75rem; }
+
+.status-text-connected   { color: var(--color-green); }
+.status-text-connecting  { color: var(--color-yellow); }
+.status-text-disconnected { color: var(--color-subtext); }
+
+/* ========== Badges ========== */
+.badge {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+}
+
+.badge-connected    { background: rgba(166,227,161,0.15); color: var(--color-green); }
+.badge-disconnected { background: rgba(166,173,200,0.1); color: var(--color-subtext); }
+
+.icon-btn {
+    background: none;
+    border: none;
+    color: var(--color-subtext);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0.25rem;
+    border-radius: 4px;
+    transition: color 0.15s;
+}
+
+.icon-btn:hover { color: var(--color-text); }

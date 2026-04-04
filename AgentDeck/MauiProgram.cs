@@ -1,3 +1,4 @@
+using AgentDeck.Core.Services;
 using Microsoft.Extensions.Logging;
 
 namespace AgentDeck;
@@ -15,6 +16,8 @@ public static class MauiProgram
             });
 
         builder.Services.AddMauiBlazorWebView();
+        builder.Services.AddSingleton<IAppDataDirectory, AgentDeck.Services.MauiAppDataDirectory>();
+        builder.Services.AddAgentDeckCore();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
