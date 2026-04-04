@@ -56,13 +56,8 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
     const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(container);
-
-    // Defer fit until after the browser has finished layout for this frame.
-    // Calling fit() synchronously after open() can measure a zero-size container
-    // in WebView environments where layout hasn't completed yet.
-    requestAnimationFrame(() => {
-        try { fitAddon.fit(); } catch (_) {}
-    });
+    // Do NOT fit here — the caller calls fitAndGetSize() after joining the
+    // session so the actual cols/rows are sent to the runner atomically.
 
     // Keyboard input → .NET callback
     term.onData(data => {
@@ -99,6 +94,23 @@ export function fitTerminal(sessionId) {
             try { entry.fitAddon.fit(); } catch (_) {}
         });
     }
+}
+
+/**
+ * Fit the terminal and return the resulting {cols, rows} after layout.
+ * Uses requestAnimationFrame so the browser finishes layout before measuring.
+ * Returns a Promise so the C# caller can await the actual dimensions and
+ * immediately notify the runner — avoiding the PTY size race condition.
+ */
+export function fitAndGetSize(sessionId) {
+    return new Promise(resolve => {
+        requestAnimationFrame(() => {
+            const entry = terminals.get(sessionId);
+            if (!entry) { resolve(null); return; }
+            try { entry.fitAddon.fit(); } catch (_) {}
+            resolve({ cols: entry.term.cols, rows: entry.term.rows });
+        });
+    });
 }
 
 /**

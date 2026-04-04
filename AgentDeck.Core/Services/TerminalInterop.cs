@@ -35,6 +35,22 @@ public sealed class TerminalInterop : IAsyncDisposable
         await module.InvokeVoidAsync("fitTerminal", sessionId);
     }
 
+    /// <summary>
+    /// Fits the terminal to its container (after a layout frame) and returns the
+    /// resulting dimensions. Use this instead of FitAsync when you need to send
+    /// the actual size to the runner — it avoids the race where the PTY starts at
+    /// the wrong column width before the resize event fires.
+    /// </summary>
+    public async Task<(int Cols, int Rows)?> FitAndGetSizeAsync(string sessionId)
+    {
+        var module = await _moduleTask.Value;
+        var result = await module.InvokeAsync<JsonElement?>("fitAndGetSize", sessionId);
+        if (result is null) return null;
+        var cols = result.Value.GetProperty("cols").GetInt32();
+        var rows = result.Value.GetProperty("rows").GetInt32();
+        return (cols, rows);
+    }
+
     public async Task FocusAsync(string sessionId)
     {
         var module = await _moduleTask.Value;

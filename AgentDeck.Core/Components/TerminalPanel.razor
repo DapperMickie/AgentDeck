@@ -28,10 +28,16 @@
         _dotnetRef = DotNetObjectReference.Create(this);
         await TerminalJs.CreateTerminalAsync(_containerId, Session.Id, _dotnetRef);
         await Client.JoinSessionAsync(Session.Id);
-
         Client.OutputReceived += OnOutputReceived;
 
-        await TerminalJs.FitAsync(Session.Id);
+        // Fit to the actual container dimensions and explicitly resize the PTY.
+        // This is critical: the PTY starts at the CreateTerminalRequest default
+        // (80×24). Without an explicit resize, copilot reads its terminal width
+        // on startup as 80 cols and never redraws at the correct width.
+        var size = await TerminalJs.FitAndGetSizeAsync(Session.Id);
+        if (size.HasValue)
+            await Client.ResizeTerminalAsync(Session.Id, size.Value.Cols, size.Value.Rows);
+
         await TerminalJs.FocusAsync(Session.Id);
     }
 
@@ -39,7 +45,11 @@
     {
         if (_initialised && IsActive)
         {
-            await TerminalJs.FitAsync(Session.Id);
+            // Re-fit when this tab becomes visible (window may have been resized
+            // while this panel was hidden) and push the new size to the runner.
+            var size = await TerminalJs.FitAndGetSizeAsync(Session.Id);
+            if (size.HasValue)
+                await Client.ResizeTerminalAsync(Session.Id, size.Value.Cols, size.Value.Rows);
             await TerminalJs.FocusAsync(Session.Id);
         }
     }

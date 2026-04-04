@@ -25,8 +25,8 @@ public sealed class CreateTerminalRequest
     public IReadOnlyList<string> Arguments { get; init; } = [];
 
     /// <summary>Initial terminal width in columns.</summary>
-    public int Cols { get; init; } = 220;
+    public int Cols { get; init; } = 80;
 
     /// <summary>Initial terminal height in rows.</summary>
-    public int Rows { get; init; } = 50;
+    public int Rows { get; init; } = 24;
 }
