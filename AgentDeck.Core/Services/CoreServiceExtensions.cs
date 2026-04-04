@@ -12,6 +12,7 @@ public static class CoreServiceExtensions
         services.AddSingleton<IConnectionSettingsService, ConnectionSettingsService>();
         services.AddSingleton<AppInitializer>();
         services.AddScoped<TerminalInterop>();
+        services.AddSingleton<ICliPresetService, CliPresetService>();
         return services;
     }
 }

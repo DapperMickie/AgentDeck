@@ -58,4 +58,7 @@ public interface IAgentDeckClient
 
     /// <summary>Get all active sessions from the runner.</summary>
     Task<IReadOnlyList<TerminalSession>> GetSessionsAsync();
+
+    /// <summary>Get workspace information from the runner via REST.</summary>
+    Task<WorkspaceInfo?> GetWorkspaceAsync(CancellationToken ct = default);
 }
