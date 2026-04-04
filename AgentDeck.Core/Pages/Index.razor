@@ -1,32 +1,19 @@
 @page "/"
 @inject IAgentDeckClient Client
 @inject ISessionStateService SessionState
+@inject IActiveSessionService ActiveSession
 @inject TerminalInterop TerminalJs
 @implements IAsyncDisposable
 
 <div class="dashboard">
-    <div class="tab-bar">
-        @foreach (var session in SessionState.Sessions)
-        {
-            <button class="tab @(IsActiveSession(session.Id) ? "tab--active" : "")"
-                    @onclick="() => SelectSession(session.Id)">
-                <span class="tab-status-dot tab-status-dot--@session.Status.ToString().ToLower()"></span>
-                <span class="tab-name">@session.Name</span>
-                <button class="tab-close" @onclick:stopPropagation="true"
-                        @onclick="() => CloseSessionAsync(session.Id)"
-                        title="Close @session.Name">✕</button>
-            </button>
-        }
-        <button class="tab tab--add" @onclick="() => _dialogOpen = true" title="New Terminal (Ctrl+T)">＋ New Terminal</button>
-    </div>
-
     <div class="command-bar">
         <input class="command-bar__input"
                placeholder="Send command to active terminal…"
                @bind="_quickCommand"
                @bind:event="oninput"
                @onkeydown="OnQuickCommandKey" />
-        <button class="command-bar__pill" @onclick='() => SendQuickCommand("gh copilot suggest ")'>gh copilot suggest</button>
+        <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot")'>copilot</button>
+        <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot --yolo")'>copilot --yolo</button>
         <button class="command-bar__pill" @onclick='() => SendQuickCommand("clear")'>clear</button>
         <button class="command-bar__pill" @onclick='() => SendQuickCommand("exit")'>exit</button>
     </div>
@@ -43,14 +30,13 @@
                 }
                 else
                 {
-                    <span>Create a new terminal session to get started.</span>
+                    <span>Use <strong>＋ New Terminal</strong> in the sidebar to get started.</span>
                 }
             </p>
         </div>
     }
     else
     {
-        <!-- Terminal panels (one per session, only active is visible) -->
         <div class="terminal-area">
             @foreach (var session in SessionState.Sessions)
             {
@@ -59,7 +45,9 @@
         </div>
     }
 
-    <NewTerminalDialog IsOpen="_dialogOpen" OnClose="CloseDialog" OnCreate="OnDialogCreate" />
+    <NewTerminalDialog IsOpen="ActiveSession.IsDialogOpen"
+                       OnClose="CloseDialog"
+                       OnCreate="OnDialogCreate" />
 </div>
 
 @if (_showShortcuts)
@@ -83,8 +71,6 @@
 }
 
 @code {
-    private string? _activeSessionId;
-    private bool _dialogOpen = false;
     private bool _showShortcuts = false;
     private string _quickCommand = string.Empty;
     private DotNetObjectReference<Index>? _dotnetRef;
@@ -94,6 +80,7 @@
     {
         Client.ConnectionStateChanged += OnStateChanged;
         SessionState.SessionsChanged += OnSessionsChanged;
+        ActiveSession.StateChanged += OnActiveSessionChanged;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -104,52 +91,44 @@
         await TerminalJs.RegisterShortcutsAsync(_dotnetRef);
     }
 
-    protected override void OnParametersSet()
-    {
-        EnsureActiveSession();
-    }
+    protected override void OnParametersSet() => EnsureActiveSession();
 
     private void EnsureActiveSession()
     {
-        if (_activeSessionId is null || !SessionState.Sessions.Any(s => s.Id == _activeSessionId))
-            _activeSessionId = SessionState.Sessions.FirstOrDefault()?.Id;
+        var sessions = SessionState.Sessions;
+        if (ActiveSession.ActiveSessionId is null || !sessions.Any(s => s.Id == ActiveSession.ActiveSessionId))
+            ActiveSession.SetActiveSession(sessions.FirstOrDefault()?.Id);
     }
 
-    private bool IsActiveSession(string id) => id == _activeSessionId;
-
-    private void SelectSession(string id)
-    {
-        _activeSessionId = id;
-    }
+    private bool IsActiveSession(string id) => id == ActiveSession.ActiveSessionId;
 
     private async Task CloseSessionAsync(string sessionId)
     {
         await Client.CloseSessionAsync(sessionId);
-        EnsureActiveSession();
     }
 
-    private void CloseDialog() => _dialogOpen = false;
+    private void CloseDialog() => ActiveSession.CloseDialog();
 
     private async Task OnDialogCreate(CreateTerminalRequest req)
     {
         await Client.CreateSessionAsync(req);
-        _dialogOpen = false;
+        ActiveSession.CloseDialog();
     }
 
     private async Task OnQuickCommandKey(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !string.IsNullOrEmpty(_quickCommand) && _activeSessionId is not null)
+        if (e.Key == "Enter" && !string.IsNullOrEmpty(_quickCommand) && ActiveSession.ActiveSessionId is not null)
         {
-            await Client.SendInputAsync(_activeSessionId, _quickCommand + "\n");
+            await Client.SendInputAsync(ActiveSession.ActiveSessionId, _quickCommand + "\n");
             _quickCommand = string.Empty;
         }
     }
 
     private async Task SendQuickCommand(string cmd)
     {
-        if (_activeSessionId is null) return;
+        if (ActiveSession.ActiveSessionId is null) return;
         var input = cmd.EndsWith(' ') ? cmd : cmd + "\n";
-        await Client.SendInputAsync(_activeSessionId, input);
+        await Client.SendInputAsync(ActiveSession.ActiveSessionId, input);
         _quickCommand = string.Empty;
     }
 
@@ -158,15 +137,15 @@
     [JSInvokable]
     public void OnShortcutNewTerminal()
     {
-        _dialogOpen = true;
+        ActiveSession.OpenDialog();
         InvokeAsync(StateHasChanged);
     }
 
     [JSInvokable]
     public async Task OnShortcutCloseTerminal()
     {
-        if (_activeSessionId is not null)
-            await CloseSessionAsync(_activeSessionId);
+        if (ActiveSession.ActiveSessionId is not null)
+            await CloseSessionAsync(ActiveSession.ActiveSessionId);
         await InvokeAsync(StateHasChanged);
     }
 
@@ -176,7 +155,7 @@
         var session = SessionState.Sessions.ElementAtOrDefault(index);
         if (session is not null)
         {
-            _activeSessionId = session.Id;
+            ActiveSession.SetActiveSession(session.Id);
             InvokeAsync(StateHasChanged);
         }
     }
@@ -197,10 +176,14 @@
         InvokeAsync(StateHasChanged);
     }
 
+    private void OnActiveSessionChanged(object? sender, EventArgs _) =>
+        InvokeAsync(StateHasChanged);
+
     public async ValueTask DisposeAsync()
     {
         Client.ConnectionStateChanged -= OnStateChanged;
         SessionState.SessionsChanged -= OnSessionsChanged;
+        ActiveSession.StateChanged -= OnActiveSessionChanged;
         if (_shortcutsRegistered)
         {
             try { await TerminalJs.UnregisterShortcutsAsync(); } catch { /* interop may be unavailable */ }
@@ -208,3 +191,4 @@
         _dotnetRef?.Dispose();
     }
 }
+

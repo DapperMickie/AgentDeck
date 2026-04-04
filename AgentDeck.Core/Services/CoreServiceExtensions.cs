@@ -14,6 +14,7 @@ public static class CoreServiceExtensions
         services.AddScoped<TerminalInterop>();
         services.AddSingleton<ICliPresetService, CliPresetService>();
         services.AddSingleton<IToastService, ToastService>();
+        services.AddScoped<IActiveSessionService, ActiveSessionService>();
         return services;
     }
 }

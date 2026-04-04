@@ -30,6 +30,19 @@
                 </div>
             </div>
 
+            @if (_selectedPreset?.Name == "GitHub Copilot")
+            {
+                <div class="form-group">
+                    <label class="yolo-toggle">
+                        <input type="checkbox" @bind="_yoloMode" />
+                        <span class="yolo-toggle__label">
+                            <span class="yolo-toggle__title">⚡ Yolo mode</span>
+                            <span class="yolo-toggle__subtitle">Runs <code>copilot --yolo</code> — auto-approves all actions</span>
+                        </span>
+                    </label>
+                </div>
+            }
+
             @if (_selectedPreset?.Name == "Custom")
             {
                 <div class="form-group">
@@ -67,6 +80,7 @@
     private string _command = "";
     private string _argsText = "";
     private string _error = "";
+    private bool _yoloMode = false;
     private bool _wasOpen = false;
 
     protected override void OnInitialized()
@@ -81,6 +95,7 @@
             _name = "";
             _workingDir = "";
             _error = "";
+            _yoloMode = false;
             if (_presets.Count > 0)
                 SelectPreset(_presets[0]);
         }
@@ -92,9 +107,6 @@
         _selectedPreset = preset;
         _command = preset.Command;
         _argsText = string.Join(" ", preset.Args);
-        // Auto-fill name when it's blank or still matching a preset name
-        if (string.IsNullOrEmpty(_name) || _presets.Any(p => p.Name == _name))
-            _name = preset.Name == "Custom" ? "" : preset.Name;
     }
 
     private async Task Create()
@@ -113,9 +125,13 @@
             return;
         }
 
-        IReadOnlyList<string> args = _selectedPreset?.Name == "Custom"
-            ? _argsText.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            : (_selectedPreset?.Args ?? []);
+        IReadOnlyList<string> args;
+        if (_selectedPreset?.Name == "Custom")
+            args = _argsText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        else if (_selectedPreset?.Name == "GitHub Copilot" && _yoloMode)
+            args = ["--yolo"];
+        else
+            args = _selectedPreset?.Args ?? [];
 
         var req = new CreateTerminalRequest
         {

@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @inject IAgentDeckClient Client
 @inject ISessionStateService SessionState
+@inject IActiveSessionService ActiveSession
 @inject NavigationManager Nav
 @implements IDisposable
 
@@ -12,10 +13,26 @@
         </div>
 
         <nav class="sidebar-nav">
-            <a class="nav-item @(IsActive("/") ? "active" : "")" href="/">
-                <span class="nav-icon">⊟</span>
-                <span class="nav-label">Terminals</span>
-            </a>
+            @if (SessionState.Sessions.Count > 0)
+            {
+                <div class="nav-section-header">Terminals</div>
+                @foreach (var session in SessionState.Sessions)
+                {
+                    <button class="nav-session @(ActiveSession.ActiveSessionId == session.Id ? "nav-session--active" : "")"
+                            @onclick="() => SelectSession(session.Id)">
+                        <span class="nav-session-dot nav-session-dot--@session.Status.ToString().ToLower()"></span>
+                        <span class="nav-session-name">@session.Name</span>
+                    </button>
+                }
+            }
+
+            <button class="nav-new-terminal" @onclick="OpenNewTerminal">
+                <span>＋</span>
+                <span>New Terminal</span>
+            </button>
+
+            <div class="nav-divider"></div>
+
             <a class="nav-item @(IsActive("/settings") ? "active" : "")" href="/settings">
                 <span class="nav-icon">⚙</span>
                 <span class="nav-label">Settings</span>
@@ -43,9 +60,29 @@
     protected override void OnInitialized()
     {
         Client.ConnectionStateChanged += OnConnectionStateChanged;
+        SessionState.SessionsChanged += OnSessionsChanged;
+        ActiveSession.StateChanged += OnActiveSessionChanged;
+    }
+
+    private void SelectSession(string id)
+    {
+        ActiveSession.SetActiveSession(id);
+        Nav.NavigateTo("/");
+    }
+
+    private void OpenNewTerminal()
+    {
+        Nav.NavigateTo("/");
+        ActiveSession.OpenDialog();
     }
 
     private void OnConnectionStateChanged(object? sender, HubConnectionState state) =>
+        InvokeAsync(StateHasChanged);
+
+    private void OnSessionsChanged(object? sender, EventArgs _) =>
+        InvokeAsync(StateHasChanged);
+
+    private void OnActiveSessionChanged(object? sender, EventArgs _) =>
         InvokeAsync(StateHasChanged);
 
     private void ToggleSidebar() => SidebarOpen = !SidebarOpen;
@@ -69,5 +106,10 @@
         _                               => "Disconnected"
     };
 
-    public void Dispose() => Client.ConnectionStateChanged -= OnConnectionStateChanged;
+    public void Dispose()
+    {
+        Client.ConnectionStateChanged -= OnConnectionStateChanged;
+        SessionState.SessionsChanged -= OnSessionsChanged;
+        ActiveSession.StateChanged -= OnActiveSessionChanged;
+    }
 }

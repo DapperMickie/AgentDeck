@@ -99,6 +99,135 @@ main {
 
 .nav-icon { font-size: 1rem; width: 1.25rem; text-align: center; }
 
+/* ========== Sidebar Session Items ========== */
+.nav-section-header {
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-subtext);
+    opacity: 0.6;
+    padding: 0.75rem 1rem 0.2rem;
+}
+
+.nav-session {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: calc(100% - 1rem);
+    margin: 0.1rem 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--color-subtext);
+    cursor: pointer;
+    font-size: 0.82rem;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+}
+
+.nav-session:hover {
+    background: rgba(137,180,250,0.12);
+    color: var(--color-text);
+}
+
+.nav-session--active {
+    background: rgba(137,180,250,0.12);
+    color: var(--color-accent);
+}
+
+.nav-session-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.nav-session-dot--running  { background: var(--color-green); }
+.nav-session-dot--stopped  { background: var(--color-subtext); opacity: 0.5; }
+.nav-session-dot--error    { background: var(--color-red); }
+
+.nav-session-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.nav-new-terminal {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: calc(100% - 1rem);
+    margin: 0.35rem 0.5rem;
+    padding: 0.45rem 0.75rem;
+    background: none;
+    border: 1px dashed rgba(137,180,250,0.3);
+    border-radius: 6px;
+    color: var(--color-accent);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.nav-new-terminal:hover {
+    background: rgba(137,180,250,0.08);
+    border-color: var(--color-accent);
+}
+
+.nav-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.06);
+    margin: 0.5rem 0.75rem;
+}
+
+/* ========== Yolo toggle ========== */
+.yolo-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    background: rgba(250,179,135,0.08);
+    border: 1px solid rgba(250,179,135,0.25);
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+}
+
+.yolo-toggle:hover { background: rgba(250,179,135,0.14); }
+
+.yolo-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--ctp-peach);
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.yolo-toggle__label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.yolo-toggle__title {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--ctp-peach);
+}
+
+.yolo-toggle__subtitle {
+    font-size: 0.72rem;
+    color: var(--color-subtext);
+}
+
+.yolo-toggle__subtitle code {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: var(--ctp-peach);
+}
+
 /* ========== Connection Status ========== */
 .connection-status {
     display: flex;
