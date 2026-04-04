@@ -17,8 +17,17 @@ public sealed class TerminalSession
     /// <summary>The command (executable) that was launched.</summary>
     public required string Command { get; init; }
 
+    /// <summary>Arguments passed to the command when the process was spawned.</summary>
+    public IReadOnlyList<string> Arguments { get; init; } = [];
+
     /// <summary>Current lifecycle status of the terminal session.</summary>
     public TerminalStatus Status { get; set; } = TerminalStatus.Running;
+
+    /// <summary>
+    /// The process exit code. Null while the session is still running;
+    /// set when status transitions to <see cref="TerminalStatus.Stopped"/> or <see cref="TerminalStatus.Error"/>.
+    /// </summary>
+    public int? ExitCode { get; set; }
 
     /// <summary>UTC timestamp when the session was created.</summary>
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;

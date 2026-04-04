@@ -18,6 +18,12 @@ public sealed class CreateTerminalRequest
     /// </summary>
     public string? Command { get; init; }
 
+    /// <summary>
+    /// Optional arguments to pass to the command.
+    /// Using a list avoids shell-escaping issues when launching CLIs with arguments.
+    /// </summary>
+    public IReadOnlyList<string> Arguments { get; init; } = [];
+
     /// <summary>Initial terminal width in columns.</summary>
     public int Cols { get; init; } = 220;
 
