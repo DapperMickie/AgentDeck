@@ -11,6 +11,7 @@ public static class CoreServiceExtensions
         services.AddSingleton<ISessionStateService, SessionStateService>();
         services.AddSingleton<IConnectionSettingsService, ConnectionSettingsService>();
         services.AddSingleton<AppInitializer>();
+        services.AddScoped<TerminalInterop>();
         return services;
     }
 }

@@ -299,3 +299,116 @@ main {
 }
 
 .icon-btn:hover { color: var(--color-text); }
+
+
+/* ========== Dashboard ========== */
+.dashboard {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* ========== Tab Bar ========== */
+.tab-bar {
+    display: flex;
+    align-items: center;
+    background: var(--color-surface);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    overflow-x: auto;
+    flex-shrink: 0;
+    scrollbar-width: none;
+}
+
+.tab-bar::-webkit-scrollbar { display: none; }
+
+.tab {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.875rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--color-subtext);
+    cursor: pointer;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    position: relative;
+}
+
+.tab:hover {
+    color: var(--color-text);
+    background: rgba(255,255,255,0.04);
+}
+
+.tab--active {
+    color: var(--color-text);
+    border-bottom-color: var(--color-accent);
+}
+
+.tab-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.tab-status-dot--running  { background: var(--color-green); }
+.tab-status-dot--stopped  { background: var(--color-subtext); }
+.tab-status-dot--error    { background: var(--color-red); }
+
+.tab-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+
+.tab-close {
+    background: none;
+    border: none;
+    color: var(--color-subtext);
+    cursor: pointer;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.2rem;
+    border-radius: 3px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.tab:hover .tab-close,
+.tab--active .tab-close { opacity: 1; }
+.tab-close:hover { color: var(--color-red); }
+
+/* ========== Terminal Area ========== */
+.terminal-area {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+/* ========== Terminal Panel ========== */
+.terminal-panel {
+    position: absolute;
+    inset: 0;
+    display: none;
+    padding: 4px;
+    background: var(--color-base);
+}
+
+.terminal-panel--active {
+    display: flex;
+    flex-direction: column;
+}
+
+.terminal-host {
+    flex: 1;
+    overflow: hidden;
+}
+
+/* Override xterm.js container to fill available space */
+.terminal-host .xterm {
+    height: 100%;
+}
+
+.terminal-host .xterm-viewport {
+    overflow-y: auto;
+}
