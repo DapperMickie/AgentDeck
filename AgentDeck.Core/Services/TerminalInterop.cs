@@ -57,6 +57,18 @@ public sealed class TerminalInterop : IAsyncDisposable
         return (cols, rows);
     }
 
+    public async Task RegisterShortcutsAsync<T>(DotNetObjectReference<T> dotnetRef) where T : class
+    {
+        var module = await _moduleTask.Value;
+        await module.InvokeVoidAsync("registerShortcuts", dotnetRef);
+    }
+
+    public async Task UnregisterShortcutsAsync()
+    {
+        var module = await _moduleTask.Value;
+        await module.InvokeVoidAsync("unregisterShortcuts");
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_moduleTask.IsValueCreated)

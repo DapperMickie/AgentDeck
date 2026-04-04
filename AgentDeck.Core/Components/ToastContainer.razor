@@ -1,0 +1,40 @@
+@inject IToastService ToastService
+@implements IDisposable
+
+@if (_toasts.Count > 0)
+{
+    <div class="toast-container">
+        @foreach (var toast in _toasts)
+        {
+            <div class="toast toast--@toast.Kind.ToString().ToLowerInvariant()">
+                @toast.Message
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private readonly List<ToastMessage> _toasts = [];
+
+    protected override void OnInitialized()
+    {
+        ToastService.OnToast += OnToastReceived;
+    }
+
+    private void OnToastReceived(ToastMessage toast)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            _toasts.Add(toast);
+            StateHasChanged();
+            await Task.Delay(4000);
+            _toasts.Remove(toast);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        ToastService.OnToast -= OnToastReceived;
+    }
+}

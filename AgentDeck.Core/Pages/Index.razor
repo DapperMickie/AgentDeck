@@ -1,7 +1,8 @@
 @page "/"
 @inject IAgentDeckClient Client
 @inject ISessionStateService SessionState
-@implements IDisposable
+@inject TerminalInterop TerminalJs
+@implements IAsyncDisposable
 
 <div class="dashboard">
     <div class="tab-bar">
@@ -16,7 +17,18 @@
                         title="Close @session.Name">✕</button>
             </button>
         }
-        <button class="tab tab--add" @onclick="() => _dialogOpen = true" title="New Terminal">＋ New Terminal</button>
+        <button class="tab tab--add" @onclick="() => _dialogOpen = true" title="New Terminal (Ctrl+T)">＋ New Terminal</button>
+    </div>
+
+    <div class="command-bar">
+        <input class="command-bar__input"
+               placeholder="Send command to active terminal…"
+               @bind="_quickCommand"
+               @bind:event="oninput"
+               @onkeydown="OnQuickCommandKey" />
+        <button class="command-bar__pill" @onclick='() => SendQuickCommand("gh copilot suggest ")'>gh copilot suggest</button>
+        <button class="command-bar__pill" @onclick='() => SendQuickCommand("clear")'>clear</button>
+        <button class="command-bar__pill" @onclick='() => SendQuickCommand("exit")'>exit</button>
     </div>
 
     @if (SessionState.Sessions.Count == 0)
@@ -50,14 +62,46 @@
     <NewTerminalDialog IsOpen="_dialogOpen" OnClose="CloseDialog" OnCreate="OnDialogCreate" />
 </div>
 
+@if (_showShortcuts)
+{
+    <div class="shortcuts-overlay" @onclick="HideShortcuts">
+        <div class="shortcuts-card" @onclick:stopPropagation="true">
+            <div class="shortcuts-card__header">
+                <h2>Keyboard Shortcuts</h2>
+                <button class="icon-btn" @onclick="HideShortcuts" title="Close">✕</button>
+            </div>
+            <table class="shortcuts-table">
+                <tbody>
+                    <tr><td><kbd>Ctrl</kbd>+<kbd>T</kbd></td><td>New terminal</td></tr>
+                    <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Close active terminal</td></tr>
+                    <tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>–<kbd>9</kbd></td><td>Switch to tab by number</td></tr>
+                    <tr><td><kbd>Ctrl</kbd>+<kbd>?</kbd></td><td>Show/hide this help</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
 @code {
     private string? _activeSessionId;
     private bool _dialogOpen = false;
+    private bool _showShortcuts = false;
+    private string _quickCommand = string.Empty;
+    private DotNetObjectReference<Index>? _dotnetRef;
+    private bool _shortcutsRegistered;
 
     protected override void OnInitialized()
     {
         Client.ConnectionStateChanged += OnStateChanged;
         SessionState.SessionsChanged += OnSessionsChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _shortcutsRegistered) return;
+        _shortcutsRegistered = true;
+        _dotnetRef = DotNetObjectReference.Create(this);
+        await TerminalJs.RegisterShortcutsAsync(_dotnetRef);
     }
 
     protected override void OnParametersSet()
@@ -92,6 +136,58 @@
         _dialogOpen = false;
     }
 
+    private async Task OnQuickCommandKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrEmpty(_quickCommand) && _activeSessionId is not null)
+        {
+            await Client.SendInputAsync(_activeSessionId, _quickCommand + "\n");
+            _quickCommand = string.Empty;
+        }
+    }
+
+    private async Task SendQuickCommand(string cmd)
+    {
+        if (_activeSessionId is null) return;
+        var input = cmd.EndsWith(' ') ? cmd : cmd + "\n";
+        await Client.SendInputAsync(_activeSessionId, input);
+        _quickCommand = string.Empty;
+    }
+
+    private void HideShortcuts() => _showShortcuts = false;
+
+    [JSInvokable]
+    public void OnShortcutNewTerminal()
+    {
+        _dialogOpen = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnShortcutCloseTerminal()
+    {
+        if (_activeSessionId is not null)
+            await CloseSessionAsync(_activeSessionId);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public void OnShortcutSwitchTab(int index)
+    {
+        var session = SessionState.Sessions.ElementAtOrDefault(index);
+        if (session is not null)
+        {
+            _activeSessionId = session.Id;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public void OnShortcutHelp()
+    {
+        _showShortcuts = !_showShortcuts;
+        InvokeAsync(StateHasChanged);
+    }
+
     private void OnStateChanged(object? sender, HubConnectionState _) =>
         InvokeAsync(StateHasChanged);
 
@@ -101,9 +197,14 @@
         InvokeAsync(StateHasChanged);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         Client.ConnectionStateChanged -= OnStateChanged;
         SessionState.SessionsChanged -= OnSessionsChanged;
+        if (_shortcutsRegistered)
+        {
+            try { await TerminalJs.UnregisterShortcutsAsync(); } catch { /* interop may be unavailable */ }
+        }
+        _dotnetRef?.Dispose();
     }
 }

@@ -1,0 +1,8 @@
+<span class="status-badge status-badge--@Status.ToString().ToLowerInvariant()">
+    <span class="status-badge__dot"></span>
+    @Status.ToString()
+</span>
+
+@code {
+    [Parameter, EditorRequired] public TerminalStatus Status { get; set; }
+}

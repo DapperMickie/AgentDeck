@@ -125,3 +125,23 @@ export function getTerminalSize(sessionId) {
     if (!entry) return null;
     return { cols: entry.term.cols, rows: entry.term.rows };
 }
+
+// ========== Keyboard Shortcuts ==========
+
+let _shortcutHandler = null;
+
+export function registerShortcuts(dotnetRef) {
+    unregisterShortcuts();
+    _shortcutHandler = (e) => {
+        if (!e.ctrlKey) return;
+        if (e.key === 't') { e.preventDefault(); dotnetRef.invokeMethodAsync('OnShortcutNewTerminal'); }
+        else if (e.key === 'w') { e.preventDefault(); dotnetRef.invokeMethodAsync('OnShortcutCloseTerminal'); }
+        else if (e.key === '?') { e.preventDefault(); dotnetRef.invokeMethodAsync('OnShortcutHelp'); }
+        else if (e.key >= '1' && e.key <= '9') { e.preventDefault(); dotnetRef.invokeMethodAsync('OnShortcutSwitchTab', parseInt(e.key) - 1); }
+    };
+    document.addEventListener('keydown', _shortcutHandler);
+}
+
+export function unregisterShortcuts() {
+    if (_shortcutHandler) { document.removeEventListener('keydown', _shortcutHandler); _shortcutHandler = null; }
+}

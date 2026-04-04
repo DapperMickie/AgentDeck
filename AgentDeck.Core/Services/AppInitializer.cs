@@ -12,23 +12,35 @@ public sealed class AppInitializer
     private readonly IAgentDeckClient _client;
     private readonly ISessionStateService _sessionState;
     private readonly IConnectionSettingsService _settingsService;
+    private readonly IToastService _toast;
     private readonly ILogger<AppInitializer> _logger;
 
     public AppInitializer(
         IAgentDeckClient client,
         ISessionStateService sessionState,
         IConnectionSettingsService settingsService,
+        IToastService toast,
         ILogger<AppInitializer> logger)
     {
         _client = client;
         _sessionState = sessionState;
         _settingsService = settingsService;
+        _toast = toast;
         _logger = logger;
 
         // Wire hub events → session state
-        _client.SessionCreated += (_, s) => _sessionState.AddOrUpdate(s);
+        _client.SessionCreated += (_, s) =>
+        {
+            _sessionState.AddOrUpdate(s);
+            _toast.Show($"Session '{s.Name}' started", ToastKind.Success);
+        };
         _client.SessionUpdated += (_, s) => _sessionState.AddOrUpdate(s);
-        _client.SessionClosed  += (_, id) => _sessionState.Remove(id);
+        _client.SessionClosed  += (_, id) =>
+        {
+            var name = _sessionState.Sessions.FirstOrDefault(s => s.Id == id)?.Name ?? id;
+            _sessionState.Remove(id);
+            _toast.Show($"Session '{name}' closed", ToastKind.Info);
+        };
 
         _client.ConnectionStateChanged += OnConnectionStateChanged;
     }
