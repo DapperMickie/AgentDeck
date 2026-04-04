@@ -1,0 +1,45 @@
+@inject IAgentDeckClient Client
+
+<div class="form-group">
+    <select class="form-input" value="@_selected" @onchange="OnSelectChanged">
+        <option value="">— root —</option>
+        @if (_workspace is not null)
+        {
+            @foreach (var dir in _workspace.Directories)
+            {
+                <option value="@dir">@dir</option>
+            }
+        }
+    </select>
+    <input type="text"
+           class="form-input"
+           style="margin-top: 0.5rem"
+           value="@Value"
+           @oninput="OnInputChanged"
+           placeholder="Working directory (empty = workspace root)" />
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private WorkspaceInfo? _workspace;
+    private string _selected = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _workspace = await Client.GetWorkspaceAsync();
+    }
+
+    private async Task OnSelectChanged(ChangeEventArgs e)
+    {
+        _selected = e.Value?.ToString() ?? "";
+        await ValueChanged.InvokeAsync(_selected);
+    }
+
+    private async Task OnInputChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString() ?? "";
+        await ValueChanged.InvokeAsync(val);
+    }
+}

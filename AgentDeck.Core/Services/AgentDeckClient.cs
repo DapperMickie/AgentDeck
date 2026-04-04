@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -10,6 +11,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
 {
     private readonly ILogger<AgentDeckClient> _logger;
     private HubConnection? _connection;
+    private HttpClient _http = new();
 
     public HubConnectionState ConnectionState { get; private set; } = HubConnectionState.Disconnected;
 
@@ -31,6 +33,12 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
 
         _logger.LogInformation("Connecting to runner hub at {Url}", hubUrl);
         SetState(HubConnectionState.Connecting);
+
+        // Derive the REST base URL from the hub URL and refresh the HttpClient
+        var hubUri = new Uri(hubUrl);
+        var baseUri = new Uri($"{hubUri.Scheme}://{hubUri.Host}:{hubUri.Port}/");
+        _http.Dispose();
+        _http = new HttpClient { BaseAddress = baseUri };
 
         _connection = new HubConnectionBuilder()
             .WithUrl(hubUrl)
@@ -128,6 +136,20 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         }
     }
 
+    public async Task<WorkspaceInfo?> GetWorkspaceAsync(CancellationToken ct = default)
+    {
+        if (_http.BaseAddress is null) return null;
+        try
+        {
+            return await _http.GetFromJsonAsync<WorkspaceInfo>("/api/workspace", ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetWorkspaceAsync failed");
+            return null;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_connection is not null)
@@ -135,6 +157,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
             await _connection.DisposeAsync();
             _connection = null;
         }
+        _http.Dispose();
     }
 
     private void SetState(HubConnectionState state)

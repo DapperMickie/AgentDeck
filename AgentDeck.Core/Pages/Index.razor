@@ -4,6 +4,21 @@
 @implements IDisposable
 
 <div class="dashboard">
+    <div class="tab-bar">
+        @foreach (var session in SessionState.Sessions)
+        {
+            <button class="tab @(IsActiveSession(session.Id) ? "tab--active" : "")"
+                    @onclick="() => SelectSession(session.Id)">
+                <span class="tab-status-dot tab-status-dot--@session.Status.ToString().ToLower()"></span>
+                <span class="tab-name">@session.Name</span>
+                <button class="tab-close" @onclick:stopPropagation="true"
+                        @onclick="() => CloseSessionAsync(session.Id)"
+                        title="Close @session.Name">✕</button>
+            </button>
+        }
+        <button class="tab tab--add" @onclick="() => _dialogOpen = true" title="New Terminal">＋ New Terminal</button>
+    </div>
+
     @if (SessionState.Sessions.Count == 0)
     {
         <div class="empty-state">
@@ -23,21 +38,6 @@
     }
     else
     {
-        <!-- Tab bar -->
-        <div class="tab-bar">
-            @foreach (var session in SessionState.Sessions)
-            {
-                <button class="tab @(IsActiveSession(session.Id) ? "tab--active" : "")"
-                        @onclick="() => SelectSession(session.Id)">
-                    <span class="tab-status-dot tab-status-dot--@session.Status.ToString().ToLower()"></span>
-                    <span class="tab-name">@session.Name</span>
-                    <button class="tab-close" @onclick:stopPropagation="true"
-                            @onclick="() => CloseSessionAsync(session.Id)"
-                            title="Close @session.Name">✕</button>
-                </button>
-            }
-        </div>
-
         <!-- Terminal panels (one per session, only active is visible) -->
         <div class="terminal-area">
             @foreach (var session in SessionState.Sessions)
@@ -46,10 +46,13 @@
             }
         </div>
     }
+
+    <NewTerminalDialog IsOpen="_dialogOpen" OnClose="CloseDialog" OnCreate="OnDialogCreate" />
 </div>
 
 @code {
     private string? _activeSessionId;
+    private bool _dialogOpen = false;
 
     protected override void OnInitialized()
     {
@@ -79,6 +82,14 @@
     {
         await Client.CloseSessionAsync(sessionId);
         EnsureActiveSession();
+    }
+
+    private void CloseDialog() => _dialogOpen = false;
+
+    private async Task OnDialogCreate(CreateTerminalRequest req)
+    {
+        await Client.CreateSessionAsync(req);
+        _dialogOpen = false;
     }
 
     private void OnStateChanged(object? sender, HubConnectionState _) =>

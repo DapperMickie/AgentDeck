@@ -1,0 +1,133 @@
+@inject ICliPresetService PresetService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop" @onclick="HandleBackdropClick">
+        <div class="modal" @onclick:stopPropagation="true">
+            <h2 class="modal__title">New Terminal</h2>
+
+            <div class="form-group">
+                <label class="form-label">Session Name</label>
+                <input class="form-input" type="text" @bind="_name" placeholder="Session name" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Working Directory</label>
+                <DirectoryPicker @bind-Value="_workingDir" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">CLI Preset</label>
+                <div class="preset-grid">
+                    @foreach (var preset in _presets)
+                    {
+                        <button class="preset-card @(_selectedPreset?.Name == preset.Name ? "preset-card--selected" : "")"
+                                @onclick="() => SelectPreset(preset)">
+                            <span class="preset-card__icon">@preset.Icon</span>
+                            <span class="preset-card__name">@preset.Name</span>
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @if (_selectedPreset?.Name == "Custom")
+            {
+                <div class="form-group">
+                    <label class="form-label">Command</label>
+                    <input class="form-input" type="text" @bind="_command" placeholder="e.g. pwsh, bash, cmd" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Arguments (space-separated)</label>
+                    <input class="form-input" type="text" @bind="_argsText" placeholder="e.g. -NoExit -Command" />
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="error-message">@_error</div>
+            }
+
+            <div class="modal__footer">
+                <button class="btn btn-accent" @onclick="Cancel">Cancel</button>
+                <button class="btn btn-primary" @onclick="Create">Create</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<CreateTerminalRequest> OnCreate { get; set; }
+
+    private IReadOnlyList<CliPreset> _presets = [];
+    private CliPreset? _selectedPreset;
+    private string _name = "";
+    private string _workingDir = "";
+    private string _command = "";
+    private string _argsText = "";
+    private string _error = "";
+    private bool _wasOpen = false;
+
+    protected override void OnInitialized()
+    {
+        _presets = PresetService.GetPresets();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            _name = "";
+            _workingDir = "";
+            _error = "";
+            if (_presets.Count > 0)
+                SelectPreset(_presets[0]);
+        }
+        _wasOpen = IsOpen;
+    }
+
+    private void SelectPreset(CliPreset preset)
+    {
+        _selectedPreset = preset;
+        _command = preset.Command;
+        _argsText = string.Join(" ", preset.Args);
+        // Auto-fill name when it's blank or still matching a preset name
+        if (string.IsNullOrEmpty(_name) || _presets.Any(p => p.Name == _name))
+            _name = preset.Name == "Custom" ? "" : preset.Name;
+    }
+
+    private async Task Create()
+    {
+        _error = "";
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _error = "Session name is required.";
+            return;
+        }
+
+        var cmd = _selectedPreset?.Name == "Custom" ? _command : (_selectedPreset?.Command ?? "");
+        if (string.IsNullOrWhiteSpace(cmd))
+        {
+            _error = "Command is required.";
+            return;
+        }
+
+        IReadOnlyList<string> args = _selectedPreset?.Name == "Custom"
+            ? _argsText.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            : (_selectedPreset?.Args ?? []);
+
+        var req = new CreateTerminalRequest
+        {
+            Name = _name.Trim(),
+            WorkingDirectory = _workingDir,
+            Command = cmd.Trim(),
+            Arguments = args,
+        };
+
+        await OnCreate.InvokeAsync(req);
+    }
+
+    private async Task Cancel() => await OnClose.InvokeAsync();
+    private async Task HandleBackdropClick() => await OnClose.InvokeAsync();
+}
