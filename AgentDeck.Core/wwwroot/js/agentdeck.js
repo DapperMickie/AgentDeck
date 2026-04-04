@@ -110,6 +110,9 @@ export function disposeTerminal(sessionId) {
     const entry = terminals.get(sessionId);
     if (entry) {
         try { entry.term.dispose(); } catch (_) {}
+        // Release the .NET reference immediately rather than waiting for JS GC,
+        // since the term.onData/onResize closures captured it.
+        try { entry.dotnetRef.dispose(); } catch (_) {}
         terminals.delete(sessionId);
     }
 }

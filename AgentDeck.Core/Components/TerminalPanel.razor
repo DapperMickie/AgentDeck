@@ -47,7 +47,11 @@
     private void OnOutputReceived(object? sender, TerminalOutput output)
     {
         if (output.SessionId != Session.Id) return;
-        _ = TerminalJs.WriteAsync(Session.Id, output.Data);
+        _ = InvokeAsync(async () =>
+        {
+            try { await TerminalJs.WriteAsync(Session.Id, output.Data); }
+            catch { /* component disposed or JS interop unavailable */ }
+        });
     }
 
     /// <summary>Called from JS when the user types in the terminal.</summary>

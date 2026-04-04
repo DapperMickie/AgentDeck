@@ -10,9 +10,10 @@ public sealed class TerminalInterop : IAsyncDisposable
 
     public TerminalInterop(IJSRuntime js)
     {
-        _moduleTask = new Lazy<Task<IJSObjectReference>>(() =>
-            js.InvokeAsync<IJSObjectReference>(
-                "import", "./_content/AgentDeck.Core/js/agentdeck.js").AsTask());
+        _moduleTask = new Lazy<Task<IJSObjectReference>>(
+            () => js.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/AgentDeck.Core/js/agentdeck.js").AsTask(),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public async Task CreateTerminalAsync<T>(string elementId, string sessionId, DotNetObjectReference<T> dotnetRef)
