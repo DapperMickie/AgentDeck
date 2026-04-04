@@ -13,6 +13,7 @@ public static class CoreServiceExtensions
         services.AddSingleton<AppInitializer>();
         services.AddScoped<TerminalInterop>();
         services.AddSingleton<ICliPresetService, CliPresetService>();
+        services.AddSingleton<IToastService, ToastService>();
         return services;
     }
 }
