@@ -20,8 +20,12 @@ public sealed class PtyProcessManager : IPtyProcessManager
         _logger = logger;
     }
 
-    public async Task StartAsync(string sessionId, string command, string workingDirectory, int cols, int rows, CancellationToken cancellationToken = default)
+    public async Task StartAsync(string sessionId, string command, IReadOnlyList<string> arguments, string workingDirectory, int cols, int rows, CancellationToken cancellationToken = default)
     {
+        var commandLine = arguments.Count > 0
+            ? [command, .. arguments]
+            : (string[])[command];
+
         var options = new PtyOptions
         {
             Name = sessionId,
@@ -29,6 +33,7 @@ public sealed class PtyProcessManager : IPtyProcessManager
             Rows = rows,
             Cwd = workingDirectory,
             App = command,
+            CommandLine = commandLine,
         };
 
         var connection = await PtyProvider.SpawnAsync(options, cancellationToken);

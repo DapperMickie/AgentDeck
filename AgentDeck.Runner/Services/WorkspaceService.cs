@@ -45,7 +45,15 @@ public sealed class WorkspaceService : IWorkspaceService
 
     private void EnsureUnderRoot(string fullPath)
     {
-        if (!fullPath.StartsWith(_root, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"Path '{fullPath}' is outside the workspace root '{_root}'.");
+        // Append separator to prevent "C:\workspace" matching "C:\workspaceEvil"
+        var rootWithSep = _root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                          + Path.DirectorySeparatorChar;
+
+        if (!fullPath.Equals(_root, StringComparison.OrdinalIgnoreCase) &&
+            !fullPath.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Path '{fullPath}' is outside the workspace root '{_root}'.");
+        }
     }
 }

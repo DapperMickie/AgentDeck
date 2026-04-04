@@ -73,7 +73,7 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
 
         try
         {
-            await _ptyManager.StartAsync(sessionId, command, workingDir, request.Cols, request.Rows);
+            await _ptyManager.StartAsync(sessionId, command, request.Arguments, workingDir, request.Cols, request.Rows);
         }
         catch (Exception ex)
         {

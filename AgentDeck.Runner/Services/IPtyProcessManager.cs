@@ -6,7 +6,8 @@ public interface IPtyProcessManager : IAsyncDisposable
     event EventHandler<(string SessionId, string Data)>? OutputReceived;
     event EventHandler<(string SessionId, int ExitCode)>? ProcessExited;
 
-    Task StartAsync(string sessionId, string command, string workingDirectory, int cols, int rows, CancellationToken cancellationToken = default);
+    /// <summary>Spawn a new PTY process for the given session.</summary>
+    Task StartAsync(string sessionId, string command, IReadOnlyList<string> arguments, string workingDirectory, int cols, int rows, CancellationToken cancellationToken = default);
     Task WriteAsync(string sessionId, string data, CancellationToken cancellationToken = default);
     Task ResizeAsync(string sessionId, int cols, int rows, CancellationToken cancellationToken = default);
     Task KillAsync(string sessionId, CancellationToken cancellationToken = default);
