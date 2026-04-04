@@ -1,0 +1,101 @@
+@page "/settings"
+@inject IConnectionSettingsService SettingsService
+@inject IAgentDeckClient Client
+@inject ILogger<Settings> Logger
+@implements IDisposable
+
+<div class="page-header">
+    <h1>Settings</h1>
+</div>
+
+<div class="settings-card">
+    <h2>Runner Connection</h2>
+
+    <div class="form-field">
+        <label for="runner-url">Runner URL</label>
+        <input id="runner-url" type="text" class="input" @bind="_settings.RunnerUrl"
+               placeholder="http://localhost:5000" />
+    </div>
+
+    <div class="form-field">
+        <label class="checkbox-label">
+            <input type="checkbox" @bind="_settings.AutoConnect" />
+            Auto-connect on startup
+        </label>
+    </div>
+
+    <div class="form-actions">
+        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
+            @(_saving ? "Saving…" : "Save")
+        </button>
+
+        @if (Client.ConnectionState == HubConnectionState.Connected)
+        {
+            <button class="btn btn-danger" @onclick="DisconnectAsync">Disconnect</button>
+        }
+        else
+        {
+            <button class="btn btn-accent" @onclick="ConnectAsync"
+                    disabled="@(Client.ConnectionState == HubConnectionState.Connecting)">
+                @(Client.ConnectionState == HubConnectionState.Connecting ? "Connecting…" : "Connect")
+            </button>
+        }
+    </div>
+
+    @if (_errorMessage is not null)
+    {
+        <p class="error-message">@_errorMessage</p>
+    }
+</div>
+
+<div class="settings-card">
+    <h2>Connection Status</h2>
+    <p>State: <strong class="status-text-@GetStatusClass()">@Client.ConnectionState</strong></p>
+    <p>Hub URL: <code>@HubUrl</code></p>
+</div>
+
+@code {
+    private ConnectionSettings _settings = new();
+    private bool _saving;
+    private string? _errorMessage;
+
+    private string HubUrl => $"{_settings.RunnerUrl.TrimEnd('/')}/hubs/agent";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await SettingsService.LoadAsync();
+        Client.ConnectionStateChanged += OnConnectionStateChanged;
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        _errorMessage = null;
+        try { await SettingsService.SaveAsync(_settings); }
+        finally { _saving = false; }
+    }
+
+    private async Task ConnectAsync()
+    {
+        _errorMessage = null;
+        try { await Client.ConnectAsync(HubUrl); }
+        catch (Exception ex) { _errorMessage = $"Connection failed: {ex.Message}"; }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        await Client.DisconnectAsync();
+    }
+
+    private void OnConnectionStateChanged(object? sender, HubConnectionState _) =>
+        InvokeAsync(StateHasChanged);
+
+    private string GetStatusClass() => Client.ConnectionState switch
+    {
+        HubConnectionState.Connected => "connected",
+        HubConnectionState.Connecting or HubConnectionState.Reconnecting => "connecting",
+        _ => "disconnected"
+    };
+
+    public void Dispose() => Client.ConnectionStateChanged -= OnConnectionStateChanged;
+}
