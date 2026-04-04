@@ -1,0 +1,40 @@
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --color-base: #1e1e2e;
+    --color-surface: #313244;
+    --color-accent: #89b4fa;
+    --color-text: #cdd6f4;
+    --color-subtext: #a6adc8;
+    --color-green: #a6e3a1;
+    --color-red: #f38ba8;
+    --color-yellow: #f9e2af;
+}
+
+html, body {
+    height: 100%;
+    background-color: var(--color-base);
+    color: var(--color-text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+}
+
+#app {
+    height: 100%;
+}
+
+.layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+main {
+    flex: 1;
+    overflow: auto;
+    padding: 1rem;
+}
