@@ -1,0 +1,83 @@
+@inject TerminalInterop TerminalJs
+@inject IAgentDeckClient Client
+@implements IAsyncDisposable
+
+<div class="terminal-panel @(IsActive ? "terminal-panel--active" : "")"
+     id="panel-@Session.Id">
+    <div class="terminal-host" id="@_containerId"></div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public TerminalSession Session { get; set; } = null!;
+    [Parameter] public bool IsActive { get; set; }
+
+    private string _containerId = string.Empty;
+    private DotNetObjectReference<TerminalPanel>? _dotnetRef;
+    private bool _initialised;
+
+    protected override void OnParametersSet()
+    {
+        _containerId = $"xterm-{Session.Id}";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _initialised) return;
+        _initialised = true;
+
+        _dotnetRef = DotNetObjectReference.Create(this);
+        await TerminalJs.CreateTerminalAsync(_containerId, Session.Id, _dotnetRef);
+        await Client.JoinSessionAsync(Session.Id);
+
+        Client.OutputReceived += OnOutputReceived;
+
+        await TerminalJs.FitAsync(Session.Id);
+        await TerminalJs.FocusAsync(Session.Id);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_initialised && IsActive)
+        {
+            await TerminalJs.FitAsync(Session.Id);
+            await TerminalJs.FocusAsync(Session.Id);
+        }
+    }
+
+    private void OnOutputReceived(object? sender, TerminalOutput output)
+    {
+        if (output.SessionId != Session.Id) return;
+        _ = InvokeAsync(async () =>
+        {
+            try { await TerminalJs.WriteAsync(Session.Id, output.Data); }
+            catch { /* component disposed or JS interop unavailable */ }
+        });
+    }
+
+    /// <summary>Called from JS when the user types in the terminal.</summary>
+    [JSInvokable]
+    public async Task OnTerminalInput(string data)
+    {
+        await Client.SendInputAsync(Session.Id, data);
+    }
+
+    /// <summary>Called from JS when the terminal is resized.</summary>
+    [JSInvokable]
+    public async Task OnTerminalResize(int cols, int rows)
+    {
+        await Client.ResizeTerminalAsync(Session.Id, cols, rows);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Client.OutputReceived -= OnOutputReceived;
+
+        if (_initialised)
+        {
+            await Client.LeaveSessionAsync(Session.Id);
+            await TerminalJs.DisposeTerminalAsync(Session.Id);
+        }
+
+        _dotnetRef?.Dispose();
+    }
+}
