@@ -1,0 +1,25 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+.vscode/settings.json
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Secrets
+*.env
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+secrets.json
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## MAUI
+**/*.g.cs
+**/*.g.i.cs
