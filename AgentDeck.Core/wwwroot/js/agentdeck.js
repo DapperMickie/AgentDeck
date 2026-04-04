@@ -57,8 +57,12 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
     term.loadAddon(fitAddon);
     term.open(container);
 
-    // Initial fit
-    try { fitAddon.fit(); } catch (_) {}
+    // Defer fit until after the browser has finished layout for this frame.
+    // Calling fit() synchronously after open() can measure a zero-size container
+    // in WebView environments where layout hasn't completed yet.
+    requestAnimationFrame(() => {
+        try { fitAddon.fit(); } catch (_) {}
+    });
 
     // Keyboard input → .NET callback
     term.onData(data => {
@@ -91,7 +95,9 @@ export function writeToTerminal(sessionId, data) {
 export function fitTerminal(sessionId) {
     const entry = terminals.get(sessionId);
     if (entry) {
-        try { entry.fitAddon.fit(); } catch (_) {}
+        requestAnimationFrame(() => {
+            try { entry.fitAddon.fit(); } catch (_) {}
+        });
     }
 }
 

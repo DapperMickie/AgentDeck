@@ -401,17 +401,14 @@ main {
 
 .terminal-host {
     flex: 1;
+    min-height: 0; /* allow flex item to shrink so FitAddon measures correct height */
     overflow: hidden;
+    position: relative;
 }
 
-/* Override xterm.js container to fill available space */
-.terminal-host .xterm {
-    height: 100%;
-}
-
-.terminal-host .xterm-viewport {
-    overflow-y: auto;
-}
+/* Do NOT override .xterm height — xterm.js manages it based on rows × cell height.
+   Do NOT override .xterm-viewport overflow — xterm needs overflow-y:scroll to fire
+   its internal scroll events. Any CSS override here breaks scroll and resize. */
 
 /* ========== Tab Add Button ========== */
 .tab--add {
