@@ -1,0 +1,50 @@
+{
+  "id": "copilot-gh",
+  "name": "Copilot + GitHub CLI",
+  "description": "Runner workload for GitHub CLI and Copilot CLI sessions with shared auth state.",
+  "baseImage": "agentdeck-runner:base",
+  "workspaceMountPath": "/workspace",
+  "homeDirectory": "/agent-home",
+  "supportedCliCommands": [
+    "gh",
+    "copilot"
+  ],
+  "sdkVersions": {
+    "node": "22"
+  },
+  "cliInstallers": {
+    "aptPackages": [
+      "gh"
+    ],
+    "npmGlobalPackages": [],
+    "pipxPackages": [],
+    "dotNetTools": []
+  },
+  "environmentVariables": {
+    "AGENTDECK_WORKSPACE": "/workspace",
+    "HOME": "/agent-home"
+  },
+  "authMounts": [
+    {
+      "name": "agent-home",
+      "targetPath": "/agent-home",
+      "description": "Persist GitHub and agent CLI auth/config state."
+    }
+  ],
+  "cacheMounts": [
+    {
+      "name": "npm-cache",
+      "targetPath": "/agent-home/.npm",
+      "description": "Persist npm package downloads used by agent tooling."
+    }
+  ],
+  "secrets": [
+    {
+      "name": "github-token",
+      "environmentVariable": "GITHUB_TOKEN",
+      "description": "Optional token for non-interactive GitHub auth flows.",
+      "isRequired": false
+    }
+  ],
+  "bootstrapCommands": []
+}

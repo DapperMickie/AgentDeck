@@ -4,12 +4,15 @@ using AgentDeck.Runner.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.Configure<RunnerOptions>(
-    builder.Configuration.GetSection(RunnerOptions.SectionName));
-
 var runnerOptions = builder.Configuration
     .GetSection(RunnerOptions.SectionName)
     .Get<RunnerOptions>() ?? new RunnerOptions();
+
+RunnerOptions.ApplyEnvironmentOverrides(runnerOptions);
+
+builder.Services.AddOptions<RunnerOptions>()
+    .Bind(builder.Configuration.GetSection(RunnerOptions.SectionName))
+    .Configure(RunnerOptions.ApplyEnvironmentOverrides);
 
 builder.WebHost.UseUrls($"http://0.0.0.0:{runnerOptions.Port}");
 

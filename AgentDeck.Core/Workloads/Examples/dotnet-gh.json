@@ -1,0 +1,50 @@
+{
+  "id": "dotnet-gh",
+  "name": ".NET + GitHub CLI",
+  "description": ".NET development workload with GitHub CLI, auth persistence, and NuGet caches.",
+  "baseImage": "agentdeck-runner:base",
+  "workspaceMountPath": "/workspace",
+  "homeDirectory": "/agent-home",
+  "supportedCliCommands": [
+    "gh"
+  ],
+  "sdkVersions": {
+    "dotnet": "10.0"
+  },
+  "cliInstallers": {
+    "aptPackages": [
+      "gh"
+    ],
+    "npmGlobalPackages": [],
+    "pipxPackages": [],
+    "dotNetTools": []
+  },
+  "environmentVariables": {
+    "AGENTDECK_WORKSPACE": "/workspace",
+    "HOME": "/agent-home",
+    "NUGET_PACKAGES": "/agent-home/.nuget/packages"
+  },
+  "authMounts": [
+    {
+      "name": "agent-home",
+      "targetPath": "/agent-home",
+      "description": "Persist GitHub CLI auth and .NET tool state."
+    }
+  ],
+  "cacheMounts": [
+    {
+      "name": "nuget-cache",
+      "targetPath": "/agent-home/.nuget/packages",
+      "description": "Persist NuGet packages between sessions."
+    }
+  ],
+  "secrets": [
+    {
+      "name": "github-token",
+      "environmentVariable": "GITHUB_TOKEN",
+      "description": "Optional token for non-interactive GitHub auth flows.",
+      "isRequired": false
+    }
+  ],
+  "bootstrapCommands": []
+}

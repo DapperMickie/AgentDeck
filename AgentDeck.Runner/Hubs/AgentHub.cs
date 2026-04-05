@@ -123,6 +123,9 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
         if (!string.IsNullOrWhiteSpace(_options.DefaultShell))
             return _options.DefaultShell;
 
-        return OperatingSystem.IsWindows() ? "powershell.exe" : "/bin/bash";
+        if (OperatingSystem.IsWindows())
+            return "powershell.exe";
+
+        return File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
     }
 }

@@ -1,0 +1,49 @@
+{
+  "id": "node-gh",
+  "name": "Node + GitHub CLI",
+  "description": "Node development workload with GitHub CLI, auth persistence, and npm caches.",
+  "baseImage": "agentdeck-runner:base",
+  "workspaceMountPath": "/workspace",
+  "homeDirectory": "/agent-home",
+  "supportedCliCommands": [
+    "gh"
+  ],
+  "sdkVersions": {
+    "node": "22"
+  },
+  "cliInstallers": {
+    "aptPackages": [
+      "gh"
+    ],
+    "npmGlobalPackages": [],
+    "pipxPackages": [],
+    "dotNetTools": []
+  },
+  "environmentVariables": {
+    "AGENTDECK_WORKSPACE": "/workspace",
+    "HOME": "/agent-home"
+  },
+  "authMounts": [
+    {
+      "name": "agent-home",
+      "targetPath": "/agent-home",
+      "description": "Persist GitHub CLI auth and Node tool config."
+    }
+  ],
+  "cacheMounts": [
+    {
+      "name": "npm-cache",
+      "targetPath": "/agent-home/.npm",
+      "description": "Persist npm package downloads between sessions."
+    }
+  ],
+  "secrets": [
+    {
+      "name": "github-token",
+      "environmentVariable": "GITHUB_TOKEN",
+      "description": "Optional token for non-interactive GitHub auth flows.",
+      "isRequired": false
+    }
+  ],
+  "bootstrapCommands": []
+}

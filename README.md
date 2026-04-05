@@ -46,7 +46,31 @@ cd AgentDeck.Runner
 dotnet run
 ```
 
-The runner starts on `http://localhost:5000` by default. Set `AGENTDECK_WORKSPACE` to configure the workspace root (defaults to `~/AgentDeck`).
+The runner starts on `http://localhost:5000` by default. Use these environment variables to override its runtime defaults:
+
+- `AGENTDECK_WORKSPACE` sets the workspace root (defaults to `~/AgentDeck`)
+- `AGENTDECK_PORT` sets the HTTP port (defaults to `5000`)
+- `AGENTDECK_DEFAULT_SHELL` sets the default shell command
+
+### Running the Runner in Docker (Linux)
+
+Build the image from the repository root:
+
+```bash
+docker build -t agentdeck-runner -f AgentDeck.Runner/Dockerfile .
+```
+
+Run the container with a mounted workspace:
+
+```bash
+docker run --rm \
+  -p 5000:5000 \
+  -e AGENTDECK_WORKSPACE=/workspace \
+  -v "$(pwd):/workspace" \
+  agentdeck-runner
+```
+
+The image exposes port `5000`, defaults the workspace to `/workspace`, and falls back to `/bin/sh` if `/bin/bash` is unavailable. If you want to launch tools like GitHub Copilot inside the container, install them in a derived image.
 
 ### Running the Companion App (Windows)
 
@@ -64,7 +88,7 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
 ```json
 {
   "Runner": {
-    "WorkspaceRoot": "C:/AgentDeck/workspace",
+    "WorkspaceRoot": "/workspace",
     "Port": 5000,
     "AllowedOrigins": ["*"]
   }

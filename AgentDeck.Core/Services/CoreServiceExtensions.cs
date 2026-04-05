@@ -10,6 +10,7 @@ public static class CoreServiceExtensions
         services.AddSingleton<IAgentDeckClient, AgentDeckClient>();
         services.AddSingleton<ISessionStateService, SessionStateService>();
         services.AddSingleton<IConnectionSettingsService, ConnectionSettingsService>();
+        services.AddSingleton<IWorkloadCatalogService, WorkloadCatalogService>();
         services.AddSingleton<AppInitializer>();
         services.AddScoped<TerminalInterop>();
         services.AddSingleton<ICliPresetService, CliPresetService>();
