@@ -1,5 +1,6 @@
 @page "/settings"
 @inject IConnectionSettingsService SettingsService
+@inject IWorkloadCatalogService WorkloadCatalog
 @inject IAgentDeckClient Client
 @inject ILogger<Settings> Logger
 @implements IDisposable
@@ -54,16 +55,65 @@
     <p>Hub URL: <code>@HubUrl</code></p>
 </div>
 
+<div class="settings-card">
+    <h2>Workload Catalog</h2>
+
+    @if (_workloadErrorMessage is not null)
+    {
+        <p class="error-message">@_workloadErrorMessage</p>
+    }
+    else if (_workloads.Count == 0)
+    {
+        <p>No workloads available.</p>
+    }
+    else
+    {
+        <div class="workload-list">
+            @foreach (var workload in _workloads)
+            {
+                <article class="workload-card">
+                    <div class="workload-card__header">
+                        <div>
+                            <h3>@workload.Name</h3>
+                            <p>@workload.Description</p>
+                        </div>
+                        <span class="workload-badge @(workload.IsBuiltIn ? "workload-badge--builtin" : "workload-badge--custom")">
+                            @(workload.IsBuiltIn ? "Built-in" : "Custom")
+                        </span>
+                    </div>
+                    <div class="workload-card__meta">
+                        <span><strong>Image:</strong> <code>@workload.BaseImage</code></span>
+                        <span><strong>Workspace:</strong> <code>@workload.WorkspaceMountPath</code></span>
+                        <span><strong>Home:</strong> <code>@workload.HomeDirectory</code></span>
+                    </div>
+                    <div class="workload-card__meta">
+                        <span><strong>SDKs:</strong> @FormatSdkVersions(workload)</span>
+                        <span><strong>CLIs:</strong> @FormatCliCommands(workload)</span>
+                    </div>
+                    <div class="workload-card__meta">
+                        <span><strong>Auth mounts:</strong> @workload.AuthMounts.Count</span>
+                        <span><strong>Cache mounts:</strong> @workload.CacheMounts.Count</span>
+                        <span><strong>Secrets:</strong> @workload.Secrets.Count</span>
+                    </div>
+                </article>
+            }
+        </div>
+    }
+</div>
+
 @code {
     private ConnectionSettings _settings = new();
+    private IReadOnlyList<WorkloadDefinition> _workloads = [];
     private bool _saving;
     private string? _errorMessage;
+    private string? _workloadErrorMessage;
 
     private string HubUrl => $"{_settings.RunnerUrl.TrimEnd('/')}/hubs/agent";
 
     protected override async Task OnInitializedAsync()
     {
         _settings = await SettingsService.LoadAsync();
+        await LoadWorkloadsAsync();
         Client.ConnectionStateChanged += OnConnectionStateChanged;
     }
 
@@ -96,6 +146,37 @@
         HubConnectionState.Connecting or HubConnectionState.Reconnecting => "connecting",
         _ => "disconnected"
     };
+
+    private async Task LoadWorkloadsAsync()
+    {
+        _workloadErrorMessage = null;
+
+        try
+        {
+            _workloads = await WorkloadCatalog.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load workload catalog");
+            _workloadErrorMessage = $"Failed to load workloads: {ex.Message}";
+        }
+    }
+
+    private static string FormatSdkVersions(WorkloadDefinition workload)
+    {
+        if (workload.SdkVersions.Count == 0)
+            return "None";
+
+        return string.Join(", ", workload.SdkVersions.Select(pair => $"{pair.Key} {pair.Value}"));
+    }
+
+    private static string FormatCliCommands(WorkloadDefinition workload)
+    {
+        if (workload.SupportedCliCommands.Count == 0)
+            return "None";
+
+        return string.Join(", ", workload.SupportedCliCommands);
+    }
 
     public void Dispose() => Client.ConnectionStateChanged -= OnConnectionStateChanged;
 }

@@ -7,6 +7,9 @@ namespace AgentDeck.Runner.Services;
 /// <inheritdoc />
 public sealed class WorkspaceService : IWorkspaceService
 {
+    private static readonly StringComparison PathComparison =
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
     private readonly string _root;
 
     public WorkspaceService(IOptions<RunnerOptions> options)
@@ -49,8 +52,8 @@ public sealed class WorkspaceService : IWorkspaceService
         var rootWithSep = _root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                           + Path.DirectorySeparatorChar;
 
-        if (!fullPath.Equals(_root, StringComparison.OrdinalIgnoreCase) &&
-            !fullPath.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase))
+        if (!fullPath.Equals(_root, PathComparison) &&
+            !fullPath.StartsWith(rootWithSep, PathComparison))
         {
             throw new InvalidOperationException(
                 $"Path '{fullPath}' is outside the workspace root '{_root}'.");
