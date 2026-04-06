@@ -47,11 +47,7 @@
             {
                 <div class="form-group">
                     <label class="form-label">Command</label>
-                    <input class="form-input" type="text" @bind="_command" placeholder="e.g. pwsh, bash, cmd" />
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Arguments (space-separated)</label>
-                    <input class="form-input" type="text" @bind="_argsText" placeholder="e.g. -NoExit -Command" />
+                    <input class="form-input" type="text" @bind="_command" placeholder="e.g. dotnet test --filter MyTests" />
                 </div>
             }
 
@@ -78,7 +74,6 @@
     private string _name = "";
     private string _workingDir = "";
     private string _command = "";
-    private string _argsText = "";
     private string _error = "";
     private bool _yoloMode = false;
     private bool _wasOpen = false;
@@ -106,7 +101,6 @@
     {
         _selectedPreset = preset;
         _command = preset.Command;
-        _argsText = string.Join(" ", preset.Args);
     }
 
     private async Task Create()
@@ -118,30 +112,41 @@
             return;
         }
 
-        var cmd = _selectedPreset?.Name == "Custom" ? _command : (_selectedPreset?.Command ?? "");
+        var cmd = ResolveCommandText();
         if (string.IsNullOrWhiteSpace(cmd))
         {
             _error = "Command is required.";
             return;
         }
 
-        IReadOnlyList<string> args;
-        if (_selectedPreset?.Name == "Custom")
-            args = _argsText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        else if (_selectedPreset?.Name == "GitHub Copilot" && _yoloMode)
-            args = ["--yolo"];
-        else
-            args = _selectedPreset?.Args ?? [];
-
         var req = new CreateTerminalRequest
         {
             Name = _name.Trim(),
             WorkingDirectory = _workingDir,
             Command = cmd.Trim(),
-            Arguments = args,
+            Arguments = ResolveArguments(),
         };
 
         await OnCreate.InvokeAsync(req);
+    }
+
+    private string ResolveCommandText()
+    {
+        if (_selectedPreset?.Name == "Custom")
+            return _command;
+
+        if (_selectedPreset?.Name == "GitHub Copilot" && _yoloMode)
+            return "copilot --yolo";
+
+        return _selectedPreset?.Command ?? "";
+    }
+
+    private IReadOnlyList<string> ResolveArguments()
+    {
+        if (_selectedPreset?.Name is "Custom" or "GitHub Copilot")
+            return [];
+
+        return _selectedPreset?.Args ?? [];
     }
 
     private async Task Cancel() => await OnClose.InvokeAsync();
