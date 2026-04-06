@@ -1,9 +1,86 @@
 @page "/terminals"
+@inject ISessionStateService SessionState
+@inject IActiveSessionService ActiveSession
+@inject IRunnerConnectionManager Connections
+@inject NavigationManager Nav
 
-<div class="mobile-page-placeholder">
-    <div class="empty-state">
-        <div class="empty-icon">▣</div>
-        <h2>Terminals</h2>
-        <p>The dedicated mobile terminals experience is being wired in next.</p>
+<div class="mobile-terminals-page">
+    <div class="mobile-terminals-page__header">
+        <div>
+            <h1>Terminals</h1>
+            <p>@GetHeaderSubtitle()</p>
+        </div>
+        <button class="btn btn-primary" @onclick="OpenNewTerminal">New</button>
     </div>
+
+    @if (SessionState.Sessions.Count == 0)
+    {
+        <div class="mobile-page-placeholder">
+            <div class="empty-state">
+                <div class="empty-icon">▣</div>
+                <h2>No active terminals</h2>
+                <p>
+                    @if (Connections.ConnectedMachineCount == 0)
+                    {
+                        <span>Connect to a runner in <a href="/settings">Settings</a> to create a terminal.</span>
+                    }
+                    else
+                    {
+                        <span>Tap <strong>New</strong> to create your first terminal.</span>
+                    }
+                </p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="mobile-session-list">
+            @foreach (var session in SessionState.Sessions)
+            {
+                <button class="mobile-session-card @(IsActive(session.Id) ? "mobile-session-card--active" : "")"
+                        @onclick="() => SelectSession(session.Id)">
+                    <div class="mobile-session-card__header">
+                        <div class="mobile-session-card__title">
+                            <span>@session.Name</span>
+                            @if (!string.IsNullOrWhiteSpace(session.MachineName))
+                            {
+                                <span class="mobile-session-card__machine">@session.MachineName</span>
+                            }
+                        </div>
+                        <StatusBadge Status="session.Status" />
+                    </div>
+                    <div class="mobile-session-card__meta">
+                        <span>ID <code>@session.Id[..Math.Min(session.Id.Length, 8)]</code></span>
+                        @if (session.ExitCode is not null)
+                        {
+                            <span>Exit @session.ExitCode</span>
+                        }
+                    </div>
+                </button>
+            }
+        </div>
+    }
 </div>
+
+@code {
+    private void OpenNewTerminal() => ActiveSession.OpenDialog();
+
+    private void SelectSession(string sessionId)
+    {
+        ActiveSession.SetActiveSession(sessionId);
+        Nav.NavigateTo("/");
+    }
+
+    private bool IsActive(string sessionId) => string.Equals(ActiveSession.ActiveSessionId, sessionId, StringComparison.Ordinal);
+
+    private string GetHeaderSubtitle()
+    {
+        var count = SessionState.Sessions.Count;
+        if (count == 0)
+        {
+            return "Create and switch between active sessions.";
+        }
+
+        return count == 1 ? "1 active session" : $"{count} active sessions";
+    }
+}
