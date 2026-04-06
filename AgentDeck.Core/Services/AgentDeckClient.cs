@@ -150,6 +150,20 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         }
     }
 
+    public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(CancellationToken ct = default)
+    {
+        if (_http.BaseAddress is null) return null;
+        try
+        {
+            return await _http.GetFromJsonAsync<MachineCapabilitiesSnapshot>("/api/capabilities", ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "GetMachineCapabilitiesAsync failed");
+            return null;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_connection is not null)

@@ -100,6 +100,60 @@
 @if (SelectedMachine is not null)
 {
     <div class="settings-card">
+        <div class="settings-card__header">
+            <h2>Machine Capabilities: @SelectedMachine.Name</h2>
+            <div class="form-actions">
+                <button class="btn btn-accent" @onclick="RefreshMachineCapabilitiesAsync" disabled="@_capabilitiesBusy">
+                    Refresh Capabilities
+                </button>
+            </div>
+        </div>
+
+        @if (_capabilitiesErrorMessage is not null)
+        {
+            <p class="error-message">@_capabilitiesErrorMessage</p>
+        }
+        else if (_capabilitiesBusy)
+        {
+            <p>Detecting supported tools on this machine...</p>
+        }
+        else if (_machineCapabilities is null)
+        {
+            <p>Refresh capabilities to inspect which supported CLIs and SDKs are installed on this machine.</p>
+        }
+        else
+        {
+            <div class="capability-grid">
+                @foreach (var capability in _machineCapabilities.Capabilities.OrderBy(capability => capability.Category).ThenBy(capability => capability.Name))
+                {
+                    <article class="capability-card">
+                        <div class="capability-card__header">
+                            <div>
+                                <h3>@capability.Name</h3>
+                                <p>@capability.Category.ToUpperInvariant()</p>
+                            </div>
+                            <span class="capability-status capability-status--@GetCapabilityStatusClass(capability)">
+                                @capability.Status
+                            </span>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(capability.Version))
+                        {
+                            <p><strong>Version:</strong> <code>@capability.Version</code></p>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(capability.Message))
+                        {
+                            <p class="capability-card__message">@capability.Message</p>
+                        }
+                    </article>
+                }
+            </div>
+            <p class="machine-capabilities__timestamp">Last checked @(_machineCapabilities.CapturedAt.ToLocalTime().ToString("g"))</p>
+        }
+    </div>
+
+    <div class="settings-card">
         <h2>Container Orchestration: @SelectedMachine.Name</h2>
 
         <div class="form-field">
@@ -344,6 +398,9 @@
     private WorkloadContainerStatus? _containerStatus;
     private WorkloadContainerExecutionResult? _lastContainerResult;
     private string? _containerErrorMessage;
+    private MachineCapabilitiesSnapshot? _machineCapabilities;
+    private bool _capabilitiesBusy;
+    private string? _capabilitiesErrorMessage;
     private string? _selectedMachineId;
 
     private RunnerMachineSettings? SelectedMachine => _settings.FindMachine(_selectedMachineId);
@@ -353,6 +410,7 @@
         _settings = await SettingsService.LoadAsync();
         _selectedMachineId = _settings.PreferredMachineId;
         await LoadWorkloadsAsync();
+        await RefreshMachineCapabilitiesIfPossibleAsync();
         await RefreshContainerStatusIfPossibleAsync();
         Connections.ConnectionStateChanged += OnConnectionStateChanged;
     }
@@ -403,9 +461,12 @@
     private void SelectMachine(string machineId)
     {
         _selectedMachineId = machineId;
+        _machineCapabilities = null;
+        _capabilitiesErrorMessage = null;
         _containerStatus = null;
         _lastContainerResult = null;
         _containerErrorMessage = null;
+        _ = InvokeAsync(RefreshMachineCapabilitiesIfPossibleAsync);
         _ = InvokeAsync(RefreshContainerStatusIfPossibleAsync);
     }
 
@@ -446,6 +507,7 @@
         try
         {
             await Connections.ConnectAsync(machine);
+            await RefreshMachineCapabilitiesAsync();
         }
         catch (Exception ex)
         {
@@ -490,6 +552,48 @@
         {
             Logger.LogError(ex, "Failed to load workload catalog");
             _workloadErrorMessage = $"Failed to load workloads: {ex.Message}";
+        }
+    }
+
+    private Task RefreshMachineCapabilitiesIfPossibleAsync()
+    {
+        if (SelectedMachine is null)
+        {
+            _machineCapabilities = null;
+            return Task.CompletedTask;
+        }
+
+        return RefreshMachineCapabilitiesAsync();
+    }
+
+    private async Task RefreshMachineCapabilitiesAsync()
+    {
+        if (SelectedMachine is null)
+        {
+            _machineCapabilities = null;
+            return;
+        }
+
+        _capabilitiesBusy = true;
+        _capabilitiesErrorMessage = null;
+
+        try
+        {
+            _machineCapabilities = await Connections.GetMachineCapabilitiesAsync(SelectedMachine);
+            if (_machineCapabilities is null)
+            {
+                _capabilitiesErrorMessage = "The runner did not return machine capability data.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to detect capabilities for machine {MachineId}", SelectedMachine.Id);
+            _capabilitiesErrorMessage = $"Failed to detect capabilities: {ex.Message}";
+            _machineCapabilities = null;
+        }
+        finally
+        {
+            _capabilitiesBusy = false;
         }
     }
 
@@ -750,6 +854,13 @@
 
         return string.Join(", ", values.Select(pair => $"{pair.Key}={(pair.Value ? "ready" : "missing")}"));
     }
+
+    private static string GetCapabilityStatusClass(MachineCapability capability) => capability.Status switch
+    {
+        MachineCapabilityStatus.Installed => "installed",
+        MachineCapabilityStatus.Missing => "missing",
+        _ => "error"
+    };
 
     private bool TryGetSelectedWorkload(RunnerMachineSettings machine, out WorkloadDefinition workload, out string? error)
     {
