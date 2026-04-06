@@ -512,6 +512,69 @@ main {
     color: var(--color-subtext);
 }
 
+.capability-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.9rem;
+}
+
+.capability-card {
+    background: var(--color-base);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+}
+
+.capability-card__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+}
+
+.capability-card__header h3 {
+    margin: 0 0 0.2rem;
+    font-size: 0.9rem;
+}
+
+.capability-card__header p,
+.capability-card__message {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--color-subtext);
+}
+
+.capability-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+}
+
+.capability-status--installed {
+    background: rgba(166,227,161,0.15);
+    color: var(--color-green);
+}
+
+.capability-status--missing {
+    background: rgba(249,226,175,0.15);
+    color: var(--color-yellow);
+}
+
+.capability-status--error {
+    background: rgba(243,139,168,0.15);
+    color: var(--color-red);
+}
+
+.machine-capabilities__timestamp {
+    margin-top: 0.85rem;
+    font-size: 0.75rem;
+    color: var(--color-subtext);
+}
+
 .workload-list {
     display: grid;
     gap: 0.9rem;

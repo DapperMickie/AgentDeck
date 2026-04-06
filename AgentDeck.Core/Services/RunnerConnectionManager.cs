@@ -148,6 +148,17 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
         return await entry.Client.GetWorkspaceAsync(cancellationToken);
     }
 
+    public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default)
+    {
+        var entry = GetOrCreateEntry(machine);
+        if (entry.Client.ConnectionState != HubConnectionState.Connected)
+        {
+            await entry.Client.ConnectAsync(BuildHubUrl(machine.RunnerUrl), cancellationToken);
+        }
+
+        return await entry.Client.GetMachineCapabilitiesAsync(cancellationToken);
+    }
+
     public async ValueTask DisposeAsync()
     {
         IAgentDeckClient[] clients;

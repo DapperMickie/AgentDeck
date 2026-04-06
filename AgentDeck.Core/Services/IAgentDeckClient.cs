@@ -61,4 +61,7 @@ public interface IAgentDeckClient
 
     /// <summary>Get workspace information from the runner via REST.</summary>
     Task<WorkspaceInfo?> GetWorkspaceAsync(CancellationToken ct = default);
+
+    /// <summary>Get supported CLI/SDK detection results from the runner via REST.</summary>
+    Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(CancellationToken ct = default);
 }
