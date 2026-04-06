@@ -174,7 +174,9 @@ public sealed class MachineSetupService : IMachineSetupService
         }
 
         var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
-        var finalCommand = $"if command -v sudo >/dev/null 2>&1; then sudo sh -lc {QuotePosix(commandText)}; else sh -lc {QuotePosix(commandText)}; fi";
+        var nonInteractiveCommand = $"export DEBIAN_FRONTEND=noninteractive && {commandText}";
+        var finalCommand =
+            $"if command -v sudo >/dev/null 2>&1; then sudo -n sh -lc {QuotePosix(nonInteractiveCommand)}; else sh -lc {QuotePosix(nonInteractiveCommand)}; fi";
 
         return RunDirectCommandAsync(
             capabilityId,
