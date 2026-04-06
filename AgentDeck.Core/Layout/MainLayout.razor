@@ -2,11 +2,12 @@
 @inject IRunnerConnectionManager Connections
 @inject ISessionStateService SessionState
 @inject IActiveSessionService ActiveSession
+@inject IConnectionSettingsService SettingsService
 @inject NavigationManager Nav
 @implements IDisposable
 
 <div class="app-shell @(SidebarOpen ? "sidebar-open" : "")">
-    <aside class="sidebar">
+    <aside class="sidebar sidebar--desktop">
         <div class="sidebar-header">
             <span class="app-logo">⬡ AgentDeck</span>
             <button class="icon-btn" @onclick="ToggleSidebar" title="Toggle sidebar">☰</button>
@@ -51,38 +52,70 @@
         </div>
     </aside>
 
-    <main class="main-content">
-        <CascadingValue Value="this">
-            <ErrorBoundary @ref="_errorBoundary">
-                <ChildContent>
-                    @Body
-                </ChildContent>
-                <ErrorContent Context="exception">
-                    <div class="app-error-backdrop">
-                        <div class="app-error-modal">
-                            <h2>Application error</h2>
-                            <p>The app hit an unhandled exception. The full stack trace is below.</p>
-                            <pre class="app-error-stacktrace">@exception.ToString()</pre>
-                            <div class="modal__footer">
-                                <button class="btn btn-accent" @onclick="RecoverFromError">Dismiss modal</button>
-                                <button class="btn btn-primary" @onclick="ReloadApp">Reload app</button>
+    <div class="mobile-shell">
+        <header class="mobile-topbar">
+            <div>
+                <span class="app-logo">⬡ AgentDeck</span>
+            </div>
+            <div class="connection-status @GetStatusClass()">
+                <span class="status-dot"></span>
+                <span class="status-label">@GetStatusLabel()</span>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <CascadingValue Value="this">
+                <ErrorBoundary @ref="_errorBoundary">
+                    <ChildContent>
+                        @Body
+                    </ChildContent>
+                    <ErrorContent Context="exception">
+                        <div class="app-error-backdrop">
+                            <div class="app-error-modal">
+                                <h2>Application error</h2>
+                                <p>The app hit an unhandled exception. The full stack trace is below.</p>
+                                <pre class="app-error-stacktrace">@exception.ToString()</pre>
+                                <div class="modal__footer">
+                                    <button class="btn btn-accent" @onclick="RecoverFromError">Dismiss modal</button>
+                                    <button class="btn btn-primary" @onclick="ReloadApp">Reload app</button>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </ErrorContent>
-            </ErrorBoundary>
-        </CascadingValue>
-    </main>
+                    </ErrorContent>
+                </ErrorBoundary>
+            </CascadingValue>
+        </main>
+
+        <nav class="mobile-nav" aria-label="Primary">
+            <NavLink class="mobile-nav__item" href="/" Match="NavLinkMatch.All">
+                <span class="mobile-nav__icon">⌂</span>
+            </NavLink>
+            <NavLink class="mobile-nav__item" href="/terminals">
+                <span class="mobile-nav__icon">▣</span>
+            </NavLink>
+            <NavLink class="mobile-nav__item" href="/settings">
+                <span class="mobile-nav__icon">⚙</span>
+            </NavLink>
+        </nav>
+    </div>
 </div>
+
+<NewTerminalDialog IsOpen="ActiveSession.IsDialogOpen"
+                   OnClose="CloseDialog"
+                   OnCreate="OnDialogCreate"
+                   Machines="_settings.Machines"
+                   DefaultMachineId="_settings.PreferredMachineId" />
 
 <ToastContainer />
 
 @code {
     private bool SidebarOpen { get; set; } = true;
     private ErrorBoundary? _errorBoundary;
+    private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        _settings = await SettingsService.LoadAsync();
         Connections.ConnectionStateChanged += OnConnectionStateChanged;
         SessionState.SessionsChanged += OnSessionsChanged;
         ActiveSession.StateChanged += OnActiveSessionChanged;
@@ -98,6 +131,22 @@
     {
         Nav.NavigateTo("/");
         ActiveSession.OpenDialog();
+    }
+
+    private void CloseDialog() => ActiveSession.CloseDialog();
+
+    private async Task OnDialogCreate(NewTerminalRequest req)
+    {
+        var machine = _settings.FindMachine(req.MachineId);
+        if (machine is null)
+        {
+            return;
+        }
+
+        _settings.PreferredMachineId = machine.Id;
+        await SettingsService.SaveAsync(_settings);
+        await Connections.CreateSessionAsync(machine, req.Terminal);
+        ActiveSession.CloseDialog();
     }
 
     private void OnConnectionStateChanged(object? sender, RunnerMachineConnectionChangedEventArgs e) =>
