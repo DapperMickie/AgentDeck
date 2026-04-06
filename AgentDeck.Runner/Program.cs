@@ -36,6 +36,7 @@ builder.Services.AddSignalR(opts =>
 builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
 builder.Services.AddSingleton<IMachineCapabilityService, MachineCapabilityService>();
+builder.Services.AddSingleton<IMachineSetupService, MachineSetupService>();
 builder.Services.AddSingleton<IPtyProcessManager, PtyProcessManager>();
 builder.Services.AddHostedService<HubOutputForwarder>();
 
@@ -63,6 +64,9 @@ app.MapGet("/api/workspace", (IWorkspaceService workspace) =>
 
 app.MapGet("/api/capabilities", async (IMachineCapabilityService capabilities, CancellationToken cancellationToken) =>
     Results.Ok(await capabilities.GetSnapshotAsync(cancellationToken)));
+
+app.MapPost("/api/capabilities/{capabilityId}/install", async (string capabilityId, IMachineSetupService setup, CancellationToken cancellationToken) =>
+    Results.Ok(await setup.InstallCapabilityAsync(capabilityId, cancellationToken)));
 
 app.MapHub<AgentHub>("/hubs/agent");
 
