@@ -164,6 +164,22 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         }
     }
 
+    public async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string capabilityId, CancellationToken ct = default)
+    {
+        if (_http.BaseAddress is null) return null;
+        try
+        {
+            using var response = await _http.PostAsync($"/api/capabilities/{Uri.EscapeDataString(capabilityId)}/install", null, ct);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<MachineCapabilityInstallResult>(cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "InstallMachineCapabilityAsync failed for {CapabilityId}", capabilityId);
+            return null;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_connection is not null)

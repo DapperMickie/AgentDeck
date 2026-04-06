@@ -525,6 +525,10 @@ main {
     padding: 0.9rem 1rem;
 }
 
+.capability-card__actions {
+    margin-top: 0.85rem;
+}
+
 .capability-card__header {
     display: flex;
     justify-content: space-between;
@@ -573,6 +577,18 @@ main {
     margin-top: 0.85rem;
     font-size: 0.75rem;
     color: var(--color-subtext);
+}
+
+.capability-install-result {
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--color-base);
+}
+
+.capability-install-result h3 {
+    margin: 0 0 0.75rem;
 }
 
 .workload-list {

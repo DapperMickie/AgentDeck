@@ -146,10 +146,50 @@
                         {
                             <p class="capability-card__message">@capability.Message</p>
                         }
+
+                        @if (capability.Status == MachineCapabilityStatus.Missing)
+                        {
+                            <div class="capability-card__actions">
+                                <button class="btn btn-primary"
+                                        @onclick="() => InstallCapabilityAsync(capability)"
+                                        disabled="@(_capabilitiesBusy || _installingCapabilityId == capability.Id)">
+                                    @(_installingCapabilityId == capability.Id ? "Installing..." : "Install")
+                                </button>
+                            </div>
+                        }
                     </article>
                 }
             </div>
             <p class="machine-capabilities__timestamp">Last checked @(_machineCapabilities.CapturedAt.ToLocalTime().ToString("g"))</p>
+
+            @if (_lastCapabilityInstallResult is not null)
+            {
+                <div class="capability-install-result">
+                    <h3>Last Setup Action</h3>
+                    <p>
+                        <strong>@_lastCapabilityInstallResult.CapabilityName:</strong>
+                        @(_lastCapabilityInstallResult.Succeeded ? "installed" : "failed")
+                    </p>
+                    @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.Message))
+                    {
+                        <p>@_lastCapabilityInstallResult.Message</p>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.CommandText))
+                    {
+                        <pre class="command-preview">@_lastCapabilityInstallResult.CommandText</pre>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.StandardOutput))
+                    {
+                        <h3>Standard Output</h3>
+                        <pre class="command-preview">@_lastCapabilityInstallResult.StandardOutput</pre>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.StandardError))
+                    {
+                        <h3>Standard Error</h3>
+                        <pre class="command-preview">@_lastCapabilityInstallResult.StandardError</pre>
+                    }
+                </div>
+            }
         }
     </div>
 
@@ -401,6 +441,8 @@
     private MachineCapabilitiesSnapshot? _machineCapabilities;
     private bool _capabilitiesBusy;
     private string? _capabilitiesErrorMessage;
+    private string? _installingCapabilityId;
+    private MachineCapabilityInstallResult? _lastCapabilityInstallResult;
     private string? _selectedMachineId;
 
     private RunnerMachineSettings? SelectedMachine => _settings.FindMachine(_selectedMachineId);
@@ -463,6 +505,7 @@
         _selectedMachineId = machineId;
         _machineCapabilities = null;
         _capabilitiesErrorMessage = null;
+        _lastCapabilityInstallResult = null;
         _containerStatus = null;
         _lastContainerResult = null;
         _containerErrorMessage = null;
@@ -594,6 +637,49 @@
         finally
         {
             _capabilitiesBusy = false;
+        }
+    }
+
+    private async Task InstallCapabilityAsync(MachineCapability capability)
+    {
+        if (SelectedMachine is null)
+        {
+            return;
+        }
+
+        _installingCapabilityId = capability.Id;
+        _capabilitiesErrorMessage = null;
+
+        try
+        {
+            var result = await Connections.InstallMachineCapabilityAsync(SelectedMachine, capability.Id);
+            _lastCapabilityInstallResult = result;
+
+            if (result is null)
+            {
+                _capabilitiesErrorMessage = $"The runner did not return an installation result for {capability.Name}.";
+                return;
+            }
+
+            if (result.Succeeded)
+            {
+                ToastService.Show($"Installed {capability.Name}", ToastKind.Success);
+            }
+            else
+            {
+                ToastService.Show($"Failed to install {capability.Name}", ToastKind.Error);
+            }
+
+            await RefreshMachineCapabilitiesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to install capability {CapabilityId} on machine {MachineId}", capability.Id, SelectedMachine.Id);
+            _capabilitiesErrorMessage = $"Failed to install {capability.Name}: {ex.Message}";
+        }
+        finally
+        {
+            _installingCapabilityId = null;
         }
     }
 
