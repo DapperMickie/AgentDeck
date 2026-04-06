@@ -27,6 +27,8 @@ public sealed class WorkloadContainerCommandService : IWorkloadContainerCommandS
             : $"docker build -t {Quote(baseImageTag)} -f {Quote(Path.Combine(machine.RunnerSourcePath, "AgentDeck.Runner", "Dockerfile"))} {Quote(machine.RunnerSourcePath)}";
 
         var generatedDockerfile = GenerateDockerfile(workload);
+        var (startContainerCommand, startContainerCommandMessage) =
+            TryGenerateStartCommand(machine, workload, containerName, workloadImageTag);
 
         return new WorkloadContainerCommandSet
         {
@@ -36,7 +38,8 @@ public sealed class WorkloadContainerCommandService : IWorkloadContainerCommandS
             BuildBaseImageCommand = buildBaseImageCommand,
             GeneratedDockerfile = generatedDockerfile,
             BuildWorkloadImageCommand = $"docker build -t {Quote(workloadImageTag)} -f Dockerfile.generated .",
-            StartContainerCommand = GenerateStartCommand(machine, workload, containerName, workloadImageTag),
+            StartContainerCommand = startContainerCommand,
+            StartContainerCommandMessage = startContainerCommandMessage,
             StopContainerCommand = $"docker rm -f {Quote(containerName)}",
         };
     }
@@ -120,12 +123,18 @@ public sealed class WorkloadContainerCommandService : IWorkloadContainerCommandS
         return builder.ToString().TrimEnd();
     }
 
-    private static string GenerateStartCommand(RunnerMachineSettings machine, WorkloadDefinition workload, string containerName, string workloadImageTag)
+    private static (string? Command, string? Message) TryGenerateStartCommand(
+        RunnerMachineSettings machine,
+        WorkloadDefinition workload,
+        string containerName,
+        string workloadImageTag)
     {
         if (string.IsNullOrWhiteSpace(machine.DockerWorkspacePath))
-            throw new InvalidOperationException("A host workspace path is required before generating the start command.");
+            return (null, "Set a host workspace path before generating the start command.");
 
-        var runnerUrl = new Uri(machine.RunnerUrl);
+        if (!Uri.TryCreate(machine.RunnerUrl, UriKind.Absolute, out var runnerUrl))
+            return (null, "Set a valid runner URL before generating the start command.");
+
         var port = runnerUrl.Port;
         var parts = new List<string>
         {
@@ -147,7 +156,7 @@ public sealed class WorkloadContainerCommandService : IWorkloadContainerCommandS
             parts.Add($"-v {Quote(GetNamedVolumeName(workload, mount.Name))}:{Quote(mount.TargetPath)}");
 
         parts.Add(Quote(workloadImageTag));
-        return string.Join(" ", parts);
+        return (string.Join(" ", parts), null);
     }
 
     private static string GetNamedVolumeName(WorkloadDefinition workload, string mountName)
