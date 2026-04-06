@@ -1,6 +1,5 @@
 @page "/"
 @inject IRunnerConnectionManager Connections
-@inject IConnectionSettingsService SettingsService
 @inject ISessionStateService SessionState
 @inject IActiveSessionService ActiveSession
 @inject TerminalInterop TerminalJs
@@ -46,11 +45,6 @@
         </div>
     }
 
-    <NewTerminalDialog IsOpen="ActiveSession.IsDialogOpen"
-                       OnClose="CloseDialog"
-                       OnCreate="OnDialogCreate"
-                       Machines="_settings.Machines"
-                       DefaultMachineId="_settings.PreferredMachineId" />
 </div>
 
 @if (_showShortcuts)
@@ -78,14 +72,12 @@
     private string _quickCommand = string.Empty;
     private DotNetObjectReference<Index>? _dotnetRef;
     private bool _shortcutsRegistered;
-    private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
-
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync()
     {
-        _settings = await SettingsService.LoadAsync();
         Connections.ConnectionStateChanged += OnStateChanged;
         SessionState.SessionsChanged += OnSessionsChanged;
         ActiveSession.StateChanged += OnActiveSessionChanged;
+        return Task.CompletedTask;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -110,22 +102,6 @@
     private async Task CloseSessionAsync(string sessionId)
     {
         await Connections.CloseSessionAsync(sessionId);
-    }
-
-    private void CloseDialog() => ActiveSession.CloseDialog();
-
-    private async Task OnDialogCreate(NewTerminalRequest req)
-    {
-        var machine = _settings.FindMachine(req.MachineId);
-        if (machine is null)
-        {
-            return;
-        }
-
-        _settings.PreferredMachineId = machine.Id;
-        await SettingsService.SaveAsync(_settings);
-        await Connections.CreateSessionAsync(machine, req.Terminal);
-        ActiveSession.CloseDialog();
     }
 
     private async Task OnQuickCommandKey(KeyboardEventArgs e)

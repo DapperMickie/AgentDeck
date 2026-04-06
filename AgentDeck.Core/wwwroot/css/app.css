@@ -47,6 +47,13 @@ main {
     overflow: hidden;
 }
 
+.mobile-shell {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 /* ========== Sidebar ========== */
 .sidebar {
     background: var(--color-surface);
@@ -264,6 +271,56 @@ main {
 .status-connecting .status-label   { color: var(--color-yellow); }
 .status-disconnected .status-label { color: var(--color-subtext); }
 
+.mobile-topbar,
+.mobile-nav {
+    display: none;
+}
+
+.mobile-topbar {
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+    background: var(--color-surface);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.mobile-topbar .connection-status {
+    border-top: none;
+    padding: 0;
+}
+
+.mobile-nav {
+    align-items: center;
+    justify-content: space-around;
+    gap: 0.5rem;
+    padding: 0.65rem 1rem 0.8rem;
+    background: rgba(24, 24, 37, 0.96);
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.mobile-nav__item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 999px;
+    color: var(--color-subtext);
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+}
+
+.mobile-nav__item.active {
+    background: rgba(137,180,250,0.14);
+    color: var(--color-accent);
+}
+
+.mobile-nav__icon {
+    font-size: 1.3rem;
+    line-height: 1;
+}
+
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50%       { opacity: 0.4; }
@@ -274,6 +331,7 @@ main {
     overflow: auto;
     display: flex;
     flex-direction: column;
+    min-width: 0;
 }
 
 /* ========== Page Header ========== */
@@ -306,6 +364,11 @@ main {
 .empty-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }
 .empty-state h2 { color: var(--color-text); margin-bottom: 0.5rem; }
 .empty-state a { color: var(--color-accent); text-decoration: none; }
+
+.mobile-page-placeholder {
+    flex: 1;
+    display: flex;
+}
 
 /* ========== Session Cards ========== */
 .session-list { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; }
