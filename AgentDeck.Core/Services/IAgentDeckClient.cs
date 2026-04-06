@@ -67,4 +67,7 @@ public interface IAgentDeckClient
 
     /// <summary>Install a supported CLI or SDK on the runner machine via REST.</summary>
     Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string capabilityId, string? version = null, CancellationToken ct = default);
+
+    /// <summary>Update a supported CLI on the runner machine via REST.</summary>
+    Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string capabilityId, CancellationToken ct = default);
 }

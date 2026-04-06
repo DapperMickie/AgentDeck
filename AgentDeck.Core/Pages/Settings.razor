@@ -198,16 +198,28 @@
                             </div>
                         }
 
-                        @if (capability.Status == MachineCapabilityStatus.Missing || SupportsVersionSelection(capability))
+                        @if (capability.Status == MachineCapabilityStatus.Missing || SupportsVersionSelection(capability) || SupportsUpdateAction(capability))
                         {
                             <div class="capability-card__actions">
-                                <button class="btn btn-primary"
-                                        @onclick="() => InstallCapabilityAsync(capability)"
-                                        disabled="@(_capabilitiesBusy || _installingCapabilityId == capability.Id)">
-                                    @(_installingCapabilityId == capability.Id
-                                        ? "Installing..."
-                                        : SupportsVersionSelection(capability) ? "Install Version" : "Install")
-                                </button>
+                                @if (capability.Status == MachineCapabilityStatus.Missing || SupportsVersionSelection(capability))
+                                {
+                                    <button class="btn btn-primary"
+                                            @onclick="() => InstallCapabilityAsync(capability)"
+                                            disabled="@(_capabilitiesBusy || IsCapabilityBusy(capability))">
+                                        @(IsCapabilityActionRunning(capability, "install")
+                                            ? "Installing..."
+                                            : SupportsVersionSelection(capability) ? "Install Version" : "Install")
+                                    </button>
+                                }
+
+                                @if (SupportsUpdateAction(capability))
+                                {
+                                    <button class="btn btn-accent"
+                                            @onclick="() => UpdateCapabilityAsync(capability)"
+                                            disabled="@(_capabilitiesBusy || IsCapabilityBusy(capability))">
+                                        @(IsCapabilityActionRunning(capability, "update") ? "Updating..." : "Update")
+                                    </button>
+                                }
                             </div>
                         }
                     </article>
@@ -221,7 +233,7 @@
                     <h3>Last Setup Action</h3>
                     <p>
                         <strong>@_lastCapabilityInstallResult.CapabilityName:</strong>
-                        @(_lastCapabilityInstallResult.Succeeded ? "installed" : "failed")
+                        @(GetCapabilityActionResultLabel(_lastCapabilityInstallResult))
                         @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.RequestedVersion))
                         {
                             <span> (@_lastCapabilityInstallResult.RequestedVersion)</span>
@@ -260,7 +272,8 @@
     private readonly HashSet<string> _capabilitiesBusyMachineIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string?> _selectedSdkVersions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string?> _customSdkVersions = new(StringComparer.OrdinalIgnoreCase);
-    private string? _installingCapabilityId;
+    private string? _activeCapabilityId;
+    private string? _activeCapabilityAction;
     private MachineCapabilityInstallResult? _lastCapabilityInstallResult;
     private string? _selectedMachineId;
 
@@ -471,7 +484,8 @@
         }
 
         var machine = SelectedMachine;
-        _installingCapabilityId = capability.Id;
+        _activeCapabilityId = capability.Id;
+        _activeCapabilityAction = "install";
         _machineCapabilityErrors.Remove(machine.Id);
 
         try
@@ -504,7 +518,8 @@
         }
         finally
         {
-            _installingCapabilityId = null;
+            _activeCapabilityId = null;
+            _activeCapabilityAction = null;
         }
     }
 
@@ -518,6 +533,74 @@
     private static bool SupportsVersionSelection(MachineCapability capability) =>
         capability.Category.Equals("sdk", StringComparison.OrdinalIgnoreCase) &&
         capability.Id is "python" or "node" or "dotnet";
+
+    private static bool SupportsUpdateAction(MachineCapability capability) =>
+        capability.Status == MachineCapabilityStatus.Installed &&
+        capability.Category.Equals("cli", StringComparison.OrdinalIgnoreCase) &&
+        capability.Id is "gh" or "copilot";
+
+    private bool IsCapabilityActionRunning(MachineCapability capability, string action) =>
+        string.Equals(_activeCapabilityId, capability.Id, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(_activeCapabilityAction, action, StringComparison.OrdinalIgnoreCase);
+
+    private bool IsCapabilityBusy(MachineCapability capability) =>
+        string.Equals(_activeCapabilityId, capability.Id, StringComparison.OrdinalIgnoreCase);
+
+    private async Task UpdateCapabilityAsync(MachineCapability capability)
+    {
+        if (SelectedMachine is null)
+        {
+            return;
+        }
+
+        var machine = SelectedMachine;
+        _activeCapabilityId = capability.Id;
+        _activeCapabilityAction = "update";
+        _machineCapabilityErrors.Remove(machine.Id);
+
+        try
+        {
+            var result = await Connections.UpdateMachineCapabilityAsync(machine, capability.Id);
+            _lastCapabilityInstallResult = result;
+
+            if (result is null)
+            {
+                _machineCapabilityErrors[machine.Id] = $"The runner did not return an update result for {capability.Name}.";
+                return;
+            }
+
+            if (result.Succeeded)
+            {
+                ToastService.Show($"Updated {capability.Name}", ToastKind.Success);
+            }
+            else
+            {
+                ToastService.Show($"Failed to update {capability.Name}", ToastKind.Error);
+            }
+
+            await RefreshMachineCapabilitiesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to update capability {CapabilityId} on machine {MachineId}", capability.Id, machine.Id);
+            _machineCapabilityErrors[machine.Id] = $"Failed to update {capability.Name}: {ex.Message}";
+        }
+        finally
+        {
+            _activeCapabilityId = null;
+            _activeCapabilityAction = null;
+        }
+    }
+
+    private static string GetCapabilityActionResultLabel(MachineCapabilityInstallResult result)
+    {
+        if (!result.Succeeded)
+        {
+            return result.Action.Equals("update", StringComparison.OrdinalIgnoreCase) ? "update failed" : "install failed";
+        }
+
+        return result.Action.Equals("update", StringComparison.OrdinalIgnoreCase) ? "updated" : "installed";
+    }
 
     private static IReadOnlyList<string> GetSdkVersionOptions(string capabilityId) => capabilityId switch
     {

@@ -5,6 +5,7 @@ public sealed class MachineCapabilityInstallResult
 {
     public required string CapabilityId { get; init; }
     public required string CapabilityName { get; init; }
+    public string Action { get; init; } = "install";
     public string? RequestedVersion { get; init; }
     public bool Succeeded { get; init; }
     public int ExitCode { get; init; }
