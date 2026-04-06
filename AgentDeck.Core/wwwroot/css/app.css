@@ -370,6 +370,25 @@ main {
     display: flex;
 }
 
+@media (max-width: 900px) {
+    .app-shell {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sidebar--desktop {
+        display: none;
+    }
+
+    .mobile-topbar,
+    .mobile-nav {
+        display: flex;
+    }
+
+    .main-content {
+        padding-bottom: 0;
+    }
+}
+
 /* ========== Session Cards ========== */
 .session-list { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; }
 
