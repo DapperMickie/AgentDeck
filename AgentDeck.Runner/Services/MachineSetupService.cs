@@ -54,23 +54,32 @@ public sealed class MachineSetupService : IMachineSetupService
 
     private Task<MachineCapabilityInstallResult> InstallCopilotCliAsync(CancellationToken cancellationToken)
     {
-        if (!CommandExists("npm"))
+        if (OperatingSystem.IsWindows())
         {
-            return Task.FromResult(new MachineCapabilityInstallResult
+            if (!CommandExists("npm"))
             {
-                CapabilityId = "copilot",
-                CapabilityName = "GitHub Copilot CLI",
-                Succeeded = false,
-                ExitCode = -1,
-                Message = "npm is required to install GitHub Copilot CLI. Install Node.js first."
-            });
+                return Task.FromResult(new MachineCapabilityInstallResult
+                {
+                    CapabilityId = "copilot",
+                    CapabilityName = "GitHub Copilot CLI",
+                    Succeeded = false,
+                    ExitCode = -1,
+                    Message = "npm is required to install GitHub Copilot CLI. Install Node.js first."
+                });
+            }
+
+            return RunDirectCommandAsync(
+                "copilot",
+                "GitHub Copilot CLI",
+                "npm",
+                ["install", "-g", "@github/copilot"],
+                cancellationToken);
         }
 
-        return RunDirectCommandAsync(
+        return RunLinuxCommandAsync(
             "copilot",
             "GitHub Copilot CLI",
-            "npm",
-            ["install", "-g", "@github/copilot"],
+            "if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y curl; fi && curl -fsSL https://gh.io/copilot-install | bash",
             cancellationToken);
     }
 
