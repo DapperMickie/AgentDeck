@@ -36,12 +36,45 @@ public sealed class PtyProcessManager : IPtyProcessManager
             CommandLine = commandLine,
         };
 
-        var connection = await PtyProvider.SpawnAsync(options, cancellationToken);
+        _logger.LogInformation(
+            "Starting PTY process for session {SessionId}: app={App}, cwd={WorkingDirectory}, cols={Cols}, rows={Rows}, commandLine={CommandLine}",
+            sessionId,
+            command,
+            workingDirectory,
+            cols,
+            rows,
+            string.Join(" ", commandLine));
+
+        IPtyConnection connection;
+        try
+        {
+            connection = await PtyProvider.SpawnAsync(options, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to spawn PTY process for session {SessionId}: app={App}, cwd={WorkingDirectory}, cols={Cols}, rows={Rows}, commandLine={CommandLine}",
+                sessionId,
+                command,
+                workingDirectory,
+                cols,
+                rows,
+                string.Join(" ", commandLine));
+            throw;
+        }
+
         var cts = new CancellationTokenSource();
 
         connection.ProcessExited += (_, e) =>
         {
-            _logger.LogDebug("PTY process exited for session {SessionId} with code {ExitCode}", sessionId, e.ExitCode);
+            _logger.LogInformation(
+                "PTY process exited for session {SessionId} with code {ExitCode}: app={App}, cwd={WorkingDirectory}, commandLine={CommandLine}",
+                sessionId,
+                e.ExitCode,
+                command,
+                workingDirectory,
+                string.Join(" ", commandLine));
             ProcessExited?.Invoke(this, (sessionId, e.ExitCode));
             cts.Cancel();
         };
