@@ -149,10 +149,21 @@ main {
 .nav-session-dot--error    { background: var(--color-red); }
 
 .nav-session-name {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    overflow: hidden;
+    flex: 1;
+}
+
+.nav-session-machine {
+    font-size: 0.68rem;
+    color: var(--color-subtext);
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
 }
 
 .nav-new-terminal {
@@ -359,6 +370,13 @@ main {
     margin: 1rem 1.5rem;
 }
 
+.settings-card__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+}
+
 .settings-card h2 { font-size: 0.9rem; font-weight: 600; margin-bottom: 1rem; color: var(--color-text); }
 
 .form-field { margin-bottom: 1rem; }
@@ -411,6 +429,88 @@ main {
 .status-text-connected   { color: var(--color-green); }
 .status-text-connecting  { color: var(--color-yellow); }
 .status-text-disconnected { color: var(--color-subtext); }
+
+.machine-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    gap: 1rem;
+}
+
+.machine-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.machine-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: var(--color-base);
+    color: var(--color-text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.machine-card--selected {
+    border-color: var(--color-accent);
+    background: rgba(137,180,250,0.12);
+}
+
+.machine-card__title {
+    font-weight: 600;
+}
+
+.machine-card__url {
+    font-size: 0.78rem;
+    color: var(--color-subtext);
+    word-break: break-all;
+}
+
+.machine-card__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.machine-editor {
+    min-width: 0;
+}
+
+.machine-badge,
+.machine-state {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+}
+
+.machine-badge {
+    background: rgba(137,180,250,0.16);
+    color: var(--color-accent);
+}
+
+.machine-state--connected {
+    background: rgba(166,227,161,0.15);
+    color: var(--color-green);
+}
+
+.machine-state--connecting {
+    background: rgba(249,226,175,0.15);
+    color: var(--color-yellow);
+}
+
+.machine-state--disconnected {
+    background: rgba(166,173,200,0.15);
+    color: var(--color-subtext);
+}
 
 .workload-list {
     display: grid;
@@ -817,6 +917,45 @@ main {
     justify-content: flex-end;
     gap: 0.75rem;
     margin-top: 1.5rem;
+}
+
+.app-error-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 2500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.app-error-modal {
+    width: min(880px, 95vw);
+    max-height: 85vh;
+    overflow: auto;
+    background: var(--color-surface);
+    border: 1px solid rgba(243, 139, 168, 0.35);
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.app-error-modal h2 {
+    margin: 0 0 0.75rem;
+    color: var(--color-red);
+}
+
+.app-error-stacktrace {
+    margin: 1rem 0 0;
+    padding: 1rem;
+    border-radius: 8px;
+    background: var(--color-base);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--color-text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.8rem;
 }
 
 /* ========== Preset Grid ========== */

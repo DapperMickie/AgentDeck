@@ -1,5 +1,5 @@
 @inherits LayoutComponentBase
-@inject IAgentDeckClient Client
+@inject IRunnerConnectionManager Connections
 @inject ISessionStateService SessionState
 @inject IActiveSessionService ActiveSession
 @inject NavigationManager Nav
@@ -21,7 +21,13 @@
                     <button class="nav-session @(ActiveSession.ActiveSessionId == session.Id ? "nav-session--active" : "")"
                             @onclick="() => SelectSession(session.Id)">
                         <span class="nav-session-dot nav-session-dot--@session.Status.ToString().ToLower()"></span>
-                        <span class="nav-session-name">@session.Name</span>
+                        <span class="nav-session-name">
+                            @session.Name
+                            @if (!string.IsNullOrWhiteSpace(session.MachineName))
+                            {
+                                <span class="nav-session-machine">@session.MachineName</span>
+                            }
+                        </span>
                     </button>
                 }
             }
@@ -47,7 +53,24 @@
 
     <main class="main-content">
         <CascadingValue Value="this">
-            @Body
+            <ErrorBoundary @ref="_errorBoundary">
+                <ChildContent>
+                    @Body
+                </ChildContent>
+                <ErrorContent Context="exception">
+                    <div class="app-error-backdrop">
+                        <div class="app-error-modal">
+                            <h2>Application error</h2>
+                            <p>The app hit an unhandled exception. The full stack trace is below.</p>
+                            <pre class="app-error-stacktrace">@exception.ToString()</pre>
+                            <div class="modal__footer">
+                                <button class="btn btn-accent" @onclick="RecoverFromError">Dismiss modal</button>
+                                <button class="btn btn-primary" @onclick="ReloadApp">Reload app</button>
+                            </div>
+                        </div>
+                    </div>
+                </ErrorContent>
+            </ErrorBoundary>
         </CascadingValue>
     </main>
 </div>
@@ -56,10 +79,11 @@
 
 @code {
     private bool SidebarOpen { get; set; } = true;
+    private ErrorBoundary? _errorBoundary;
 
     protected override void OnInitialized()
     {
-        Client.ConnectionStateChanged += OnConnectionStateChanged;
+        Connections.ConnectionStateChanged += OnConnectionStateChanged;
         SessionState.SessionsChanged += OnSessionsChanged;
         ActiveSession.StateChanged += OnActiveSessionChanged;
     }
@@ -76,7 +100,7 @@
         ActiveSession.OpenDialog();
     }
 
-    private void OnConnectionStateChanged(object? sender, HubConnectionState state) =>
+    private void OnConnectionStateChanged(object? sender, RunnerMachineConnectionChangedEventArgs e) =>
         InvokeAsync(StateHasChanged);
 
     private void OnSessionsChanged(object? sender, EventArgs _) =>
@@ -90,25 +114,36 @@
     private bool IsActive(string href) =>
         href == "/" ? Nav.Uri.EndsWith("/") || Nav.Uri.EndsWith("index") : Nav.Uri.Contains(href);
 
-    private string GetStatusClass() => Client.ConnectionState switch
+    private string GetStatusClass() => Connections.ConnectedMachineCount switch
     {
-        HubConnectionState.Connected    => "status-connected",
-        HubConnectionState.Connecting   => "status-connecting",
-        HubConnectionState.Reconnecting => "status-connecting",
-        _                               => "status-disconnected"
+        > 0 => "status-connected",
+        _ => "status-disconnected"
     };
 
-    private string GetStatusLabel() => Client.ConnectionState switch
+    private string GetStatusLabel()
     {
-        HubConnectionState.Connected    => "Connected",
-        HubConnectionState.Connecting   => "Connecting…",
-        HubConnectionState.Reconnecting => "Reconnecting…",
-        _                               => "Disconnected"
-    };
+        if (Connections.ConnectedMachineCount > 0)
+        {
+            var noun = Connections.ConnectedMachineCount == 1 ? "machine" : "machines";
+            return $"{Connections.ConnectedMachineCount} {noun} connected";
+        }
+
+        return "No machines connected";
+    }
+
+    private void RecoverFromError()
+    {
+        _errorBoundary?.Recover();
+    }
+
+    private void ReloadApp()
+    {
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
 
     public void Dispose()
     {
-        Client.ConnectionStateChanged -= OnConnectionStateChanged;
+        Connections.ConnectionStateChanged -= OnConnectionStateChanged;
         SessionState.SessionsChanged -= OnSessionsChanged;
         ActiveSession.StateChanged -= OnActiveSessionChanged;
     }

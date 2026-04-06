@@ -16,9 +16,9 @@ public sealed class LocalDockerWorkloadRuntimeService : IWorkloadContainerRuntim
         _commandService = commandService;
     }
 
-    public async Task<WorkloadContainerStatus> GetStatusAsync(ConnectionSettings settings, WorkloadDefinition workload, CancellationToken cancellationToken = default)
+    public async Task<WorkloadContainerStatus> GetStatusAsync(RunnerMachineSettings machine, WorkloadDefinition workload, CancellationToken cancellationToken = default)
     {
-        var commandSet = _commandService.Resolve(settings, workload);
+        var commandSet = _commandService.Resolve(machine, workload);
         var dockerVersion = await RunDockerAsync(["version", "--format", "{{.Server.Version}}"], cancellationToken);
         if (!dockerVersion.Succeeded)
         {
@@ -55,22 +55,22 @@ public sealed class LocalDockerWorkloadRuntimeService : IWorkloadContainerRuntim
         };
     }
 
-    public async Task<WorkloadContainerExecutionResult> BuildBaseImageAsync(ConnectionSettings settings, WorkloadDefinition workload, CancellationToken cancellationToken = default)
+    public async Task<WorkloadContainerExecutionResult> BuildBaseImageAsync(RunnerMachineSettings machine, WorkloadDefinition workload, CancellationToken cancellationToken = default)
     {
-        var commandSet = _commandService.Resolve(settings, workload);
+        var commandSet = _commandService.Resolve(machine, workload);
         if (string.IsNullOrWhiteSpace(commandSet.BuildBaseImageCommand))
         {
             throw new InvalidOperationException("Set the runner source path before building the base image.");
         }
 
         return await RunDockerAsync(
-            ["build", "-t", commandSet.BaseImageTag, "-f", Path.Combine(settings.RunnerSourcePath, "AgentDeck.Runner", "Dockerfile"), settings.RunnerSourcePath],
+            ["build", "-t", commandSet.BaseImageTag, "-f", Path.Combine(machine.RunnerSourcePath, "AgentDeck.Runner", "Dockerfile"), machine.RunnerSourcePath],
             cancellationToken);
     }
 
-    public async Task<WorkloadContainerExecutionResult> BuildWorkloadImageAsync(ConnectionSettings settings, WorkloadDefinition workload, CancellationToken cancellationToken = default)
+    public async Task<WorkloadContainerExecutionResult> BuildWorkloadImageAsync(RunnerMachineSettings machine, WorkloadDefinition workload, CancellationToken cancellationToken = default)
     {
-        var commandSet = _commandService.Resolve(settings, workload);
+        var commandSet = _commandService.Resolve(machine, workload);
         var buildDirectory = PrepareGeneratedBuildContext(commandSet);
 
         return await RunDockerAsync(
@@ -79,12 +79,12 @@ public sealed class LocalDockerWorkloadRuntimeService : IWorkloadContainerRuntim
             buildDirectory);
     }
 
-    public async Task<WorkloadContainerExecutionResult> StartContainerAsync(ConnectionSettings settings, WorkloadDefinition workload, CancellationToken cancellationToken = default)
+    public async Task<WorkloadContainerExecutionResult> StartContainerAsync(RunnerMachineSettings machine, WorkloadDefinition workload, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(settings.DockerWorkspacePath))
+        if (string.IsNullOrWhiteSpace(machine.DockerWorkspacePath))
             throw new InvalidOperationException("Set the host workspace path before starting the container.");
 
-        var commandSet = _commandService.Resolve(settings, workload);
+        var commandSet = _commandService.Resolve(machine, workload);
         await RunDockerAsync(["rm", "-f", commandSet.ContainerName], cancellationToken);
 
         var args = new List<string>
@@ -93,7 +93,7 @@ public sealed class LocalDockerWorkloadRuntimeService : IWorkloadContainerRuntim
             "--name", commandSet.ContainerName
         };
 
-        var runnerUrl = new Uri(settings.RunnerUrl);
+        var runnerUrl = new Uri(machine.RunnerUrl);
         args.AddRange(["-p", $"{runnerUrl.Port}:{runnerUrl.Port}"]);
         args.AddRange(["-e", $"AGENTDECK_PORT={runnerUrl.Port}"]);
 
@@ -117,7 +117,7 @@ public sealed class LocalDockerWorkloadRuntimeService : IWorkloadContainerRuntim
             args.AddRange(["-e", $"{secret.EnvironmentVariable}={secretValue}"]);
         }
 
-        args.AddRange(["-v", $"{settings.DockerWorkspacePath}:{workload.WorkspaceMountPath}"]);
+        args.AddRange(["-v", $"{machine.DockerWorkspacePath}:{workload.WorkspaceMountPath}"]);
 
         foreach (var mount in workload.AuthMounts)
             args.AddRange(["-v", $"{GetNamedVolumeName(workload, mount.Name)}:{mount.TargetPath}"]);
@@ -129,9 +129,9 @@ public sealed class LocalDockerWorkloadRuntimeService : IWorkloadContainerRuntim
         return await RunDockerAsync(args, cancellationToken);
     }
 
-    public Task<WorkloadContainerExecutionResult> StopContainerAsync(ConnectionSettings settings, WorkloadDefinition workload, CancellationToken cancellationToken = default)
+    public Task<WorkloadContainerExecutionResult> StopContainerAsync(RunnerMachineSettings machine, WorkloadDefinition workload, CancellationToken cancellationToken = default)
     {
-        var commandSet = _commandService.Resolve(settings, workload);
+        var commandSet = _commandService.Resolve(machine, workload);
         return RunDockerAsync(["rm", "-f", commandSet.ContainerName], cancellationToken);
     }
 

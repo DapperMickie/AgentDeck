@@ -1,4 +1,4 @@
-@inject IAgentDeckClient Client
+@inject IRunnerConnectionManager Connections
 
 <div class="form-group">
     <select class="form-input" value="@_selected" @onchange="OnSelectChanged">
@@ -17,18 +17,41 @@
            value="@Value"
            @oninput="OnInputChanged"
            placeholder="Working directory (empty = workspace root)" />
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="error-message">@_errorMessage</div>
+    }
 </div>
 
 @code {
     [Parameter] public string Value { get; set; } = "";
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public RunnerMachineSettings? Machine { get; set; }
 
     private WorkspaceInfo? _workspace;
     private string _selected = "";
+    private string? _loadedMachineId;
+    private string? _errorMessage;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        _workspace = await Client.GetWorkspaceAsync();
+        if (Machine is null || string.Equals(_loadedMachineId, Machine.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _loadedMachineId = Machine.Id;
+        _errorMessage = null;
+
+        try
+        {
+            _workspace = await Connections.GetWorkspaceAsync(Machine);
+        }
+        catch (Exception ex)
+        {
+            _workspace = null;
+            _errorMessage = $"Failed to load workspace folders from {Machine.Name}: {ex.Message}";
+        }
     }
 
     private async Task OnSelectChanged(ChangeEventArgs e)

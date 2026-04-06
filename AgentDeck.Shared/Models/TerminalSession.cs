@@ -31,4 +31,10 @@ public sealed class TerminalSession
 
     /// <summary>UTC timestamp when the session was created.</summary>
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Companion-side machine identifier for the runner that owns this session.</summary>
+    public string? MachineId { get; set; }
+
+    /// <summary>Companion-side display name for the runner machine that owns this session.</summary>
+    public string? MachineName { get; set; }
 }
