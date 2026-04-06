@@ -378,6 +378,7 @@ main {
 }
 
 .settings-card h2 { font-size: 0.9rem; font-weight: 600; margin-bottom: 1rem; color: var(--color-text); }
+.settings-card__description { margin: 0 0 1rem; color: var(--color-subtext); font-size: 0.85rem; }
 
 .form-field { margin-bottom: 1rem; }
 .form-field label { display: block; font-size: 0.8rem; color: var(--color-subtext); margin-bottom: 0.3rem; }
@@ -518,6 +519,28 @@ main {
     gap: 0.9rem;
 }
 
+.setup-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.setup-summary__item {
+    min-width: 120px;
+    padding: 0.75rem 0.9rem;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+}
+
+.setup-summary__label {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--color-subtext);
+    font-size: 0.76rem;
+}
+
 .capability-card {
     background: var(--color-base);
     border: 1px solid rgba(255,255,255,0.08);
@@ -589,6 +612,34 @@ main {
 
 .capability-install-result h3 {
     margin: 0 0 0.75rem;
+}
+
+.legacy-settings {
+    border-style: dashed;
+    border-color: rgba(255,255,255,0.14);
+}
+
+.legacy-settings__summary {
+    list-style: none;
+    cursor: pointer;
+}
+
+.legacy-settings__summary::-webkit-details-marker {
+    display: none;
+}
+
+.legacy-settings__summary h2 {
+    margin-bottom: 0.35rem;
+}
+
+.legacy-settings__summary p {
+    margin: 0;
+    color: var(--color-subtext);
+    font-size: 0.82rem;
+}
+
+.legacy-settings[open] .legacy-settings__summary {
+    margin-bottom: 1rem;
 }
 
 .workload-list {

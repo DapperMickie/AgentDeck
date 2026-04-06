@@ -101,13 +101,17 @@
 {
     <div class="settings-card">
         <div class="settings-card__header">
-            <h2>Machine Capabilities: @SelectedMachine.Name</h2>
+            <h2>Machine Setup: @SelectedMachine.Name</h2>
             <div class="form-actions">
                 <button class="btn btn-accent" @onclick="RefreshMachineCapabilitiesAsync" disabled="@_capabilitiesBusy">
                     Refresh Capabilities
                 </button>
             </div>
         </div>
+
+        <p class="settings-card__description">
+            AgentDeck now treats each runner target as a machine to inspect and prepare in place. Detect which supported tools are already installed and install missing ones directly on this machine.
+        </p>
 
         @if (_capabilitiesErrorMessage is not null)
         {
@@ -123,6 +127,21 @@
         }
         else
         {
+            <div class="setup-summary">
+                <div class="setup-summary__item">
+                    <span class="setup-summary__label">Installed</span>
+                    <strong>@GetCapabilityCount(MachineCapabilityStatus.Installed)</strong>
+                </div>
+                <div class="setup-summary__item">
+                    <span class="setup-summary__label">Missing</span>
+                    <strong>@GetCapabilityCount(MachineCapabilityStatus.Missing)</strong>
+                </div>
+                <div class="setup-summary__item">
+                    <span class="setup-summary__label">Errors</span>
+                    <strong>@GetCapabilityCount(MachineCapabilityStatus.Error)</strong>
+                </div>
+            </div>
+
             <div class="capability-grid">
                 @foreach (var capability in _machineCapabilities.Capabilities.OrderBy(capability => capability.Category).ThenBy(capability => capability.Name))
                 {
@@ -193,8 +212,13 @@
         }
     </div>
 
-    <div class="settings-card">
-        <h2>Container Orchestration: @SelectedMachine.Name</h2>
+    <details class="settings-card legacy-settings">
+        <summary class="legacy-settings__summary">
+            <div>
+                <h2>Legacy workload and container setup</h2>
+                <p>These controls are kept temporarily for migration, but the main product path is now machine setup and tool installation.</p>
+            </div>
+        </summary>
 
         <div class="form-field">
             <label for="selected-workload">Selected Workload</label>
@@ -339,7 +363,7 @@
         {
             <p class="error-message">@selectionError</p>
         }
-    </div>
+    </details>
 
     <div class="settings-card">
         <h2>Connection Status: @SelectedMachine.Name</h2>
@@ -348,8 +372,13 @@
     </div>
 }
 
-<div class="settings-card">
-    <h2>Workload Catalog</h2>
+<details class="settings-card legacy-settings">
+    <summary class="legacy-settings__summary">
+        <div>
+            <h2>Legacy workload catalog</h2>
+            <p>Workload definitions are still available during migration, but they are no longer the primary setup model.</p>
+        </div>
+    </summary>
 
     <div class="workload-toolbar">
         <p>Create custom workloads here or clone a built-in template as a starting point.</p>
@@ -409,11 +438,11 @@
             }
         </div>
     }
-</div>
+</details>
 
 @if (_editingWorkload is not null)
 {
-    <div class="settings-card">
+    <div class="settings-card legacy-settings">
         <WorkloadEditor Workload="_editingWorkload"
                         Title="@_editorTitle"
                         EditorKey="@_editorKey"
@@ -947,6 +976,9 @@
         MachineCapabilityStatus.Missing => "missing",
         _ => "error"
     };
+
+    private int GetCapabilityCount(MachineCapabilityStatus status) =>
+        _machineCapabilities?.Capabilities.Count(capability => capability.Status == status) ?? 0;
 
     private bool TryGetSelectedWorkload(RunnerMachineSettings machine, out WorkloadDefinition workload, out string? error)
     {
