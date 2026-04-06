@@ -176,8 +176,13 @@ public sealed class MachineSetupService : IMachineSetupService
         var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
         var nonInteractiveCommand = $"export DEBIAN_FRONTEND=noninteractive && {commandText}";
         var finalCommand =
-            $"if command -v sudo >/dev/null 2>&1; then sudo -n sh -lc {QuotePosix(nonInteractiveCommand)}; " +
-            $"elif [ \"$(id -u)\" -eq 0 ]; then sh -lc {QuotePosix(nonInteractiveCommand)}; " +
+            $"if [ \"$(id -u)\" -eq 0 ]; then sh -lc {QuotePosix(nonInteractiveCommand)}; " +
+            "elif command -v sudo >/dev/null 2>&1; then " +
+            "if id -un >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then " +
+            $"sudo -n sh -lc {QuotePosix(nonInteractiveCommand)}; " +
+            "elif ! id -un >/dev/null 2>&1; then " +
+            "echo 'Linux setup actions cannot use sudo because the current UID is not present in /etc/passwd.' >&2; exit 1; " +
+            "else echo 'Linux setup actions require passwordless sudo for the current user.' >&2; exit 1; fi; " +
             "else echo 'Linux setup actions require root or passwordless sudo.' >&2; exit 1; fi";
 
         return RunDirectCommandAsync(

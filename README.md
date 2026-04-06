@@ -76,6 +76,8 @@ The checked-in runner image now uses a Debian-based self-contained final stage i
 
 If you run the runner inside a container, AgentDeck treats that container as just another machine. Connect the companion app to the runner URL, then use **Settings -> Machine Setup** to inspect which supported tools are installed and install missing ones inside that machine.
 
+If you override the container user, Linux setup actions still need either `root` or a passwd-backed user with passwordless `sudo`. Arbitrary numeric UIDs that are not present in `/etc/passwd` can run the runner, but they cannot perform privileged package installs through the setup flow.
+
 ### Running the Companion App (Windows)
 
 ```bash
