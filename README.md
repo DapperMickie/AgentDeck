@@ -94,3 +94,69 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
   }
 }
 ```
+
+---
+
+## Workload-Driven Runner Containers
+
+The companion app can now manage **workloads** that describe how a runner container should be built and started for a specific development stack.
+
+Each workload can define:
+- the base runner image
+- SDK versions such as Python, Node, and .NET
+- CLI installers such as apt packages, npm globals, pipx packages, and .NET tools
+- environment variables and bootstrap commands
+- persistent auth mounts and cache mounts
+- runtime secrets that are injected from host environment variables
+
+### Built-in Example Workloads
+
+Built-in workload templates live under `AgentDeck.Core/Workloads/Examples/` and currently include:
+
+| Workload | Purpose |
+|---------|---------|
+| `github-cli` | Minimal GitHub CLI environment with persistent auth state |
+| `copilot-gh` | GitHub CLI plus agent-oriented tooling |
+| `python-gh` | Python development with GitHub CLI and pip cache mounts |
+| `node-gh` | Node development with GitHub CLI and npm cache mounts |
+| `dotnet-gh` | .NET development with GitHub CLI and NuGet cache mounts |
+| `python-node-gh` | Polyglot Python + Node workload |
+| `fullstack-gh` | Python + Node + .NET starter workload |
+
+### Custom Workloads in the Companion App
+
+The **Settings** page lets you:
+- view the built-in workload catalog
+- clone built-in workloads into editable custom workloads
+- create, edit, duplicate, and delete custom workloads
+- choose the active workload used for Docker command generation and execution
+
+Custom workloads are stored in the companion app data directory, separately from the built-in templates, so updating the app does not overwrite them.
+
+### Container Orchestration in the Companion App
+
+For the selected workload, the **Settings** page can now:
+- generate the workload Dockerfile
+- build the base runner image
+- build the workload image
+- start and stop the runner container
+- inspect local Docker, image, and container status
+- show the last Docker command output
+
+This orchestration currently assumes a local Docker installation reachable from the companion app host.
+
+### Authentication and Cache Persistence
+
+Auth and cache persistence are handled through **named Docker volumes**, not by baking credentials into images.
+
+Workloads can define:
+- **auth mounts** for home/config locations such as `/agent-home`
+- **cache mounts** for package-manager caches such as npm, pip, and NuGet
+- **runtime secrets** like `GITHUB_TOKEN`
+
+At container start:
+- auth and cache mounts are attached as named volumes, so state survives container recreation
+- required secrets are read from the host environment and passed through to the container at runtime
+- secret values are **not** stored in app settings or workload files
+
+This means flows like `gh auth login` can persist across sessions when the workload mounts the CLI home/config directory, and package caches can be reused between runs.

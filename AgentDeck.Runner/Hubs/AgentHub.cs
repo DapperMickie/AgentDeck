@@ -58,6 +58,8 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
         var sessionId = Guid.NewGuid().ToString("N");
         var workingDir = ResolveWorkingDirectory(request.WorkingDirectory);
         var command = ResolveCommand(request.Command);
+        var arguments = request.Arguments;
+        var (launchCommand, launchArguments) = ResolveLaunch(command, arguments, workingDir, !string.IsNullOrWhiteSpace(request.Command));
 
         var session = new TerminalSession
         {
@@ -65,7 +67,7 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
             Name = request.Name,
             WorkingDirectory = workingDir,
             Command = command,
-            Arguments = request.Arguments,
+            Arguments = arguments,
             Status = TerminalStatus.Running
         };
 
@@ -73,7 +75,7 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
 
         try
         {
-            await _ptyManager.StartAsync(sessionId, command, request.Arguments, workingDir, request.Cols, request.Rows);
+            await _ptyManager.StartAsync(sessionId, launchCommand, launchArguments, workingDir, request.Cols, request.Rows);
         }
         catch (Exception ex)
         {
@@ -127,5 +129,61 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
             return "powershell.exe";
 
         return File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
+    }
+
+    private static (string Command, IReadOnlyList<string> Arguments) ResolveLaunch(
+        string command,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        bool commandWasSpecified)
+    {
+        if (!commandWasSpecified || IsShellCommand(command))
+            return (command, arguments);
+
+        if (OperatingSystem.IsWindows())
+        {
+            return ("powershell.exe",
+            [
+                "-NoExit",
+                "-Command",
+                $"Set-Location -LiteralPath {QuotePowerShell(workingDirectory)}; {BuildShellCommand(command, arguments)}"
+            ]);
+        }
+
+        var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
+        return (shellPath,
+        [
+            "-lc",
+            $"cd {QuotePosix(workingDirectory)} && {BuildShellCommand(command, arguments)}; exec {shellPath}"
+        ]);
+    }
+
+    private static bool IsShellCommand(string command)
+    {
+        var commandName = Path.GetFileNameWithoutExtension(command.Trim()).ToLowerInvariant();
+        return commandName is "pwsh" or "powershell" or "bash" or "sh" or "cmd";
+    }
+
+    private static string BuildShellCommand(string command, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 0)
+            return command;
+
+        if (OperatingSystem.IsWindows())
+        {
+            return $"& {QuotePowerShell(command)} {string.Join(" ", arguments.Select(QuotePowerShell))}";
+        }
+
+        return $"{QuotePosix(command)} {string.Join(" ", arguments.Select(QuotePosix))}";
+    }
+
+    private static string QuotePowerShell(string value)
+    {
+        return $"'{value.Replace("'", "''")}'";
+    }
+
+    private static string QuotePosix(string value)
+    {
+        return $"'{value.Replace("'", "'\"'\"'")}'";
     }
 }

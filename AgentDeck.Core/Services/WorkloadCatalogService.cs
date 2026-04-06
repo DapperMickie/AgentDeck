@@ -51,12 +51,15 @@ public sealed class WorkloadCatalogService : IWorkloadCatalogService
             .ToList();
     }
 
-    public async Task SaveCustomAsync(WorkloadDefinition workload, CancellationToken cancellationToken = default)
+    public async Task SaveCustomAsync(WorkloadDefinition workload, string? previousWorkloadId = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workload);
 
         var customWorkloads = await LoadCustomWorkloadsAsync(cancellationToken);
         var normalizedId = NormalizeId(workload.Id, workload.Name);
+        var normalizedPreviousId = string.IsNullOrWhiteSpace(previousWorkloadId)
+            ? null
+            : NormalizeId(previousWorkloadId, previousWorkloadId);
 
         if (_builtInWorkloads.Any(existing => existing.Id.Equals(normalizedId, StringComparison.OrdinalIgnoreCase)))
         {
@@ -64,11 +67,31 @@ public sealed class WorkloadCatalogService : IWorkloadCatalogService
                 $"Cannot save custom workload '{normalizedId}' because it conflicts with a built-in workload.");
         }
 
+        var conflictingCustom = customWorkloads.FirstOrDefault(existing =>
+            existing.Id.Equals(normalizedId, StringComparison.OrdinalIgnoreCase));
+
+        if (conflictingCustom is not null &&
+            !conflictingCustom.Id.Equals(normalizedPreviousId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Cannot save custom workload '{normalizedId}' because another custom workload already uses that id.");
+        }
+
         var toSave = Clone(workload);
         toSave.Id = normalizedId;
         toSave.IsBuiltIn = false;
 
-        customWorkloads.RemoveAll(existing => existing.Id.Equals(normalizedId, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(normalizedPreviousId))
+        {
+            customWorkloads.RemoveAll(existing =>
+                existing.Id.Equals(normalizedPreviousId, StringComparison.OrdinalIgnoreCase));
+        }
+        else
+        {
+            customWorkloads.RemoveAll(existing =>
+                existing.Id.Equals(normalizedId, StringComparison.OrdinalIgnoreCase));
+        }
+
         customWorkloads.Add(toSave);
 
         await SaveCustomWorkloadsAsync(customWorkloads, cancellationToken);

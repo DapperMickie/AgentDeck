@@ -1,0 +1,406 @@
+@if (Workload is not null)
+{
+    <div class="workload-editor">
+        <div class="workload-editor__header">
+            <div>
+                <h3>@Title</h3>
+                <p>Configure SDKs, tool installers, auth mounts, cache mounts, and runtime settings for this workload.</p>
+            </div>
+            <div class="workload-editor__actions">
+                <button class="btn btn-accent" type="button" @onclick="CancelAsync">Cancel</button>
+                @if (AllowDelete)
+                {
+                    <button class="btn btn-danger" type="button" @onclick="DeleteAsync">Delete</button>
+                }
+                <button class="btn btn-primary" type="button" @onclick="SaveAsync">Save Workload</button>
+            </div>
+        </div>
+
+        @if (_errorMessage is not null)
+        {
+            <p class="error-message">@_errorMessage</p>
+        }
+
+        <div class="workload-editor__grid">
+            <div class="form-field">
+                <label for="workload-id">Workload ID</label>
+                <input id="workload-id" class="input" @bind="_model.Id" placeholder="python-node-gh" />
+            </div>
+            <div class="form-field">
+                <label for="workload-name">Display Name</label>
+                <input id="workload-name" class="input" @bind="_model.Name" placeholder="Python + Node + GitHub CLI" />
+            </div>
+            <div class="form-field workload-editor__full">
+                <label for="workload-description">Description</label>
+                <textarea id="workload-description" class="input input--multiline" rows="2" @bind="_model.Description"></textarea>
+            </div>
+            <div class="form-field">
+                <label for="workload-image">Base Image</label>
+                <input id="workload-image" class="input" @bind="_model.BaseImage" placeholder="agentdeck-runner:base" />
+            </div>
+            <div class="form-field">
+                <label for="workload-home">Home Directory</label>
+                <input id="workload-home" class="input" @bind="_model.HomeDirectory" placeholder="/agent-home" />
+            </div>
+            <div class="form-field workload-editor__full">
+                <label for="workload-workspace">Workspace Mount Path</label>
+                <input id="workload-workspace" class="input" @bind="_model.WorkspaceMountPath" placeholder="/workspace" />
+            </div>
+        </div>
+
+        <div class="workload-editor__grid">
+            <div class="form-field">
+                <label for="workload-clis">Supported CLI Commands</label>
+                <textarea id="workload-clis" class="input input--multiline" rows="4" @bind="_model.SupportedCliCommands" placeholder="gh&#10;copilot"></textarea>
+            </div>
+            <div class="form-field">
+                <label for="workload-sdks">SDK Versions</label>
+                <textarea id="workload-sdks" class="input input--multiline" rows="4" @bind="_model.SdkVersions" placeholder="python=3.12&#10;node=22&#10;dotnet=10.0"></textarea>
+            </div>
+            <div class="form-field">
+                <label for="workload-env">Environment Variables</label>
+                <textarea id="workload-env" class="input input--multiline" rows="4" @bind="_model.EnvironmentVariables" placeholder="HOME=/agent-home&#10;AGENTDECK_WORKSPACE=/workspace"></textarea>
+            </div>
+            <div class="form-field">
+                <label for="workload-bootstrap">Bootstrap Commands</label>
+                <textarea id="workload-bootstrap" class="input input--multiline" rows="4" @bind="_model.BootstrapCommands" placeholder="npm install&#10;pip install -r requirements.txt"></textarea>
+            </div>
+        </div>
+
+        <div class="workload-editor__grid">
+            <div class="form-field">
+                <label for="workload-apt">APT Packages</label>
+                <textarea id="workload-apt" class="input input--multiline" rows="4" @bind="_model.AptPackages" placeholder="gh&#10;git&#10;curl"></textarea>
+            </div>
+            <div class="form-field">
+                <label for="workload-npm">Global npm Packages</label>
+                <textarea id="workload-npm" class="input input--multiline" rows="4" @bind="_model.NpmGlobalPackages" placeholder="@@github/copilot"></textarea>
+            </div>
+            <div class="form-field">
+                <label for="workload-pipx">pipx Packages</label>
+                <textarea id="workload-pipx" class="input input--multiline" rows="4" @bind="_model.PipxPackages" placeholder="poetry"></textarea>
+            </div>
+            <div class="form-field">
+                <label for="workload-dotnet-tools">.NET Tools</label>
+                <textarea id="workload-dotnet-tools" class="input input--multiline" rows="4" @bind="_model.DotNetTools" placeholder="dotnet-ef"></textarea>
+            </div>
+        </div>
+
+        <div class="workload-editor__section">
+            <div class="workload-editor__section-header">
+                <h4>Auth Mounts</h4>
+                <button class="btn btn-accent" type="button" @onclick="AddAuthMount">Add Mount</button>
+            </div>
+            @foreach (var mount in _model.AuthMounts)
+            {
+                <div class="workload-entry-row">
+                    <input class="input" @bind="mount.Name" placeholder="agent-home" />
+                    <input class="input" @bind="mount.TargetPath" placeholder="/agent-home" />
+                    <input class="input" @bind="mount.Description" placeholder="Persist CLI auth and config state" />
+                    <button class="btn btn-danger" type="button" @onclick="() => RemoveAuthMount(mount)">Remove</button>
+                </div>
+            }
+        </div>
+
+        <div class="workload-editor__section">
+            <div class="workload-editor__section-header">
+                <h4>Cache Mounts</h4>
+                <button class="btn btn-accent" type="button" @onclick="AddCacheMount">Add Mount</button>
+            </div>
+            @foreach (var mount in _model.CacheMounts)
+            {
+                <div class="workload-entry-row">
+                    <input class="input" @bind="mount.Name" placeholder="npm-cache" />
+                    <input class="input" @bind="mount.TargetPath" placeholder="/agent-home/.npm" />
+                    <input class="input" @bind="mount.Description" placeholder="Persist package downloads between sessions" />
+                    <button class="btn btn-danger" type="button" @onclick="() => RemoveCacheMount(mount)">Remove</button>
+                </div>
+            }
+        </div>
+
+        <div class="workload-editor__section">
+            <div class="workload-editor__section-header">
+                <h4>Runtime Secrets</h4>
+                <button class="btn btn-accent" type="button" @onclick="AddSecret">Add Secret</button>
+            </div>
+            @foreach (var secret in _model.Secrets)
+            {
+                <div class="workload-secret-row">
+                    <input class="input" @bind="secret.Name" placeholder="github-token" />
+                    <input class="input" @bind="secret.EnvironmentVariable" placeholder="GITHUB_TOKEN" />
+                    <input class="input" @bind="secret.Description" placeholder="Optional token for headless auth" />
+                    <label class="checkbox-label workload-secret-row__checkbox">
+                        <input type="checkbox" @bind="secret.IsRequired" />
+                        Required
+                    </label>
+                    <button class="btn btn-danger" type="button" @onclick="() => RemoveSecret(secret)">Remove</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public WorkloadDefinition? Workload { get; set; }
+    [Parameter] public string Title { get; set; } = "Edit Workload";
+    [Parameter] public int EditorKey { get; set; }
+    [Parameter] public bool AllowDelete { get; set; }
+    [Parameter] public EventCallback<WorkloadDefinition> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback<string> OnDelete { get; set; }
+
+    private readonly EditorModel _model = new();
+    private int _loadedEditorKey = -1;
+    private string? _errorMessage;
+
+    protected override void OnParametersSet()
+    {
+        if (Workload is null || _loadedEditorKey == EditorKey)
+            return;
+
+        _loadedEditorKey = EditorKey;
+        _errorMessage = null;
+        _model.LoadFrom(Workload);
+    }
+
+    private void AddAuthMount() => _model.AuthMounts.Add(new EditorMount());
+    private void RemoveAuthMount(EditorMount mount) => _model.AuthMounts.Remove(mount);
+    private void AddCacheMount() => _model.CacheMounts.Add(new EditorMount());
+    private void RemoveCacheMount(EditorMount mount) => _model.CacheMounts.Remove(mount);
+    private void AddSecret() => _model.Secrets.Add(new EditorSecret());
+    private void RemoveSecret(EditorSecret secret) => _model.Secrets.Remove(secret);
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            _errorMessage = null;
+            await OnSave.InvokeAsync(_model.ToWorkload());
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (Workload is null)
+            return;
+
+        await OnDelete.InvokeAsync(Workload.Id);
+    }
+
+    private async Task CancelAsync()
+    {
+        _errorMessage = null;
+        await OnCancel.InvokeAsync();
+    }
+
+    private sealed class EditorModel
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string BaseImage { get; set; } = "agentdeck-runner:base";
+        public string WorkspaceMountPath { get; set; } = "/workspace";
+        public string HomeDirectory { get; set; } = "/agent-home";
+        public string SupportedCliCommands { get; set; } = string.Empty;
+        public string SdkVersions { get; set; } = string.Empty;
+        public string EnvironmentVariables { get; set; } = string.Empty;
+        public string BootstrapCommands { get; set; } = string.Empty;
+        public string AptPackages { get; set; } = string.Empty;
+        public string NpmGlobalPackages { get; set; } = string.Empty;
+        public string PipxPackages { get; set; } = string.Empty;
+        public string DotNetTools { get; set; } = string.Empty;
+        public List<EditorMount> AuthMounts { get; } = [];
+        public List<EditorMount> CacheMounts { get; } = [];
+        public List<EditorSecret> Secrets { get; } = [];
+
+        public void LoadFrom(WorkloadDefinition workload)
+        {
+            Id = workload.IsBuiltIn ? $"{workload.Id}-custom" : workload.Id;
+            Name = workload.IsBuiltIn ? $"{workload.Name} Copy" : workload.Name;
+            Description = workload.Description;
+            BaseImage = workload.BaseImage;
+            WorkspaceMountPath = workload.WorkspaceMountPath;
+            HomeDirectory = workload.HomeDirectory;
+            SupportedCliCommands = string.Join(Environment.NewLine, workload.SupportedCliCommands);
+            SdkVersions = string.Join(Environment.NewLine, workload.SdkVersions.Select(pair => $"{pair.Key}={pair.Value}"));
+            EnvironmentVariables = string.Join(Environment.NewLine, workload.EnvironmentVariables.Select(pair => $"{pair.Key}={pair.Value}"));
+            BootstrapCommands = string.Join(Environment.NewLine, workload.BootstrapCommands);
+            AptPackages = string.Join(Environment.NewLine, workload.CliInstallers.AptPackages);
+            NpmGlobalPackages = string.Join(Environment.NewLine, workload.CliInstallers.NpmGlobalPackages);
+            PipxPackages = string.Join(Environment.NewLine, workload.CliInstallers.PipxPackages);
+            DotNetTools = string.Join(Environment.NewLine, workload.CliInstallers.DotNetTools);
+
+            AuthMounts.Clear();
+            AuthMounts.AddRange(workload.AuthMounts.Select(mount => new EditorMount(mount)));
+
+            CacheMounts.Clear();
+            CacheMounts.AddRange(workload.CacheMounts.Select(mount => new EditorMount(mount)));
+
+            Secrets.Clear();
+            Secrets.AddRange(workload.Secrets.Select(secret => new EditorSecret(secret)));
+        }
+
+        public WorkloadDefinition ToWorkload()
+        {
+            var name = Required("Workload name", Name);
+            var baseImage = Required("Base image", BaseImage);
+            var workspaceMountPath = Required("Workspace mount path", WorkspaceMountPath);
+            var homeDirectory = Required("Home directory", HomeDirectory);
+
+            return new WorkloadDefinition
+            {
+                Id = Id.Trim(),
+                Name = name,
+                Description = Description.Trim(),
+                BaseImage = baseImage,
+                WorkspaceMountPath = workspaceMountPath,
+                HomeDirectory = homeDirectory,
+                SupportedCliCommands = ParseStringList(SupportedCliCommands),
+                SdkVersions = ParseKeyValueLines("SDK versions", SdkVersions),
+                EnvironmentVariables = ParseKeyValueLines("Environment variables", EnvironmentVariables),
+                BootstrapCommands = ParseStringList(BootstrapCommands),
+                CliInstallers = new WorkloadCliInstallers
+                {
+                    AptPackages = ParseStringList(AptPackages),
+                    NpmGlobalPackages = ParseStringList(NpmGlobalPackages),
+                    PipxPackages = ParseStringList(PipxPackages),
+                    DotNetTools = ParseStringList(DotNetTools)
+                },
+                AuthMounts = ParseMounts("Auth mounts", AuthMounts),
+                CacheMounts = ParseMounts("Cache mounts", CacheMounts),
+                Secrets = ParseSecrets(Secrets),
+                IsBuiltIn = false
+            };
+        }
+
+        private static string Required(string label, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                throw new InvalidOperationException($"{label} is required.");
+
+            return value.Trim();
+        }
+
+        private static List<string> ParseStringList(string value)
+        {
+            return value
+                .Split(['\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static Dictionary<string, string> ParseKeyValueLines(string label, string value)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var lines = value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            foreach (var line in lines)
+            {
+                var separatorIndex = line.IndexOf('=');
+                if (separatorIndex <= 0 || separatorIndex == line.Length - 1)
+                    throw new InvalidOperationException($"{label} entries must use key=value format. Invalid entry: '{line}'.");
+
+                var key = line[..separatorIndex].Trim();
+                var parsedValue = line[(separatorIndex + 1)..].Trim();
+                if (key.Length == 0 || parsedValue.Length == 0)
+                    throw new InvalidOperationException($"{label} entries must use key=value format. Invalid entry: '{line}'.");
+
+                result[key] = parsedValue;
+            }
+
+            return result;
+        }
+
+        private static List<WorkloadMount> ParseMounts(string label, IEnumerable<EditorMount> mounts)
+        {
+            var result = new List<WorkloadMount>();
+
+            foreach (var mount in mounts)
+            {
+                if (string.IsNullOrWhiteSpace(mount.Name) &&
+                    string.IsNullOrWhiteSpace(mount.TargetPath) &&
+                    string.IsNullOrWhiteSpace(mount.Description))
+                {
+                    continue;
+                }
+
+                result.Add(new WorkloadMount
+                {
+                    Name = Required($"{label} name", mount.Name),
+                    TargetPath = Required($"{label} target path", mount.TargetPath),
+                    Description = mount.Description.Trim()
+                });
+            }
+
+            return result;
+        }
+
+        private static List<WorkloadSecret> ParseSecrets(IEnumerable<EditorSecret> secrets)
+        {
+            var result = new List<WorkloadSecret>();
+
+            foreach (var secret in secrets)
+            {
+                if (string.IsNullOrWhiteSpace(secret.Name) &&
+                    string.IsNullOrWhiteSpace(secret.EnvironmentVariable) &&
+                    string.IsNullOrWhiteSpace(secret.Description) &&
+                    !secret.IsRequired)
+                {
+                    continue;
+                }
+
+                result.Add(new WorkloadSecret
+                {
+                    Name = Required("Secret name", secret.Name),
+                    EnvironmentVariable = Required("Secret environment variable", secret.EnvironmentVariable),
+                    Description = secret.Description.Trim(),
+                    IsRequired = secret.IsRequired
+                });
+            }
+
+            return result;
+        }
+    }
+
+    private sealed class EditorMount
+    {
+        public EditorMount()
+        {
+        }
+
+        public EditorMount(WorkloadMount mount)
+        {
+            Name = mount.Name;
+            TargetPath = mount.TargetPath;
+            Description = mount.Description;
+        }
+
+        public string Name { get; set; } = string.Empty;
+        public string TargetPath { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+
+    private sealed class EditorSecret
+    {
+        public EditorSecret()
+        {
+        }
+
+        public EditorSecret(WorkloadSecret secret)
+        {
+            Name = secret.Name;
+            EnvironmentVariable = secret.EnvironmentVariable;
+            Description = secret.Description;
+            IsRequired = secret.IsRequired;
+        }
+
+        public string Name { get; set; } = string.Empty;
+        public string EnvironmentVariable { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public bool IsRequired { get; set; }
+    }
+}

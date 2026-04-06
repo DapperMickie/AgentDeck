@@ -17,6 +17,7 @@ public static class MauiProgram
 
         builder.Services.AddMauiBlazorWebView();
         builder.Services.AddSingleton<IAppDataDirectory, AgentDeck.Services.MauiAppDataDirectory>();
+        builder.Services.AddSingleton<IWorkloadContainerRuntimeService, AgentDeck.Services.LocalDockerWorkloadRuntimeService>();
         builder.Services.AddAgentDeckCore();
 
 #if DEBUG
