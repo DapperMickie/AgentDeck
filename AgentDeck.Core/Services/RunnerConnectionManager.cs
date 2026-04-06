@@ -159,7 +159,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
         return await entry.Client.GetMachineCapabilitiesAsync(cancellationToken);
     }
 
-    public async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(RunnerMachineSettings machine, string capabilityId, CancellationToken cancellationToken = default)
+    public async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(RunnerMachineSettings machine, string capabilityId, string? version = null, CancellationToken cancellationToken = default)
     {
         var entry = GetOrCreateEntry(machine);
         if (entry.Client.ConnectionState != HubConnectionState.Connected)
@@ -167,7 +167,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
             await entry.Client.ConnectAsync(BuildHubUrl(machine.RunnerUrl), cancellationToken);
         }
 
-        return await entry.Client.InstallMachineCapabilityAsync(capabilityId, cancellationToken);
+        return await entry.Client.InstallMachineCapabilityAsync(capabilityId, version, cancellationToken);
     }
 
     public async ValueTask DisposeAsync()

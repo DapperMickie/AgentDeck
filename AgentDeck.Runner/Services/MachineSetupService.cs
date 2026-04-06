@@ -13,24 +13,19 @@ public sealed class MachineSetupService : IMachineSetupService
         _logger = logger;
     }
 
-    public async Task<MachineCapabilityInstallResult> InstallCapabilityAsync(string capabilityId, CancellationToken cancellationToken = default)
+    public async Task<MachineCapabilityInstallResult> InstallCapabilityAsync(string capabilityId, string? version = null, CancellationToken cancellationToken = default)
     {
         var request = capabilityId.Trim().ToLowerInvariant();
+        var requestedVersion = NormalizeVersion(version);
+
         return request switch
         {
             "gh" => await InstallGitHubCliAsync(cancellationToken),
             "copilot" => await InstallCopilotCliAsync(cancellationToken),
-            "node" => await InstallNodeAsync(cancellationToken),
-            "python" => await InstallPythonAsync(cancellationToken),
-            "dotnet" => await InstallDotNetAsync(cancellationToken),
-            _ => new MachineCapabilityInstallResult
-            {
-                CapabilityId = request,
-                CapabilityName = capabilityId,
-                Succeeded = false,
-                ExitCode = -1,
-                Message = $"Installing '{capabilityId}' is not supported."
-            }
+            "node" => await InstallNodeAsync(requestedVersion, cancellationToken),
+            "python" => await InstallPythonAsync(requestedVersion, cancellationToken),
+            "dotnet" => await InstallDotNetAsync(requestedVersion, cancellationToken),
+            _ => CreateFailureResult(request, capabilityId, requestedVersion, $"Installing '{capabilityId}' is not supported.")
         };
     }
 
@@ -58,14 +53,11 @@ public sealed class MachineSetupService : IMachineSetupService
         {
             if (!CommandExists("npm"))
             {
-                return Task.FromResult(new MachineCapabilityInstallResult
-                {
-                    CapabilityId = "copilot",
-                    CapabilityName = "GitHub Copilot CLI",
-                    Succeeded = false,
-                    ExitCode = -1,
-                    Message = "npm is required to install GitHub Copilot CLI. Install Node.js first."
-                });
+                return Task.FromResult(CreateFailureResult(
+                    "copilot",
+                    "GitHub Copilot CLI",
+                    null,
+                    "npm is required to install GitHub Copilot CLI. Install Node.js first."));
             }
 
             return RunDirectCommandAsync(
@@ -83,76 +75,93 @@ public sealed class MachineSetupService : IMachineSetupService
             cancellationToken);
     }
 
-    private Task<MachineCapabilityInstallResult> InstallNodeAsync(CancellationToken cancellationToken)
+    private Task<MachineCapabilityInstallResult> InstallNodeAsync(string? requestedVersion, CancellationToken cancellationToken)
     {
         if (OperatingSystem.IsWindows())
         {
             return RunWindowsCommandAsync(
                 "node",
                 "Node.js",
-                "winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements",
-                cancellationToken);
+                BuildWindowsNodeInstallCommand(requestedVersion),
+                cancellationToken,
+                requestedVersion);
         }
 
         return RunLinuxCommandAsync(
             "node",
             "Node.js",
-            "apt-get update && apt-get install -y nodejs npm",
-            cancellationToken);
+            BuildLinuxNodeInstallCommand(requestedVersion),
+            cancellationToken,
+            requestedVersion);
     }
 
-    private Task<MachineCapabilityInstallResult> InstallPythonAsync(CancellationToken cancellationToken)
+    private Task<MachineCapabilityInstallResult> InstallPythonAsync(string? requestedVersion, CancellationToken cancellationToken)
     {
         if (OperatingSystem.IsWindows())
         {
+            var version = requestedVersion ?? "3.12";
             return RunWindowsCommandAsync(
                 "python",
                 "Python",
-                "winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements",
-                cancellationToken);
+                $"winget install --id Python.Python.{version} -e --accept-package-agreements --accept-source-agreements",
+                cancellationToken,
+                version);
         }
+
+        var commandText = requestedVersion is null
+            ? "apt-get update && apt-get install -y python3 python3-pip python3-venv pipx"
+            : $"apt-get update && apt-get install -y python{requestedVersion} python{requestedVersion}-venv python3-pip";
 
         return RunLinuxCommandAsync(
             "python",
             "Python",
-            "apt-get update && apt-get install -y python3 python3-pip python3-venv pipx",
-            cancellationToken);
+            commandText,
+            cancellationToken,
+            requestedVersion);
     }
 
-    private Task<MachineCapabilityInstallResult> InstallDotNetAsync(CancellationToken cancellationToken)
+    private Task<MachineCapabilityInstallResult> InstallDotNetAsync(string? requestedVersion, CancellationToken cancellationToken)
     {
+        var version = requestedVersion ?? "10.0";
         if (OperatingSystem.IsWindows())
         {
+            var major = version.Split('.', 2)[0];
+            var commandText = $"winget install --id Microsoft.DotNet.SDK.{major} -e --accept-package-agreements --accept-source-agreements";
+            if (version.Count(ch => ch == '.') >= 2)
+            {
+                commandText += $" --version {QuoteWindowsArgument(version)}";
+            }
+
             return RunWindowsCommandAsync(
                 "dotnet",
                 ".NET SDK",
-                "winget install --id Microsoft.DotNet.SDK.10 -e --accept-package-agreements --accept-source-agreements",
-                cancellationToken);
+                commandText,
+                cancellationToken,
+                version);
         }
 
         return RunLinuxCommandAsync(
             "dotnet",
             ".NET SDK",
-            "wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb && dpkg -i /tmp/packages-microsoft-prod.deb && rm /tmp/packages-microsoft-prod.deb && apt-get update && apt-get install -y dotnet-sdk-10.0",
-            cancellationToken);
+            $"wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb && dpkg -i /tmp/packages-microsoft-prod.deb && rm /tmp/packages-microsoft-prod.deb && apt-get update && apt-get install -y dotnet-sdk-{version}",
+            cancellationToken,
+            version);
     }
 
     private Task<MachineCapabilityInstallResult> RunWindowsCommandAsync(
         string capabilityId,
         string capabilityName,
         string commandText,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? requestedVersion = null)
     {
         if (!CommandExists("winget"))
         {
-            return Task.FromResult(new MachineCapabilityInstallResult
-            {
-                CapabilityId = capabilityId,
-                CapabilityName = capabilityName,
-                Succeeded = false,
-                ExitCode = -1,
-                Message = "winget is required for this installation flow but is not available on the machine."
-            });
+            return Task.FromResult(CreateFailureResult(
+                capabilityId,
+                capabilityName,
+                requestedVersion,
+                "winget is required for this installation flow but is not available on the machine."));
         }
 
         return RunDirectCommandAsync(
@@ -161,25 +170,24 @@ public sealed class MachineSetupService : IMachineSetupService
             "powershell.exe",
             ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", commandText],
             cancellationToken,
-            commandText);
+            commandText,
+            requestedVersion);
     }
 
     private Task<MachineCapabilityInstallResult> RunLinuxCommandAsync(
         string capabilityId,
         string capabilityName,
         string commandText,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? requestedVersion = null)
     {
         if (!CommandExists("apt-get"))
         {
-            return Task.FromResult(new MachineCapabilityInstallResult
-            {
-                CapabilityId = capabilityId,
-                CapabilityName = capabilityName,
-                Succeeded = false,
-                ExitCode = -1,
-                Message = "apt-get is required for this installation flow but is not available on the machine."
-            });
+            return Task.FromResult(CreateFailureResult(
+                capabilityId,
+                capabilityName,
+                requestedVersion,
+                "apt-get is required for this installation flow but is not available on the machine."));
         }
 
         var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
@@ -200,7 +208,8 @@ public sealed class MachineSetupService : IMachineSetupService
             shellPath,
             ["-lc", finalCommand],
             cancellationToken,
-            finalCommand);
+            finalCommand,
+            requestedVersion);
     }
 
     private async Task<MachineCapabilityInstallResult> RunDirectCommandAsync(
@@ -209,7 +218,8 @@ public sealed class MachineSetupService : IMachineSetupService
         string fileName,
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken,
-        string? commandTextOverride = null)
+        string? commandTextOverride = null,
+        string? requestedVersion = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -237,6 +247,7 @@ public sealed class MachineSetupService : IMachineSetupService
             {
                 CapabilityId = capabilityId,
                 CapabilityName = capabilityName,
+                RequestedVersion = requestedVersion,
                 Succeeded = false,
                 ExitCode = -1,
                 CommandText = commandTextOverride ?? $"{fileName} {string.Join(' ', arguments)}",
@@ -265,12 +276,67 @@ public sealed class MachineSetupService : IMachineSetupService
         {
             CapabilityId = capabilityId,
             CapabilityName = capabilityName,
+            RequestedVersion = requestedVersion,
             Succeeded = process.ExitCode == 0,
             ExitCode = process.ExitCode,
             CommandText = commandTextOverride ?? $"{fileName} {string.Join(' ', arguments)}",
             StandardOutput = standardOutput,
             StandardError = standardError,
-            Message = process.ExitCode == 0 ? $"Installed {capabilityName}." : FirstMeaningfulLine(standardError, standardOutput)
+            Message = process.ExitCode == 0
+                ? $"Installed {capabilityName}{(requestedVersion is null ? string.Empty : $" {requestedVersion}")}."
+                : FirstMeaningfulLine(standardError, standardOutput)
+        };
+    }
+
+    private static string BuildWindowsNodeInstallCommand(string? requestedVersion)
+    {
+        var baseCommand = requestedVersion switch
+        {
+            null => "winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements",
+            var version when !version.Contains('.') && version.StartsWith("20", StringComparison.OrdinalIgnoreCase)
+                => "winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements",
+            var version when !version.Contains('.')
+                => "winget install --id OpenJS.NodeJS -e --accept-package-agreements --accept-source-agreements",
+            _ => "winget install --id OpenJS.NodeJS -e --accept-package-agreements --accept-source-agreements"
+        };
+
+        return requestedVersion is not null && requestedVersion.Contains('.')
+            ? $"{baseCommand} --version {QuoteWindowsArgument(requestedVersion)}"
+            : baseCommand;
+    }
+
+    private static string BuildLinuxNodeInstallCommand(string? requestedVersion)
+    {
+        var major = ExtractLeadingMajor(requestedVersion) ?? "22";
+        return $"if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y curl ca-certificates; fi && curl -fsSL https://deb.nodesource.com/setup_{major}.x | bash - && apt-get install -y nodejs";
+    }
+
+    private static string? ExtractLeadingMajor(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            return null;
+        }
+
+        var digits = new string(version.Trim().TakeWhile(char.IsDigit).ToArray());
+        return digits.Length > 0 ? digits : null;
+    }
+
+    private static MachineCapabilityInstallResult CreateFailureResult(
+        string capabilityId,
+        string capabilityName,
+        string? requestedVersion,
+        string message)
+    {
+        return new MachineCapabilityInstallResult
+        {
+            CapabilityId = capabilityId,
+            CapabilityName = capabilityName,
+            RequestedVersion = requestedVersion,
+            Succeeded = false,
+            ExitCode = -1,
+            Message = message,
+            StandardError = message
         };
     }
 
@@ -300,6 +366,16 @@ public sealed class MachineSetupService : IMachineSetupService
         return false;
     }
 
+    private static string? NormalizeVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            return null;
+        }
+
+        return version.Trim();
+    }
+
     private static string? FirstMeaningfulLine(params string[] values)
     {
         foreach (var value in values)
@@ -322,4 +398,5 @@ public sealed class MachineSetupService : IMachineSetupService
     }
 
     private static string QuotePosix(string value) => $"'{value.Replace("'", "'\"'\"'")}'";
+    private static string QuoteWindowsArgument(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
 }

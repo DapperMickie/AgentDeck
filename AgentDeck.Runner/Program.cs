@@ -1,6 +1,7 @@
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Runner.Hubs;
 using AgentDeck.Runner.Services;
+using AgentDeck.Shared.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -65,8 +66,8 @@ app.MapGet("/api/workspace", (IWorkspaceService workspace) =>
 app.MapGet("/api/capabilities", async (IMachineCapabilityService capabilities, CancellationToken cancellationToken) =>
     Results.Ok(await capabilities.GetSnapshotAsync(cancellationToken)));
 
-app.MapPost("/api/capabilities/{capabilityId}/install", async (string capabilityId, IMachineSetupService setup, CancellationToken cancellationToken) =>
-    Results.Ok(await setup.InstallCapabilityAsync(capabilityId, cancellationToken)));
+app.MapPost("/api/capabilities/{capabilityId}/install", async (string capabilityId, MachineCapabilityInstallRequest? request, IMachineSetupService setup, CancellationToken cancellationToken) =>
+    Results.Ok(await setup.InstallCapabilityAsync(capabilityId, request?.Version, cancellationToken)));
 
 app.MapHub<AgentHub>("/hubs/agent");
 

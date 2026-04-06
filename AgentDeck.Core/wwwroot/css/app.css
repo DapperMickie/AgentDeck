@@ -552,6 +552,23 @@ main {
     margin-top: 0.85rem;
 }
 
+.capability-version-picker {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.85rem;
+}
+
+.capability-version-picker label {
+    font-size: 0.76rem;
+    color: var(--color-subtext);
+}
+
+.capability-version-picker__inputs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.6rem;
+}
+
 .capability-card__header {
     display: flex;
     justify-content: space-between;

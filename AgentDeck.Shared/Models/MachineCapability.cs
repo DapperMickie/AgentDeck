@@ -10,5 +10,6 @@ public sealed class MachineCapability
     public required string Category { get; init; }
     public required MachineCapabilityStatus Status { get; init; }
     public string? Version { get; init; }
+    public IReadOnlyList<string> InstalledVersions { get; init; } = [];
     public string? Message { get; init; }
 }
