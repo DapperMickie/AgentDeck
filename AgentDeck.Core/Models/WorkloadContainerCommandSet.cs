@@ -9,6 +9,7 @@ public sealed class WorkloadContainerCommandSet
     public string? BuildBaseImageCommand { get; init; }
     public required string GeneratedDockerfile { get; init; }
     public required string BuildWorkloadImageCommand { get; init; }
-    public required string StartContainerCommand { get; init; }
+    public string? StartContainerCommand { get; init; }
+    public string? StartContainerCommandMessage { get; init; }
     public required string StopContainerCommand { get; init; }
 }

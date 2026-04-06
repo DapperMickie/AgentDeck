@@ -139,7 +139,7 @@
                 <button class="btn btn-accent" @onclick="BuildWorkloadImageAsync" disabled="@_containerBusy">
                     Build Workload Image
                 </button>
-                <button class="btn btn-primary" @onclick="StartContainerAsync" disabled="@_containerBusy">
+                <button class="btn btn-primary" @onclick="StartContainerAsync" disabled="@(_containerBusy || commandSet.StartContainerCommand is null)">
                     Start Container
                 </button>
                 <button class="btn btn-danger" @onclick="StopContainerAsync" disabled="@_containerBusy">
@@ -209,7 +209,14 @@
                 </div>
                 <div class="workload-command-card">
                     <h3>Start Container</h3>
-                    <pre class="command-preview">@commandSet.StartContainerCommand</pre>
+                    @if (commandSet.StartContainerCommand is null)
+                    {
+                        <p>@commandSet.StartContainerCommandMessage</p>
+                    }
+                    else
+                    {
+                        <pre class="command-preview">@commandSet.StartContainerCommand</pre>
+                    }
                 </div>
                 <div class="workload-command-card">
                     <h3>Stop Container</h3>
