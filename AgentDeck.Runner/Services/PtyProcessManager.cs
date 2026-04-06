@@ -24,8 +24,8 @@ public sealed class PtyProcessManager : IPtyProcessManager
     public async Task StartAsync(string sessionId, string command, IReadOnlyList<string> arguments, string workingDirectory, int cols, int rows, CancellationToken cancellationToken = default)
     {
         var commandLine = arguments.Count > 0
-            ? [command, .. arguments]
-            : (string[])[command];
+            ? arguments.ToArray()
+            : Array.Empty<string>();
 
         var options = new PtyOptions
         {
@@ -46,7 +46,7 @@ public sealed class PtyProcessManager : IPtyProcessManager
             workingDirectory,
             cols,
             rows,
-            string.Join(" ", commandLine));
+            commandLine.Length == 0 ? "<none>" : string.Join(" ", commandLine));
 
         IPtyConnection connection;
         try
@@ -63,7 +63,7 @@ public sealed class PtyProcessManager : IPtyProcessManager
                 workingDirectory,
                 cols,
                 rows,
-                string.Join(" ", commandLine));
+                commandLine.Length == 0 ? "<none>" : string.Join(" ", commandLine));
             throw;
         }
 
@@ -77,7 +77,7 @@ public sealed class PtyProcessManager : IPtyProcessManager
                 e.ExitCode,
                 command,
                 workingDirectory,
-                string.Join(" ", commandLine));
+                commandLine.Length == 0 ? "<none>" : string.Join(" ", commandLine));
             ProcessExited?.Invoke(this, (sessionId, e.ExitCode));
             cts.Cancel();
         };
@@ -178,7 +178,7 @@ public sealed class PtyProcessManager : IPtyProcessManager
             workingDirectoryMetadata,
             ptmxMetadata,
             ptsMetadata,
-            string.Join(" ", commandLine));
+            commandLine.Count == 0 ? "<none>" : string.Join(" ", commandLine));
     }
 
     private static string? ResolveCommandPath(string command)
