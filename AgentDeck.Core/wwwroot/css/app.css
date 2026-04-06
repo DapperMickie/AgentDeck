@@ -501,6 +501,15 @@ main {
         padding: 1rem;
     }
 
+    .settings-page {
+        gap: 0.85rem;
+        padding-bottom: 0.75rem;
+    }
+
+    .settings-page__card {
+        margin: 0;
+    }
+
     .machine-layout,
     .capability-version-picker__inputs {
         grid-template-columns: minmax(0, 1fr);
@@ -533,6 +542,43 @@ main {
     .shortcuts-card {
         min-width: 0;
     }
+
+    .machine-list--settings {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(15rem, 82vw);
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
+        scroll-snap-type: x proximity;
+    }
+
+    .machine-list--settings .machine-card {
+        min-height: 100%;
+        scroll-snap-align: start;
+    }
+
+    .setup-summary--settings {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .setup-summary--settings .setup-summary__item {
+        min-width: 0;
+    }
+
+    .capability-grid--settings {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .form-actions--toolbar .btn,
+    .form-actions--settings .btn,
+    .capability-card__actions .btn {
+        width: 100%;
+    }
+
+    .capability-card {
+        padding: 1rem;
+    }
 }
 
 @media (max-width: 900px) and (orientation: landscape) {
@@ -548,6 +594,14 @@ main {
 
     .command-bar__pill {
         flex: 0 0 auto;
+    }
+
+    .machine-list--settings {
+        grid-auto-columns: minmax(18rem, 28rem);
+    }
+
+    .capability-grid--settings {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     }
 }
 
@@ -567,6 +621,22 @@ main {
 
     .shortcuts-table td:first-child {
         padding-right: 0.75rem;
+    }
+
+    .settings-page__header p {
+        font-size: 0.82rem;
+    }
+
+    .setup-summary--settings {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-card__description {
+        font-size: 0.8rem;
+    }
+
+    .machine-list--settings {
+        grid-auto-columns: minmax(14rem, 85vw);
     }
 }
 
@@ -633,6 +703,37 @@ main {
     margin: 1rem 1.5rem;
 }
 
+.settings-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 0 0 1rem;
+}
+
+.settings-page__header {
+    padding-bottom: 0;
+}
+
+.settings-page__header p {
+    margin: 0.35rem 0 0;
+    color: var(--color-subtext);
+    font-size: 0.9rem;
+    max-width: 42rem;
+}
+
+.settings-page__card {
+    margin: 0 1.5rem;
+}
+
+.settings-page__details {
+    display: grid;
+    gap: 1rem;
+}
+
+.settings-page__section-header > div:first-child {
+    min-width: 0;
+}
+
 .settings-card__header {
     display: flex;
     justify-content: space-between;
@@ -663,6 +764,17 @@ main {
 .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: var(--color-text); font-size: 0.875rem; }
 
 .form-actions { display: flex; gap: 0.75rem; margin-top: 1.25rem; }
+
+.form-actions--toolbar {
+    margin-top: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.form-actions--settings {
+    align-items: stretch;
+    flex-wrap: wrap;
+}
 
 .input--multiline {
     min-height: 5.5rem;
@@ -744,6 +856,10 @@ main {
 
 .machine-editor {
     min-width: 0;
+}
+
+.machine-editor--settings {
+    padding: 0.25rem 0;
 }
 
 .machine-badge,
@@ -895,6 +1011,27 @@ main {
 
 .capability-install-result h3 {
     margin: 0 0 0.75rem;
+}
+
+.settings-status-list {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.settings-status-row {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.settings-status-row__label {
+    color: var(--color-subtext);
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.settings-status-row__value {
+    overflow-wrap: anywhere;
 }
 
 .legacy-settings {

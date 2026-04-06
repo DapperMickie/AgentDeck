@@ -5,263 +5,289 @@
 @inject ILogger<Settings> Logger
 @implements IDisposable
 
-<div class="page-header">
-    <h1>Settings</h1>
-</div>
-
-<div class="settings-card">
-    <div class="settings-card__header">
-        <h2>Runner Machines</h2>
-        <div class="form-actions">
-            <button class="btn btn-accent" @onclick="AddMachine">Add Machine</button>
-            <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
-                @(_saving ? "Saving..." : "Save")
-            </button>
+<div class="settings-page">
+    <div class="page-header settings-page__header">
+        <div>
+            <h1>Settings</h1>
+            <p>Manage runner machines, connectivity, and machine setup from one place.</p>
         </div>
     </div>
 
-    @if (_errorMessage is not null)
-    {
-        <p class="error-message">@_errorMessage</p>
-    }
-
-    <div class="machine-layout">
-        <div class="machine-list">
-            @foreach (var machine in _settings.Machines)
-            {
-                <button class="machine-card @(IsSelectedMachine(machine) ? "machine-card--selected" : "")"
-                        @onclick="() => SelectMachine(machine.Id)">
-                    <span class="machine-card__title">@machine.Name</span>
-                    <span class="machine-card__url">@machine.RunnerUrl</span>
-                    <span class="machine-card__meta">
-                        @if (string.Equals(_settings.PreferredMachineId, machine.Id, StringComparison.OrdinalIgnoreCase))
-                        {
-                            <span class="machine-badge">Default terminal</span>
-                        }
-                        <span class="machine-state machine-state--@GetStatusClass(machine)">
-                            @GetStatusLabel(machine)
-                        </span>
-                    </span>
-                </button>
-            }
-        </div>
-
-        @if (SelectedMachine is not null)
-        {
-            <div class="machine-editor">
-                <div class="form-field">
-                    <label for="machine-name">Machine Name</label>
-                    <input id="machine-name" type="text" class="input" @bind="SelectedMachine.Name" />
-                </div>
-
-                <div class="form-field">
-                    <label for="runner-url">Runner URL</label>
-                    <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
-                           placeholder="http://localhost:5000" />
-                </div>
-
-                <div class="form-field">
-                    <label class="checkbox-label">
-                        <input type="checkbox" @bind="SelectedMachine.AutoConnect" />
-                        Auto-connect on startup
-                    </label>
-                </div>
-
-                <div class="form-actions">
-                    <button class="btn btn-accent" @onclick="() => SetPreferredMachine(SelectedMachine.Id)">
-                        Make Default For New Terminals
-                    </button>
-
-                    @if (Connections.GetConnectionState(SelectedMachine.Id) == HubConnectionState.Connected)
-                    {
-                        <button class="btn btn-danger" @onclick="() => DisconnectAsync(SelectedMachine.Id)">Disconnect</button>
-                    }
-                    else
-                    {
-                        <button class="btn btn-primary" @onclick="() => ConnectAsync(SelectedMachine)">
-                            Connect
-                        </button>
-                    }
-
-                    <button class="btn btn-danger"
-                            @onclick="() => DeleteMachineAsync(SelectedMachine.Id)"
-                            disabled="@(_settings.Machines.Count == 1)">
-                        Delete Machine
-                    </button>
-                </div>
+    <div class="settings-card settings-page__card">
+        <div class="settings-card__header settings-page__section-header">
+            <div>
+                <h2>Runner Machines</h2>
+                <p class="settings-card__description">Choose a machine, update its connection details, and control how new terminals are created.</p>
             </div>
-        }
-    </div>
-</div>
-
-@if (SelectedMachine is not null)
-{
-    <div class="settings-card">
-        <h2>Connection Status: @SelectedMachine.Name</h2>
-        <p>State: <strong class="status-text-@GetStatusClass(SelectedMachine)">@GetStatusLabel(SelectedMachine)</strong></p>
-        <p>Hub URL: <code>@GetHubUrl(SelectedMachine)</code></p>
-    </div>
-
-    <div class="settings-card">
-        <div class="settings-card__header">
-            <h2>Machine Setup: @SelectedMachine.Name</h2>
-            <div class="form-actions">
-                <button class="btn btn-accent" @onclick="RefreshMachineCapabilitiesAsync" disabled="@_capabilitiesBusy">
-                    Refresh Capabilities
+            <div class="form-actions form-actions--toolbar">
+                <button class="btn btn-accent" @onclick="AddMachine">Add Machine</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
+                    @(_saving ? "Saving..." : "Save")
                 </button>
             </div>
         </div>
 
-        <p class="settings-card__description">
-            AgentDeck now treats each runner target as a machine to inspect and prepare in place. Detect which supported tools are already installed and install missing ones directly on this machine.
-        </p>
+        @if (_errorMessage is not null)
+        {
+            <p class="error-message">@_errorMessage</p>
+        }
 
-        @if (_capabilitiesErrorMessage is not null)
-        {
-            <p class="error-message">@_capabilitiesErrorMessage</p>
-        }
-        else if (_capabilitiesBusy)
-        {
-            <p>Detecting supported tools on this machine...</p>
-        }
-        else if (_machineCapabilities is null)
-        {
-            <p>Refresh capabilities to inspect which supported CLIs and SDKs are installed on this machine.</p>
-        }
-        else
-        {
-            <div class="setup-summary">
-                <div class="setup-summary__item">
-                    <span class="setup-summary__label">Installed</span>
-                    <strong>@GetCapabilityCount(MachineCapabilityStatus.Installed)</strong>
-                </div>
-                <div class="setup-summary__item">
-                    <span class="setup-summary__label">Missing</span>
-                    <strong>@GetCapabilityCount(MachineCapabilityStatus.Missing)</strong>
-                </div>
-                <div class="setup-summary__item">
-                    <span class="setup-summary__label">Errors</span>
-                    <strong>@GetCapabilityCount(MachineCapabilityStatus.Error)</strong>
-                </div>
-            </div>
-
-            <div class="capability-grid">
-                @foreach (var capability in _machineCapabilities.Capabilities.OrderBy(capability => capability.Category).ThenBy(capability => capability.Name))
+        <div class="machine-layout">
+            <div class="machine-list machine-list--settings">
+                @foreach (var machine in _settings.Machines)
                 {
-                    <article class="capability-card">
-                        <div class="capability-card__header">
-                            <div>
-                                <h3>@capability.Name</h3>
-                                <p>@capability.Category.ToUpperInvariant()</p>
-                            </div>
-                            <span class="capability-status capability-status--@GetCapabilityStatusClass(capability)">
-                                @capability.Status
+                    <button class="machine-card @(IsSelectedMachine(machine) ? "machine-card--selected" : "")"
+                            @onclick="() => SelectMachine(machine.Id)">
+                        <span class="machine-card__title">@machine.Name</span>
+                        <span class="machine-card__url">@machine.RunnerUrl</span>
+                        <span class="machine-card__meta">
+                            @if (string.Equals(_settings.PreferredMachineId, machine.Id, StringComparison.OrdinalIgnoreCase))
+                            {
+                                <span class="machine-badge">Default terminal</span>
+                            }
+                            <span class="machine-state machine-state--@GetStatusClass(machine)">
+                                @GetStatusLabel(machine)
                             </span>
-                        </div>
-
-                        @if (!string.IsNullOrWhiteSpace(capability.Version))
-                        {
-                            <p><strong>Version:</strong> <code>@capability.Version</code></p>
-                        }
-
-                        @if (capability.InstalledVersions.Count > 1)
-                        {
-                            <p><strong>Installed versions:</strong> @string.Join(", ", capability.InstalledVersions)</p>
-                        }
-
-                        @if (!string.IsNullOrWhiteSpace(capability.Message))
-                        {
-                            <p class="capability-card__message">@capability.Message</p>
-                        }
-
-                        @if (SupportsVersionSelection(capability))
-                        {
-                            <div class="capability-version-picker">
-                                <label>SDK version</label>
-                                <div class="capability-version-picker__inputs">
-                                    <select class="input"
-                                            value="@GetPresetSdkVersion(capability.Id)"
-                                            @onchange="args => SetPresetSdkVersion(capability.Id, args.Value?.ToString())">
-                                        <option value="">Default</option>
-                                        @foreach (var option in GetSdkVersionOptions(capability.Id))
-                                        {
-                                            <option value="@option">@option</option>
-                                        }
-                                    </select>
-                                    <input type="text"
-                                           class="input"
-                                           value="@GetCustomSdkVersion(capability.Id)"
-                                           @oninput="args => SetCustomSdkVersion(capability.Id, args.Value?.ToString())"
-                                           placeholder="Custom version" />
-                                </div>
-                                <p class="capability-card__message">Leave both fields blank to install the default version.</p>
-                            </div>
-                        }
-
-                        @if (capability.Status == MachineCapabilityStatus.Missing || SupportsVersionSelection(capability) || SupportsUpdateAction(capability))
-                        {
-                            <div class="capability-card__actions">
-                                @if (capability.Status == MachineCapabilityStatus.Missing || SupportsVersionSelection(capability))
-                                {
-                                    <button class="btn btn-primary"
-                                            @onclick="() => InstallCapabilityAsync(capability)"
-                                            disabled="@(_capabilitiesBusy || IsCapabilityBusy(capability))">
-                                        @(IsCapabilityActionRunning(capability, "install")
-                                            ? "Installing..."
-                                            : SupportsVersionSelection(capability) ? "Install Version" : "Install")
-                                    </button>
-                                }
-
-                                @if (SupportsUpdateAction(capability))
-                                {
-                                    <button class="btn btn-accent"
-                                            @onclick="() => UpdateCapabilityAsync(capability)"
-                                            disabled="@(_capabilitiesBusy || IsCapabilityBusy(capability))">
-                                        @(IsCapabilityActionRunning(capability, "update") ? "Updating..." : "Update")
-                                    </button>
-                                }
-                            </div>
-                        }
-                    </article>
+                        </span>
+                    </button>
                 }
             </div>
-            <p class="machine-capabilities__timestamp">Last checked @(_machineCapabilities.CapturedAt.ToLocalTime().ToString("g"))</p>
 
-            @if (_lastCapabilityInstallResult is not null)
+            @if (SelectedMachine is not null)
             {
-                <div class="capability-install-result">
-                    <h3>Last Setup Action</h3>
-                    <p>
-                        <strong>@_lastCapabilityInstallResult.CapabilityName:</strong>
-                        @(GetCapabilityActionResultLabel(_lastCapabilityInstallResult))
-                        @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.RequestedVersion))
+                <div class="machine-editor machine-editor--settings">
+                    <div class="form-field">
+                        <label for="machine-name">Machine Name</label>
+                        <input id="machine-name" type="text" class="input" @bind="SelectedMachine.Name" />
+                    </div>
+
+                    <div class="form-field">
+                        <label for="runner-url">Runner URL</label>
+                        <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
+                               placeholder="http://localhost:5000" />
+                    </div>
+
+                    <div class="form-field">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="SelectedMachine.AutoConnect" />
+                            Auto-connect on startup
+                        </label>
+                    </div>
+
+                    <div class="form-actions form-actions--settings">
+                        <button class="btn btn-accent" @onclick="() => SetPreferredMachine(SelectedMachine.Id)">
+                            Make Default For New Terminals
+                        </button>
+
+                        @if (Connections.GetConnectionState(SelectedMachine.Id) == HubConnectionState.Connected)
                         {
-                            <span> (@_lastCapabilityInstallResult.RequestedVersion)</span>
+                            <button class="btn btn-danger" @onclick="() => DisconnectAsync(SelectedMachine.Id)">Disconnect</button>
                         }
-                    </p>
-                    @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.Message))
-                    {
-                        <p>@_lastCapabilityInstallResult.Message</p>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.CommandText))
-                    {
-                        <pre class="command-preview">@_lastCapabilityInstallResult.CommandText</pre>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.StandardOutput))
-                    {
-                        <h3>Standard Output</h3>
-                        <pre class="command-preview">@_lastCapabilityInstallResult.StandardOutput</pre>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.StandardError))
-                    {
-                        <h3>Standard Error</h3>
-                        <pre class="command-preview">@_lastCapabilityInstallResult.StandardError</pre>
-                    }
+                        else
+                        {
+                            <button class="btn btn-primary" @onclick="() => ConnectAsync(SelectedMachine)">
+                                Connect
+                            </button>
+                        }
+
+                        <button class="btn btn-danger"
+                                @onclick="() => DeleteMachineAsync(SelectedMachine.Id)"
+                                disabled="@(_settings.Machines.Count == 1)">
+                            Delete Machine
+                        </button>
+                    </div>
                 </div>
             }
-        }
+        </div>
     </div>
-}
+
+    @if (SelectedMachine is not null)
+    {
+        <div class="settings-page__details">
+            <div class="settings-card settings-page__card settings-card--status">
+                <div class="settings-card__header settings-page__section-header">
+                    <div>
+                        <h2>Connection Status</h2>
+                        <p class="settings-card__description">@SelectedMachine.Name</p>
+                    </div>
+                </div>
+                <div class="settings-status-list">
+                    <div class="settings-status-row">
+                        <span class="settings-status-row__label">State</span>
+                        <strong class="status-text-@GetStatusClass(SelectedMachine)">@GetStatusLabel(SelectedMachine)</strong>
+                    </div>
+                    <div class="settings-status-row">
+                        <span class="settings-status-row__label">Hub URL</span>
+                        <code class="settings-status-row__value">@GetHubUrl(SelectedMachine)</code>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-card settings-page__card">
+                <div class="settings-card__header settings-page__section-header">
+                    <div>
+                        <h2>Machine Setup</h2>
+                        <p class="settings-card__description">@SelectedMachine.Name</p>
+                    </div>
+                    <div class="form-actions form-actions--toolbar">
+                        <button class="btn btn-accent" @onclick="RefreshMachineCapabilitiesAsync" disabled="@_capabilitiesBusy">
+                            Refresh Capabilities
+                        </button>
+                    </div>
+                </div>
+
+                <p class="settings-card__description">
+                    AgentDeck now treats each runner target as a machine to inspect and prepare in place. Detect which supported tools are already installed and install missing ones directly on this machine.
+                </p>
+
+                @if (_capabilitiesErrorMessage is not null)
+                {
+                    <p class="error-message">@_capabilitiesErrorMessage</p>
+                }
+                else if (_capabilitiesBusy)
+                {
+                    <p>Detecting supported tools on this machine...</p>
+                }
+                else if (_machineCapabilities is null)
+                {
+                    <p>Refresh capabilities to inspect which supported CLIs and SDKs are installed on this machine.</p>
+                }
+                else
+                {
+                    <div class="setup-summary setup-summary--settings">
+                        <div class="setup-summary__item">
+                            <span class="setup-summary__label">Installed</span>
+                            <strong>@GetCapabilityCount(MachineCapabilityStatus.Installed)</strong>
+                        </div>
+                        <div class="setup-summary__item">
+                            <span class="setup-summary__label">Missing</span>
+                            <strong>@GetCapabilityCount(MachineCapabilityStatus.Missing)</strong>
+                        </div>
+                        <div class="setup-summary__item">
+                            <span class="setup-summary__label">Errors</span>
+                            <strong>@GetCapabilityCount(MachineCapabilityStatus.Error)</strong>
+                        </div>
+                    </div>
+
+                    <div class="capability-grid capability-grid--settings">
+                        @foreach (var capability in _machineCapabilities.Capabilities.OrderBy(capability => capability.Category).ThenBy(capability => capability.Name))
+                        {
+                            <article class="capability-card">
+                                <div class="capability-card__header">
+                                    <div>
+                                        <h3>@capability.Name</h3>
+                                        <p>@capability.Category.ToUpperInvariant()</p>
+                                    </div>
+                                    <span class="capability-status capability-status--@GetCapabilityStatusClass(capability)">
+                                        @capability.Status
+                                    </span>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(capability.Version))
+                                {
+                                    <p><strong>Version:</strong> <code>@capability.Version</code></p>
+                                }
+
+                                @if (capability.InstalledVersions.Count > 1)
+                                {
+                                    <p><strong>Installed versions:</strong> @string.Join(", ", capability.InstalledVersions)</p>
+                                }
+
+                                @if (!string.IsNullOrWhiteSpace(capability.Message))
+                                {
+                                    <p class="capability-card__message">@capability.Message</p>
+                                }
+
+                                @if (SupportsVersionSelection(capability))
+                                {
+                                    <div class="capability-version-picker">
+                                        <label>SDK version</label>
+                                        <div class="capability-version-picker__inputs">
+                                            <select class="input"
+                                                    value="@GetPresetSdkVersion(capability.Id)"
+                                                    @onchange="args => SetPresetSdkVersion(capability.Id, args.Value?.ToString())">
+                                                <option value="">Default</option>
+                                                @foreach (var option in GetSdkVersionOptions(capability.Id))
+                                                {
+                                                    <option value="@option">@option</option>
+                                                }
+                                            </select>
+                                            <input type="text"
+                                                   class="input"
+                                                   value="@GetCustomSdkVersion(capability.Id)"
+                                                   @oninput="args => SetCustomSdkVersion(capability.Id, args.Value?.ToString())"
+                                                   placeholder="Custom version" />
+                                        </div>
+                                        <p class="capability-card__message">Leave both fields blank to install the default version.</p>
+                                    </div>
+                                }
+
+                                @if (capability.Status == MachineCapabilityStatus.Missing || SupportsVersionSelection(capability) || SupportsUpdateAction(capability))
+                                {
+                                    <div class="capability-card__actions">
+                                        @if (capability.Status == MachineCapabilityStatus.Missing || SupportsVersionSelection(capability))
+                                        {
+                                            <button class="btn btn-primary"
+                                                    @onclick="() => InstallCapabilityAsync(capability)"
+                                                    disabled="@(_capabilitiesBusy || IsCapabilityBusy(capability))">
+                                                @(IsCapabilityActionRunning(capability, "install")
+                                                    ? "Installing..."
+                                                    : SupportsVersionSelection(capability) ? "Install Version" : "Install")
+                                            </button>
+                                        }
+
+                                        @if (SupportsUpdateAction(capability))
+                                        {
+                                            <button class="btn btn-accent"
+                                                    @onclick="() => UpdateCapabilityAsync(capability)"
+                                                    disabled="@(_capabilitiesBusy || IsCapabilityBusy(capability))">
+                                                @(IsCapabilityActionRunning(capability, "update") ? "Updating..." : "Update")
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </article>
+                        }
+                    </div>
+                    <p class="machine-capabilities__timestamp">Last checked @(_machineCapabilities.CapturedAt.ToLocalTime().ToString("g"))</p>
+
+                    @if (_lastCapabilityInstallResult is not null)
+                    {
+                        <div class="capability-install-result">
+                            <h3>Last Setup Action</h3>
+                            <p>
+                                <strong>@_lastCapabilityInstallResult.CapabilityName:</strong>
+                                @(GetCapabilityActionResultLabel(_lastCapabilityInstallResult))
+                                @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.RequestedVersion))
+                                {
+                                    <span> (@_lastCapabilityInstallResult.RequestedVersion)</span>
+                                }
+                            </p>
+                            @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.Message))
+                            {
+                                <p>@_lastCapabilityInstallResult.Message</p>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.CommandText))
+                            {
+                                <pre class="command-preview">@_lastCapabilityInstallResult.CommandText</pre>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.StandardOutput))
+                            {
+                                <h3>Standard Output</h3>
+                                <pre class="command-preview">@_lastCapabilityInstallResult.StandardOutput</pre>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.StandardError))
+                            {
+                                <h3>Standard Error</h3>
+                                <pre class="command-preview">@_lastCapabilityInstallResult.StandardError</pre>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+</div>
 
 @code {
     private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
