@@ -69,6 +69,9 @@ app.MapGet("/api/capabilities", async (IMachineCapabilityService capabilities, C
 app.MapPost("/api/capabilities/{capabilityId}/install", async (string capabilityId, MachineCapabilityInstallRequest? request, IMachineSetupService setup, CancellationToken cancellationToken) =>
     Results.Ok(await setup.InstallCapabilityAsync(capabilityId, request?.Version, cancellationToken)));
 
+app.MapPost("/api/capabilities/{capabilityId}/update", async (string capabilityId, IMachineSetupService setup, CancellationToken cancellationToken) =>
+    Results.Ok(await setup.UpdateCapabilityAsync(capabilityId, cancellationToken)));
+
 app.MapHub<AgentHub>("/hubs/agent");
 
 app.Lifetime.ApplicationStarted.Register(() =>

@@ -25,7 +25,19 @@ public sealed class MachineSetupService : IMachineSetupService
             "node" => await InstallNodeAsync(requestedVersion, cancellationToken),
             "python" => await InstallPythonAsync(requestedVersion, cancellationToken),
             "dotnet" => await InstallDotNetAsync(requestedVersion, cancellationToken),
-            _ => CreateFailureResult(request, capabilityId, requestedVersion, $"Installing '{capabilityId}' is not supported.")
+            _ => CreateFailureResult(request, capabilityId, "install", requestedVersion, $"Installing '{capabilityId}' is not supported.")
+        };
+    }
+
+    public Task<MachineCapabilityInstallResult> UpdateCapabilityAsync(string capabilityId, CancellationToken cancellationToken = default)
+    {
+        var request = capabilityId.Trim().ToLowerInvariant();
+
+        return request switch
+        {
+            "gh" => UpdateGitHubCliAsync(cancellationToken),
+            "copilot" => UpdateCopilotCliAsync(cancellationToken),
+            _ => Task.FromResult(CreateFailureResult(request, capabilityId, "update", null, $"Updating '{capabilityId}' is not supported."))
         };
     }
 
@@ -37,14 +49,16 @@ public sealed class MachineSetupService : IMachineSetupService
                 "gh",
                 "GitHub CLI",
                 "winget install --id GitHub.cli -e --accept-package-agreements --accept-source-agreements",
-                cancellationToken);
+                cancellationToken,
+                action: "install");
         }
 
         return RunLinuxCommandAsync(
             "gh",
             "GitHub CLI",
             "apt-get update && apt-get install -y gh",
-            cancellationToken);
+            cancellationToken,
+            action: "install");
     }
 
     private Task<MachineCapabilityInstallResult> InstallCopilotCliAsync(CancellationToken cancellationToken)
@@ -56,6 +70,7 @@ public sealed class MachineSetupService : IMachineSetupService
                 return Task.FromResult(CreateFailureResult(
                     "copilot",
                     "GitHub Copilot CLI",
+                    "install",
                     null,
                     "npm is required to install GitHub Copilot CLI. Install Node.js first."));
             }
@@ -65,14 +80,16 @@ public sealed class MachineSetupService : IMachineSetupService
                 "GitHub Copilot CLI",
                 "npm",
                 ["install", "-g", "@github/copilot"],
-                cancellationToken);
+                cancellationToken,
+                action: "install");
         }
 
         return RunLinuxCommandAsync(
             "copilot",
             "GitHub Copilot CLI",
             "if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y curl; fi && curl -fsSL https://gh.io/copilot-install | bash",
-            cancellationToken);
+            cancellationToken,
+            action: "install");
     }
 
     private Task<MachineCapabilityInstallResult> InstallNodeAsync(string? requestedVersion, CancellationToken cancellationToken)
@@ -84,6 +101,7 @@ public sealed class MachineSetupService : IMachineSetupService
                 "Node.js",
                 BuildWindowsNodeInstallCommand(requestedVersion),
                 cancellationToken,
+                action: "install",
                 requestedVersion);
         }
 
@@ -92,6 +110,7 @@ public sealed class MachineSetupService : IMachineSetupService
             "Node.js",
             BuildLinuxNodeInstallCommand(requestedVersion),
             cancellationToken,
+            action: "install",
             requestedVersion);
     }
 
@@ -105,6 +124,7 @@ public sealed class MachineSetupService : IMachineSetupService
                 "Python",
                 $"winget install --id Python.Python.{version} -e --accept-package-agreements --accept-source-agreements",
                 cancellationToken,
+                action: "install",
                 version);
         }
 
@@ -117,6 +137,7 @@ public sealed class MachineSetupService : IMachineSetupService
             "Python",
             commandText,
             cancellationToken,
+            action: "install",
             requestedVersion);
     }
 
@@ -137,6 +158,7 @@ public sealed class MachineSetupService : IMachineSetupService
                 ".NET SDK",
                 commandText,
                 cancellationToken,
+                action: "install",
                 version);
         }
 
@@ -145,7 +167,59 @@ public sealed class MachineSetupService : IMachineSetupService
             ".NET SDK",
             $"wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb && dpkg -i /tmp/packages-microsoft-prod.deb && rm /tmp/packages-microsoft-prod.deb && apt-get update && apt-get install -y dotnet-sdk-{version}",
             cancellationToken,
+            action: "install",
             version);
+    }
+
+    private Task<MachineCapabilityInstallResult> UpdateGitHubCliAsync(CancellationToken cancellationToken)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return RunWindowsCommandAsync(
+                "gh",
+                "GitHub CLI",
+                "winget upgrade --id GitHub.cli -e --accept-package-agreements --accept-source-agreements",
+                cancellationToken,
+                action: "update");
+        }
+
+        return RunLinuxCommandAsync(
+            "gh",
+            "GitHub CLI",
+            "apt-get update && apt-get install -y --only-upgrade gh",
+            cancellationToken,
+            action: "update");
+    }
+
+    private Task<MachineCapabilityInstallResult> UpdateCopilotCliAsync(CancellationToken cancellationToken)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            if (!CommandExists("npm"))
+            {
+                return Task.FromResult(CreateFailureResult(
+                    "copilot",
+                    "GitHub Copilot CLI",
+                    "update",
+                    null,
+                    "npm is required to update GitHub Copilot CLI. Install Node.js first."));
+            }
+
+            return RunDirectCommandAsync(
+                "copilot",
+                "GitHub Copilot CLI",
+                "npm",
+                ["update", "-g", "@github/copilot"],
+                cancellationToken,
+                action: "update");
+        }
+
+        return RunLinuxCommandAsync(
+            "copilot",
+            "GitHub Copilot CLI",
+            "if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y curl; fi && curl -fsSL https://gh.io/copilot-install | bash",
+            cancellationToken,
+            action: "update");
     }
 
     private Task<MachineCapabilityInstallResult> RunWindowsCommandAsync(
@@ -153,6 +227,7 @@ public sealed class MachineSetupService : IMachineSetupService
         string capabilityName,
         string commandText,
         CancellationToken cancellationToken,
+        string action,
         string? requestedVersion = null)
     {
         if (!CommandExists("winget"))
@@ -160,6 +235,7 @@ public sealed class MachineSetupService : IMachineSetupService
             return Task.FromResult(CreateFailureResult(
                 capabilityId,
                 capabilityName,
+                action,
                 requestedVersion,
                 "winget is required for this installation flow but is not available on the machine."));
         }
@@ -170,6 +246,7 @@ public sealed class MachineSetupService : IMachineSetupService
             "powershell.exe",
             ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", commandText],
             cancellationToken,
+            action,
             commandText,
             requestedVersion);
     }
@@ -179,6 +256,7 @@ public sealed class MachineSetupService : IMachineSetupService
         string capabilityName,
         string commandText,
         CancellationToken cancellationToken,
+        string action,
         string? requestedVersion = null)
     {
         if (!CommandExists("apt-get"))
@@ -186,6 +264,7 @@ public sealed class MachineSetupService : IMachineSetupService
             return Task.FromResult(CreateFailureResult(
                 capabilityId,
                 capabilityName,
+                action,
                 requestedVersion,
                 "apt-get is required for this installation flow but is not available on the machine."));
         }
@@ -208,6 +287,7 @@ public sealed class MachineSetupService : IMachineSetupService
             shellPath,
             ["-lc", finalCommand],
             cancellationToken,
+            action,
             finalCommand,
             requestedVersion);
     }
@@ -218,6 +298,7 @@ public sealed class MachineSetupService : IMachineSetupService
         string fileName,
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken,
+        string action,
         string? commandTextOverride = null,
         string? requestedVersion = null)
     {
@@ -247,6 +328,7 @@ public sealed class MachineSetupService : IMachineSetupService
             {
                 CapabilityId = capabilityId,
                 CapabilityName = capabilityName,
+                Action = action,
                 RequestedVersion = requestedVersion,
                 Succeeded = false,
                 ExitCode = -1,
@@ -276,6 +358,7 @@ public sealed class MachineSetupService : IMachineSetupService
         {
             CapabilityId = capabilityId,
             CapabilityName = capabilityName,
+            Action = action,
             RequestedVersion = requestedVersion,
             Succeeded = process.ExitCode == 0,
             ExitCode = process.ExitCode,
@@ -283,7 +366,7 @@ public sealed class MachineSetupService : IMachineSetupService
             StandardOutput = standardOutput,
             StandardError = standardError,
             Message = process.ExitCode == 0
-                ? $"Installed {capabilityName}{(requestedVersion is null ? string.Empty : $" {requestedVersion}")}."
+                ? $"{(action.Equals("update", StringComparison.OrdinalIgnoreCase) ? "Updated" : "Installed")} {capabilityName}{(requestedVersion is null ? string.Empty : $" {requestedVersion}")}."
                 : FirstMeaningfulLine(standardError, standardOutput)
         };
     }
@@ -325,6 +408,7 @@ public sealed class MachineSetupService : IMachineSetupService
     private static MachineCapabilityInstallResult CreateFailureResult(
         string capabilityId,
         string capabilityName,
+        string action,
         string? requestedVersion,
         string message)
     {
@@ -332,6 +416,7 @@ public sealed class MachineSetupService : IMachineSetupService
         {
             CapabilityId = capabilityId,
             CapabilityName = capabilityName,
+            Action = action,
             RequestedVersion = requestedVersion,
             Succeeded = false,
             ExitCode = -1,

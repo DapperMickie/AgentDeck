@@ -550,6 +550,9 @@ main {
 
 .capability-card__actions {
     margin-top: 0.85rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 .capability-version-picker {

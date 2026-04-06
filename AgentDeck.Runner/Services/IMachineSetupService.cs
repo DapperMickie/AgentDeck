@@ -6,4 +6,5 @@ namespace AgentDeck.Runner.Services;
 public interface IMachineSetupService
 {
     Task<MachineCapabilityInstallResult> InstallCapabilityAsync(string capabilityId, string? version = null, CancellationToken cancellationToken = default);
+    Task<MachineCapabilityInstallResult> UpdateCapabilityAsync(string capabilityId, CancellationToken cancellationToken = default);
 }
