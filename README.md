@@ -85,6 +85,20 @@ dotnet build AgentDeck/AgentDeck.csproj -f net10.0-windows10.0.19041.0
 dotnet run --project AgentDeck/AgentDeck.csproj -f net10.0-windows10.0.19041.0
 ```
 
+### Building an iOS IPA in GitHub Actions
+
+The repository includes `.github/workflows/build-ios-ipa.yml`, a manual workflow that runs on `macos-latest` and uploads the packaged IPA as a workflow artifact.
+
+Set these repository secrets before running it:
+
+- `IOS_CERTIFICATE_P12_BASE64` - base64-encoded Apple signing certificate (`.p12`)
+- `IOS_CERTIFICATE_PASSWORD` - password for the `.p12` certificate
+- `IOS_CODESIGN_KEY` - certificate common name used by `codesign`
+- `IOS_PROVISIONING_PROFILE_BASE64` - base64-encoded provisioning profile (`.mobileprovision`)
+- `IOS_KEYCHAIN_PASSWORD` - optional temporary keychain password for the runner
+
+After the secrets are configured, trigger **Build iOS IPA** from the Actions tab and download the `agentdeck-ios-ipa` artifact from the completed run.
+
 ---
 
 ## Configuration

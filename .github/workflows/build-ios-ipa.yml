@@ -1,0 +1,135 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios-ipa:
+    runs-on: macos-latest
+    env:
+      DOTNET_VERSION: 10.0.x
+      IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_CODESIGN_KEY: ${{ secrets.IOS_CODESIGN_KEY }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD != '' && secrets.IOS_KEYCHAIN_PASSWORD || github.run_id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Validate signing inputs
+        shell: bash
+        run: |
+          missing=0
+          for name in IOS_CERTIFICATE_P12_BASE64 IOS_CERTIFICATE_PASSWORD IOS_CODESIGN_KEY IOS_PROVISIONING_PROFILE_BASE64; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required secret: $name"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "Required secrets:"
+            echo "- IOS_CERTIFICATE_P12_BASE64: base64-encoded signing certificate (.p12)"
+            echo "- IOS_CERTIFICATE_PASSWORD: password for the .p12 file"
+            echo "- IOS_CODESIGN_KEY: certificate common name used by codesign"
+            echo "- IOS_PROVISIONING_PROFILE_BASE64: base64-encoded .mobileprovision file"
+            exit 1
+          fi
+
+      - name: Install MAUI workload
+        shell: bash
+        run: |
+          dotnet workload install maui
+          dotnet workload restore AgentDeck/AgentDeck.csproj
+
+      - name: Import Apple signing assets
+        id: signing
+        shell: bash
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/agentdeck-ios-signing.p12"
+          PROFILE_PATH="$RUNNER_TEMP/agentdeck.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/agentdeck.mobileprovision.plist"
+          KEYCHAIN_PATH="$RUNNER_TEMP/agentdeck-signing.keychain-db"
+
+          export CERTIFICATE_PATH PROFILE_PATH
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          Path(os.environ["CERTIFICATE_PATH"]).write_bytes(
+              base64.b64decode(os.environ["IOS_CERTIFICATE_P12_BASE64"])
+          )
+          Path(os.environ["PROFILE_PATH"]).write_bytes(
+              base64.b64decode(os.environ["IOS_PROVISIONING_PROFILE_BASE64"])
+          )
+          PY
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PROFILE_PLIST")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST")
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          {
+            echo "keychain_path=$KEYCHAIN_PATH"
+            echo "profile_uuid=$PROFILE_UUID"
+            echo "profile_name=$PROFILE_NAME"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish signed IPA
+        shell: bash
+        run: >
+          dotnet publish AgentDeck/AgentDeck.csproj
+          -f net10.0-ios
+          -c Release
+          -p:RuntimeIdentifier=ios-arm64
+          -p:ArchiveOnBuild=true
+          -p:BuildIpa=true
+          -p:CodesignKey="$IOS_CODESIGN_KEY"
+          -p:CodesignProvision="${{ steps.signing.outputs.profile_name }}"
+
+      - name: Locate IPA
+        id: ipa
+        shell: bash
+        run: |
+          IPA_PATH=$(find "$GITHUB_WORKSPACE/AgentDeck/bin/Release" "$RUNNER_TEMP" -name "*.ipa" -print -quit)
+          if [ -z "$IPA_PATH" ]; then
+            echo "::error::No IPA file was produced."
+            exit 1
+          fi
+
+          echo "path=$IPA_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentdeck-ios-ipa
+          path: ${{ steps.ipa.outputs.path }}
+          if-no-files-found: error
+
+      - name: Cleanup signing assets
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/${{ steps.signing.outputs.profile_uuid }}.mobileprovision"
+          security delete-keychain "${{ steps.signing.outputs.keychain_path }}" || true
