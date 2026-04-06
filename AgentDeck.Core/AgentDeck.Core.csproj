@@ -13,7 +13,4 @@
     <ProjectReference Include="..\AgentDeck.Shared\AgentDeck.Shared.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="Workloads\Examples\*.json" />
-  </ItemGroup>
 </Project>

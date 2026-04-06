@@ -1,8 +1,5 @@
 @page "/settings"
 @inject IConnectionSettingsService SettingsService
-@inject IWorkloadCatalogService WorkloadCatalog
-@inject IWorkloadContainerCommandService WorkloadContainerCommands
-@inject IWorkloadContainerRuntimeService WorkloadContainerRuntime
 @inject IRunnerConnectionManager Connections
 @inject IToastService ToastService
 @inject ILogger<Settings> Logger
@@ -212,159 +209,6 @@
         }
     </div>
 
-    <details class="settings-card legacy-settings">
-        <summary class="legacy-settings__summary">
-            <div>
-                <h2>Legacy workload and container setup</h2>
-                <p>These controls are kept temporarily for migration, but the main product path is now machine setup and tool installation.</p>
-            </div>
-        </summary>
-
-        <div class="form-field">
-            <label for="selected-workload">Selected Workload</label>
-            <select id="selected-workload" class="input" @bind="SelectedMachine.SelectedWorkloadId">
-                <option value="">Choose a workload...</option>
-                @foreach (var workload in _workloads)
-                {
-                    <option value="@workload.Id">@workload.Name</option>
-                }
-            </select>
-        </div>
-
-        <div class="form-field">
-            <label for="docker-workspace">Host Workspace Path</label>
-            <input id="docker-workspace" type="text" class="input" @bind="SelectedMachine.DockerWorkspacePath"
-                   placeholder="C:\Projects\Mick\AgentDeck" />
-        </div>
-
-        <div class="form-field">
-            <label for="runner-source-path">Runner Source Path</label>
-            <input id="runner-source-path" type="text" class="input" @bind="SelectedMachine.RunnerSourcePath"
-                   placeholder="C:\Projects\Mick\AgentDeck" />
-        </div>
-
-        @if (TryGetSelectedWorkload(SelectedMachine, out var selectedWorkload, out var selectionError))
-        {
-            var commandSet = WorkloadContainerCommands.Resolve(SelectedMachine, selectedWorkload);
-
-            <div class="workload-runtime-toolbar">
-                <button class="btn btn-accent" @onclick="RefreshContainerStatusAsync" disabled="@_containerBusy">
-                    Refresh Status
-                </button>
-                <button class="btn btn-accent" @onclick="BuildBaseImageAsync" disabled="@_containerBusy">
-                    Build Base Image
-                </button>
-                <button class="btn btn-accent" @onclick="BuildWorkloadImageAsync" disabled="@_containerBusy">
-                    Build Workload Image
-                </button>
-                <button class="btn btn-primary" @onclick="StartContainerAsync" disabled="@(_containerBusy || commandSet.StartContainerCommand is null)">
-                    Start Container
-                </button>
-                <button class="btn btn-danger" @onclick="StopContainerAsync" disabled="@_containerBusy">
-                    Stop Container
-                </button>
-            </div>
-
-            @if (_containerErrorMessage is not null)
-            {
-                <p class="error-message">@_containerErrorMessage</p>
-            }
-
-            <div class="workload-command-grid">
-                <div class="workload-command-card">
-                    <h3>Local Docker Status</h3>
-                    @if (_containerBusy)
-                    {
-                        <p>Running container action...</p>
-                    }
-                    else if (_containerStatus is null)
-                    {
-                        <p>Refresh status to inspect the local Docker state.</p>
-                    }
-                    else if (!_containerStatus.DockerAvailable)
-                    {
-                        <p class="error-message">@_containerStatus.ErrorMessage</p>
-                    }
-                    else
-                    {
-                        <p><strong>Docker:</strong> <code>@_containerStatus.DockerVersion</code></p>
-                        <p><strong>Base image:</strong> @(_containerStatus.BaseImageExists ? "present" : "missing")</p>
-                        <p><strong>Workload image:</strong> @(_containerStatus.WorkloadImageExists ? "present" : "missing")</p>
-                        <p><strong>Container:</strong> @(_containerStatus.ContainerExists ? _containerStatus.ContainerState : "not created")</p>
-                        <p><strong>Auth volumes:</strong> @FormatAvailability(_containerStatus.AuthVolumeExists)</p>
-                        <p><strong>Cache volumes:</strong> @FormatAvailability(_containerStatus.CacheVolumeExists)</p>
-                        <p><strong>Secrets:</strong> @FormatAvailability(_containerStatus.SecretAvailability)</p>
-                        @if (!string.IsNullOrWhiteSpace(_containerStatus.ContainerId))
-                        {
-                            <p><strong>Container ID:</strong> <code>@_containerStatus.ContainerId</code></p>
-                        }
-                    }
-                </div>
-                <div class="workload-command-card">
-                    <h3>Resolved Names</h3>
-                    <p><strong>Base image:</strong> <code>@commandSet.BaseImageTag</code></p>
-                    <p><strong>Workload image:</strong> <code>@commandSet.WorkloadImageTag</code></p>
-                    <p><strong>Container:</strong> <code>@commandSet.ContainerName</code></p>
-                </div>
-                <div class="workload-command-card">
-                    <h3>Build Base Image</h3>
-                    @if (commandSet.BuildBaseImageCommand is null)
-                    {
-                        <p>Set a runner source path to generate the base image build command.</p>
-                    }
-                    else
-                    {
-                        <pre class="command-preview">@commandSet.BuildBaseImageCommand</pre>
-                    }
-                </div>
-                <div class="workload-command-card">
-                    <h3>Generated Workload Dockerfile</h3>
-                    <pre class="command-preview">@commandSet.GeneratedDockerfile</pre>
-                </div>
-                <div class="workload-command-card">
-                    <h3>Build Workload Image</h3>
-                    <pre class="command-preview">@commandSet.BuildWorkloadImageCommand</pre>
-                </div>
-                <div class="workload-command-card">
-                    <h3>Start Container</h3>
-                    @if (commandSet.StartContainerCommand is null)
-                    {
-                        <p>@commandSet.StartContainerCommandMessage</p>
-                    }
-                    else
-                    {
-                        <pre class="command-preview">@commandSet.StartContainerCommand</pre>
-                    }
-                </div>
-                <div class="workload-command-card">
-                    <h3>Stop Container</h3>
-                    <pre class="command-preview">@commandSet.StopContainerCommand</pre>
-                </div>
-                @if (_lastContainerResult is not null)
-                {
-                    <div class="workload-command-card workload-command-card--full">
-                        <h3>Last Docker Command</h3>
-                        <pre class="command-preview">@_lastContainerResult.CommandText</pre>
-                        @if (!string.IsNullOrWhiteSpace(_lastContainerResult.StandardOutput))
-                        {
-                            <h3>Standard Output</h3>
-                            <pre class="command-preview">@_lastContainerResult.StandardOutput</pre>
-                        }
-                        @if (!string.IsNullOrWhiteSpace(_lastContainerResult.StandardError))
-                        {
-                            <h3>Standard Error</h3>
-                            <pre class="command-preview">@_lastContainerResult.StandardError</pre>
-                        }
-                    </div>
-                }
-            </div>
-        }
-        else if (selectionError is not null)
-        {
-            <p class="error-message">@selectionError</p>
-        }
-    </details>
-
     <div class="settings-card">
         <h2>Connection Status: @SelectedMachine.Name</h2>
         <p>State: <strong class="status-text-@GetStatusClass(SelectedMachine)">@GetStatusLabel(SelectedMachine)</strong></p>
@@ -372,101 +216,10 @@
     </div>
 }
 
-<details class="settings-card legacy-settings">
-    <summary class="legacy-settings__summary">
-        <div>
-            <h2>Legacy workload catalog</h2>
-            <p>Workload definitions are still available during migration, but they are no longer the primary setup model.</p>
-        </div>
-    </summary>
-
-    <div class="workload-toolbar">
-        <p>Create custom workloads here or clone a built-in template as a starting point.</p>
-        <button class="btn btn-primary" @onclick="CreateCustomWorkload">New Custom Workload</button>
-    </div>
-
-    @if (_workloadErrorMessage is not null)
-    {
-        <p class="error-message">@_workloadErrorMessage</p>
-    }
-    else if (_workloads.Count == 0)
-    {
-        <p>No workloads available.</p>
-    }
-    else
-    {
-        <div class="workload-list">
-            @foreach (var workload in _workloads)
-            {
-                <article class="workload-card">
-                    <div class="workload-card__header">
-                        <div>
-                            <h3>@workload.Name</h3>
-                            <p>@workload.Description</p>
-                        </div>
-                        <span class="workload-badge @(workload.IsBuiltIn ? "workload-badge--builtin" : "workload-badge--custom")">
-                            @(workload.IsBuiltIn ? "Built-in" : "Custom")
-                        </span>
-                    </div>
-                    <div class="workload-card__meta">
-                        <span><strong>Image:</strong> <code>@workload.BaseImage</code></span>
-                        <span><strong>Workspace:</strong> <code>@workload.WorkspaceMountPath</code></span>
-                        <span><strong>Home:</strong> <code>@workload.HomeDirectory</code></span>
-                    </div>
-                    <div class="workload-card__meta">
-                        <span><strong>SDKs:</strong> @FormatSdkVersions(workload)</span>
-                        <span><strong>CLIs:</strong> @FormatCliCommands(workload)</span>
-                    </div>
-                    <div class="workload-card__meta">
-                        <span><strong>Auth mounts:</strong> @workload.AuthMounts.Count</span>
-                        <span><strong>Cache mounts:</strong> @workload.CacheMounts.Count</span>
-                        <span><strong>Secrets:</strong> @workload.Secrets.Count</span>
-                    </div>
-                    <div class="workload-card__actions">
-                        @if (workload.IsBuiltIn)
-                        {
-                            <button class="btn btn-accent" @onclick="() => CloneWorkload(workload)">Clone as Custom</button>
-                        }
-                        else
-                        {
-                            <button class="btn btn-accent" @onclick="() => EditCustomWorkload(workload)">Edit</button>
-                            <button class="btn btn-accent" @onclick="() => DuplicateCustomWorkload(workload)">Duplicate</button>
-                            <button class="btn btn-danger" @onclick="() => DeleteCustomWorkloadAsync(workload.Id)">Delete</button>
-                        }
-                    </div>
-                </article>
-            }
-        </div>
-    }
-</details>
-
-@if (_editingWorkload is not null)
-{
-    <div class="settings-card legacy-settings">
-        <WorkloadEditor Workload="_editingWorkload"
-                        Title="@_editorTitle"
-                        EditorKey="@_editorKey"
-                        AllowDelete="@(!_editingWorkload.IsBuiltIn)"
-                        OnSave="SaveWorkloadAsync"
-                        OnCancel="CloseEditorAsync"
-                        OnDelete="DeleteCustomWorkloadAsync" />
-    </div>
-}
-
 @code {
     private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
-    private IReadOnlyList<WorkloadDefinition> _workloads = [];
-    private WorkloadDefinition? _editingWorkload;
-    private string? _editingOriginalId;
-    private string _editorTitle = "Edit Workload";
-    private int _editorKey;
     private bool _saving;
     private string? _errorMessage;
-    private string? _workloadErrorMessage;
-    private bool _containerBusy;
-    private WorkloadContainerStatus? _containerStatus;
-    private WorkloadContainerExecutionResult? _lastContainerResult;
-    private string? _containerErrorMessage;
     private MachineCapabilitiesSnapshot? _machineCapabilities;
     private bool _capabilitiesBusy;
     private string? _capabilitiesErrorMessage;
@@ -480,9 +233,7 @@
     {
         _settings = await SettingsService.LoadAsync();
         _selectedMachineId = _settings.PreferredMachineId;
-        await LoadWorkloadsAsync();
         await RefreshMachineCapabilitiesIfPossibleAsync();
-        await RefreshContainerStatusIfPossibleAsync();
         Connections.ConnectionStateChanged += OnConnectionStateChanged;
     }
 
@@ -535,11 +286,7 @@
         _machineCapabilities = null;
         _capabilitiesErrorMessage = null;
         _lastCapabilityInstallResult = null;
-        _containerStatus = null;
-        _lastContainerResult = null;
-        _containerErrorMessage = null;
         _ = InvokeAsync(RefreshMachineCapabilitiesIfPossibleAsync);
-        _ = InvokeAsync(RefreshContainerStatusIfPossibleAsync);
     }
 
     private bool IsSelectedMachine(RunnerMachineSettings machine) =>
@@ -569,7 +316,6 @@
         _settings.Machines.RemoveAll(item => string.Equals(item.Id, machine.Id, StringComparison.OrdinalIgnoreCase));
         _settings.Normalize();
         _selectedMachineId = _settings.PreferredMachineId;
-        await RefreshContainerStatusIfPossibleAsync();
     }
 
     private async Task ConnectAsync(RunnerMachineSettings machine)
@@ -611,21 +357,6 @@
     };
 
     private static string GetHubUrl(RunnerMachineSettings machine) => $"{machine.RunnerUrl.TrimEnd('/')}/hubs/agent";
-
-    private async Task LoadWorkloadsAsync()
-    {
-        _workloadErrorMessage = null;
-
-        try
-        {
-            _workloads = await WorkloadCatalog.GetAllAsync();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to load workload catalog");
-            _workloadErrorMessage = $"Failed to load workloads: {ex.Message}";
-        }
-    }
 
     private Task RefreshMachineCapabilitiesIfPossibleAsync()
     {
@@ -712,264 +443,6 @@
         }
     }
 
-    private async Task RefreshContainerStatusIfPossibleAsync()
-    {
-        if (SelectedMachine is null || !TryGetSelectedWorkload(SelectedMachine, out _, out _))
-        {
-            _containerStatus = null;
-            return;
-        }
-
-        await RefreshContainerStatusAsync();
-    }
-
-    private void CreateCustomWorkload()
-    {
-        OpenEditor(new WorkloadDefinition
-        {
-            Id = string.Empty,
-            Name = string.Empty,
-            Description = string.Empty,
-            BaseImage = "agentdeck-runner:base",
-            WorkspaceMountPath = "/workspace",
-            HomeDirectory = "/agent-home",
-            IsBuiltIn = false
-        }, "New Custom Workload", null);
-    }
-
-    private void CloneWorkload(WorkloadDefinition workload)
-    {
-        var copy = CloneWorkloadDefinition(workload);
-        copy.IsBuiltIn = false;
-        OpenEditor(copy, $"Clone {workload.Name}", null);
-    }
-
-    private void EditCustomWorkload(WorkloadDefinition workload)
-    {
-        OpenEditor(CloneWorkloadDefinition(workload), $"Edit {workload.Name}", workload.Id);
-    }
-
-    private void DuplicateCustomWorkload(WorkloadDefinition workload)
-    {
-        var copy = CloneWorkloadDefinition(workload);
-        copy.Id = $"{workload.Id}-copy";
-        copy.Name = $"{workload.Name} Copy";
-        copy.IsBuiltIn = false;
-        OpenEditor(copy, $"Duplicate {workload.Name}", null);
-    }
-
-    private async Task SaveWorkloadAsync(WorkloadDefinition workload)
-    {
-        try
-        {
-            _workloadErrorMessage = null;
-            await WorkloadCatalog.SaveCustomAsync(workload, _editingOriginalId);
-            await LoadWorkloadsAsync();
-
-            if (SelectedMachine is not null &&
-                (SelectedMachine.SelectedWorkloadId == _editingOriginalId || string.IsNullOrWhiteSpace(SelectedMachine.SelectedWorkloadId)))
-            {
-                SelectedMachine.SelectedWorkloadId = workload.Id;
-            }
-
-            await CloseEditorAsync();
-            await RefreshContainerStatusIfPossibleAsync();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to save workload {WorkloadId}", workload.Id);
-            _workloadErrorMessage = $"Failed to save workload: {ex.Message}";
-        }
-    }
-
-    private async Task DeleteCustomWorkloadAsync(string workloadId)
-    {
-        try
-        {
-            _workloadErrorMessage = null;
-            await WorkloadCatalog.DeleteCustomAsync(workloadId);
-            await LoadWorkloadsAsync();
-
-            if (_editingOriginalId?.Equals(workloadId, StringComparison.OrdinalIgnoreCase) == true)
-            {
-                await CloseEditorAsync();
-            }
-
-            foreach (var machine in _settings.Machines.Where(machine =>
-                         machine.SelectedWorkloadId?.Equals(workloadId, StringComparison.OrdinalIgnoreCase) == true))
-            {
-                machine.SelectedWorkloadId = null;
-            }
-
-            _containerStatus = null;
-            _lastContainerResult = null;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to delete workload {WorkloadId}", workloadId);
-            _workloadErrorMessage = $"Failed to delete workload: {ex.Message}";
-        }
-    }
-
-    private Task CloseEditorAsync()
-    {
-        _editingWorkload = null;
-        _editingOriginalId = null;
-        _editorTitle = "Edit Workload";
-        return Task.CompletedTask;
-    }
-
-    private void OpenEditor(WorkloadDefinition workload, string title, string? originalId)
-    {
-        _editingWorkload = workload;
-        _editingOriginalId = originalId;
-        _editorTitle = title;
-        _editorKey++;
-    }
-
-    private async Task BuildBaseImageAsync()
-    {
-        await ExecuteContainerActionAsync(
-            "Built base image",
-            (machine, workload, token) => WorkloadContainerRuntime.BuildBaseImageAsync(machine, workload, token));
-    }
-
-    private async Task BuildWorkloadImageAsync()
-    {
-        await ExecuteContainerActionAsync(
-            "Built workload image",
-            (machine, workload, token) => WorkloadContainerRuntime.BuildWorkloadImageAsync(machine, workload, token));
-    }
-
-    private async Task StartContainerAsync()
-    {
-        await ExecuteContainerActionAsync(
-            "Started runner container",
-            async (machine, workload, token) =>
-            {
-                var result = await WorkloadContainerRuntime.StartContainerAsync(machine, workload, token);
-                if (result.Succeeded)
-                {
-                    await Connections.ConnectAsync(machine, token);
-                }
-
-                return result;
-            });
-    }
-
-    private async Task StopContainerAsync()
-    {
-        await ExecuteContainerActionAsync(
-            "Stopped runner container",
-            async (machine, workload, token) =>
-            {
-                var result = await WorkloadContainerRuntime.StopContainerAsync(machine, workload, token);
-                if (result.Succeeded && Connections.GetConnectionState(machine.Id) == HubConnectionState.Connected)
-                {
-                    await Connections.DisconnectAsync(machine.Id);
-                }
-
-                return result;
-            });
-    }
-
-    private async Task RefreshContainerStatusAsync()
-    {
-        string? error = null;
-        if (SelectedMachine is null || !TryGetSelectedWorkload(SelectedMachine, out var workload, out error))
-        {
-            _containerErrorMessage = error;
-            _containerStatus = null;
-            return;
-        }
-
-        _containerBusy = true;
-        _containerErrorMessage = null;
-
-        try
-        {
-            _containerStatus = await WorkloadContainerRuntime.GetStatusAsync(SelectedMachine, workload);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to refresh Docker status for workload {WorkloadId}", workload.Id);
-            _containerErrorMessage = $"Failed to refresh Docker status: {ex.Message}";
-            _containerStatus = null;
-        }
-        finally
-        {
-            _containerBusy = false;
-        }
-    }
-
-    private async Task ExecuteContainerActionAsync(
-        string successMessage,
-        Func<RunnerMachineSettings, WorkloadDefinition, CancellationToken, Task<WorkloadContainerExecutionResult>> action)
-    {
-        string? error = null;
-        if (SelectedMachine is null || !TryGetSelectedWorkload(SelectedMachine, out var workload, out error))
-        {
-            _containerErrorMessage = error;
-            return;
-        }
-
-        _containerBusy = true;
-        _containerErrorMessage = null;
-
-        try
-        {
-            var result = await action(SelectedMachine, workload, CancellationToken.None);
-            _lastContainerResult = result;
-
-            if (result.Succeeded)
-            {
-                ToastService.Show(successMessage, ToastKind.Success);
-                await RefreshContainerStatusAsync();
-            }
-            else
-            {
-                _containerErrorMessage = string.IsNullOrWhiteSpace(result.StandardError)
-                    ? $"Docker command failed with exit code {result.ExitCode}."
-                    : result.StandardError;
-                ToastService.Show("Docker command failed", ToastKind.Error);
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Docker action failed for machine {MachineId}", SelectedMachine.Id);
-            _containerErrorMessage = ex.Message;
-            ToastService.Show("Docker action failed", ToastKind.Error);
-        }
-        finally
-        {
-            _containerBusy = false;
-        }
-    }
-
-    private static string FormatSdkVersions(WorkloadDefinition workload)
-    {
-        if (workload.SdkVersions.Count == 0)
-            return "None";
-
-        return string.Join(", ", workload.SdkVersions.Select(pair => $"{pair.Key} {pair.Value}"));
-    }
-
-    private static string FormatCliCommands(WorkloadDefinition workload)
-    {
-        if (workload.SupportedCliCommands.Count == 0)
-            return "None";
-
-        return string.Join(", ", workload.SupportedCliCommands);
-    }
-
-    private static string FormatAvailability(IReadOnlyDictionary<string, bool> values)
-    {
-        if (values.Count == 0)
-            return "None";
-
-        return string.Join(", ", values.Select(pair => $"{pair.Key}={(pair.Value ? "ready" : "missing")}"));
-    }
-
     private static string GetCapabilityStatusClass(MachineCapability capability) => capability.Status switch
     {
         MachineCapabilityStatus.Installed => "installed",
@@ -979,79 +452,6 @@
 
     private int GetCapabilityCount(MachineCapabilityStatus status) =>
         _machineCapabilities?.Capabilities.Count(capability => capability.Status == status) ?? 0;
-
-    private bool TryGetSelectedWorkload(RunnerMachineSettings machine, out WorkloadDefinition workload, out string? error)
-    {
-        workload = default!;
-        error = null;
-
-        if (string.IsNullOrWhiteSpace(machine.SelectedWorkloadId))
-        {
-            error = "Choose a workload to generate Docker commands.";
-            return false;
-        }
-
-        workload = _workloads.FirstOrDefault(item =>
-            item.Id.Equals(machine.SelectedWorkloadId, StringComparison.OrdinalIgnoreCase))!;
-
-        if (workload is null)
-        {
-            error = $"The selected workload '{machine.SelectedWorkloadId}' is no longer available.";
-            return false;
-        }
-
-        return true;
-    }
-
-    private static WorkloadDefinition CloneWorkloadDefinition(WorkloadDefinition workload)
-    {
-        return new WorkloadDefinition
-        {
-            Id = workload.Id,
-            Name = workload.Name,
-            Description = workload.Description,
-            BaseImage = workload.BaseImage,
-            WorkspaceMountPath = workload.WorkspaceMountPath,
-            HomeDirectory = workload.HomeDirectory,
-            SupportedCliCommands = [.. workload.SupportedCliCommands],
-            SdkVersions = workload.SdkVersions.ToDictionary(pair => pair.Key, pair => pair.Value),
-            CliInstallers = new WorkloadCliInstallers
-            {
-                AptPackages = [.. workload.CliInstallers.AptPackages],
-                NpmGlobalPackages = [.. workload.CliInstallers.NpmGlobalPackages],
-                PipxPackages = [.. workload.CliInstallers.PipxPackages],
-                DotNetTools = [.. workload.CliInstallers.DotNetTools]
-            },
-            EnvironmentVariables = workload.EnvironmentVariables.ToDictionary(pair => pair.Key, pair => pair.Value),
-            AuthMounts = workload.AuthMounts
-                .Select(mount => new WorkloadMount
-                {
-                    Name = mount.Name,
-                    TargetPath = mount.TargetPath,
-                    Description = mount.Description
-                })
-                .ToList(),
-            CacheMounts = workload.CacheMounts
-                .Select(mount => new WorkloadMount
-                {
-                    Name = mount.Name,
-                    TargetPath = mount.TargetPath,
-                    Description = mount.Description
-                })
-                .ToList(),
-            Secrets = workload.Secrets
-                .Select(secret => new WorkloadSecret
-                {
-                    Name = secret.Name,
-                    EnvironmentVariable = secret.EnvironmentVariable,
-                    Description = secret.Description,
-                    IsRequired = secret.IsRequired
-                })
-                .ToList(),
-            BootstrapCommands = [.. workload.BootstrapCommands],
-            IsBuiltIn = workload.IsBuiltIn
-        };
-    }
 
     public void Dispose() => Connections.ConnectionStateChanged -= OnConnectionStateChanged;
 }

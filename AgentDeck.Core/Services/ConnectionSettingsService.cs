@@ -13,9 +13,6 @@ public sealed class ConnectionSettingsService : IConnectionSettingsService
     {
         public string RunnerUrl { get; set; } = "http://localhost:5000";
         public bool AutoConnect { get; set; } = true;
-        public string? SelectedWorkloadId { get; set; }
-        public string DockerWorkspacePath { get; set; } = string.Empty;
-        public string RunnerSourcePath { get; set; } = string.Empty;
     }
 
     public ConnectionSettingsService(IAppDataDirectory appData)
@@ -65,9 +62,6 @@ public sealed class ConnectionSettingsService : IConnectionSettingsService
         {
             machine.RunnerUrl = string.IsNullOrWhiteSpace(legacy.RunnerUrl) ? machine.RunnerUrl : legacy.RunnerUrl.Trim();
             machine.AutoConnect = legacy.AutoConnect;
-            machine.SelectedWorkloadId = legacy.SelectedWorkloadId;
-            machine.DockerWorkspacePath = legacy.DockerWorkspacePath;
-            machine.RunnerSourcePath = legacy.RunnerSourcePath;
         }
 
         var settings = new ConnectionSettings
