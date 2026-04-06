@@ -59,7 +59,8 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
         var workingDir = ResolveWorkingDirectory(request.WorkingDirectory);
         var command = ResolveCommand(request.Command);
         var arguments = request.Arguments;
-        var (launchCommand, launchArguments) = ResolveLaunch(command, arguments, workingDir, !string.IsNullOrWhiteSpace(request.Command));
+        var commandWasSpecified = !string.IsNullOrWhiteSpace(request.Command);
+        var (launchCommand, launchArguments) = ResolveLaunch(command, arguments, workingDir, commandWasSpecified);
 
         var session = new TerminalSession
         {
@@ -75,11 +76,32 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
 
         try
         {
+            _logger.LogInformation(
+                "Creating session {SessionId} ({Name}): requestedCommand={RequestedCommand}, resolvedCommand={ResolvedCommand}, arguments={Arguments}, workingDirectory={WorkingDirectory}, launchCommand={LaunchCommand}, launchArguments={LaunchArguments}, commandWasSpecified={CommandWasSpecified}",
+                sessionId,
+                request.Name,
+                request.Command ?? "<default>",
+                command,
+                FormatArguments(arguments),
+                workingDir,
+                launchCommand,
+                FormatArguments(launchArguments),
+                commandWasSpecified);
             await _ptyManager.StartAsync(sessionId, launchCommand, launchArguments, workingDir, request.Cols, request.Rows);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start PTY for session {SessionId}", sessionId);
+            _logger.LogError(
+                ex,
+                "Failed to start PTY for session {SessionId} ({Name}): requestedCommand={RequestedCommand}, resolvedCommand={ResolvedCommand}, arguments={Arguments}, workingDirectory={WorkingDirectory}, launchCommand={LaunchCommand}, launchArguments={LaunchArguments}",
+                sessionId,
+                request.Name,
+                request.Command ?? "<default>",
+                command,
+                FormatArguments(arguments),
+                workingDir,
+                launchCommand,
+                FormatArguments(launchArguments));
             session.Status = TerminalStatus.Error;
             _sessionStore.Update(session);
             await Clients.All.SessionCreatedAsync(session);
@@ -186,4 +208,7 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
     {
         return $"'{value.Replace("'", "'\"'\"'")}'";
     }
+
+    private static string FormatArguments(IReadOnlyList<string> arguments) =>
+        arguments.Count == 0 ? "<none>" : string.Join(" ", arguments);
 }
