@@ -11,8 +11,6 @@ public static class CoreServiceExtensions
         services.AddSingleton<IRunnerConnectionManager, RunnerConnectionManager>();
         services.AddSingleton<ISessionStateService, SessionStateService>();
         services.AddSingleton<IConnectionSettingsService, ConnectionSettingsService>();
-        services.AddSingleton<IWorkloadCatalogService, WorkloadCatalogService>();
-        services.AddSingleton<IWorkloadContainerCommandService, WorkloadContainerCommandService>();
         services.AddSingleton<AppInitializer>();
         services.AddScoped<TerminalInterop>();
         services.AddSingleton<ICliPresetService, CliPresetService>();
