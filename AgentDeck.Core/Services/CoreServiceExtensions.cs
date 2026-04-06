@@ -7,7 +7,8 @@ public static class CoreServiceExtensions
 {
     public static IServiceCollection AddAgentDeckCore(this IServiceCollection services)
     {
-        services.AddSingleton<IAgentDeckClient, AgentDeckClient>();
+        services.AddSingleton<IAgentDeckClientFactory, AgentDeckClientFactory>();
+        services.AddSingleton<IRunnerConnectionManager, RunnerConnectionManager>();
         services.AddSingleton<ISessionStateService, SessionStateService>();
         services.AddSingleton<IConnectionSettingsService, ConnectionSettingsService>();
         services.AddSingleton<IWorkloadCatalogService, WorkloadCatalogService>();

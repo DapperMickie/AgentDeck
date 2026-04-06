@@ -6,9 +6,9 @@ namespace AgentDeck.Core.Services;
 /// <inheritdoc />
 public sealed class WorkloadContainerCommandService : IWorkloadContainerCommandService
 {
-    public WorkloadContainerCommandSet Resolve(ConnectionSettings settings, WorkloadDefinition workload)
+    public WorkloadContainerCommandSet Resolve(RunnerMachineSettings machine, WorkloadDefinition workload)
     {
-        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(machine);
         ArgumentNullException.ThrowIfNull(workload);
 
         var normalizedWorkloadId = workload.Id.Trim().ToLowerInvariant();
@@ -20,10 +20,11 @@ public sealed class WorkloadContainerCommandService : IWorkloadContainerCommandS
             throw new InvalidOperationException("The workload base image is required.");
 
         var workloadImageTag = $"agentdeck-workload-{normalizedWorkloadId}";
-        var containerName = $"agentdeck-runner-{normalizedWorkloadId}";
-        var buildBaseImageCommand = string.IsNullOrWhiteSpace(settings.RunnerSourcePath)
+        var normalizedMachineId = machine.Id.Trim().ToLowerInvariant();
+        var containerName = $"agentdeck-runner-{normalizedMachineId}-{normalizedWorkloadId}";
+        var buildBaseImageCommand = string.IsNullOrWhiteSpace(machine.RunnerSourcePath)
             ? null
-            : $"docker build -t {Quote(baseImageTag)} -f {Quote(Path.Combine(settings.RunnerSourcePath, "AgentDeck.Runner", "Dockerfile"))} {Quote(settings.RunnerSourcePath)}";
+            : $"docker build -t {Quote(baseImageTag)} -f {Quote(Path.Combine(machine.RunnerSourcePath, "AgentDeck.Runner", "Dockerfile"))} {Quote(machine.RunnerSourcePath)}";
 
         var generatedDockerfile = GenerateDockerfile(workload);
 
@@ -35,7 +36,7 @@ public sealed class WorkloadContainerCommandService : IWorkloadContainerCommandS
             BuildBaseImageCommand = buildBaseImageCommand,
             GeneratedDockerfile = generatedDockerfile,
             BuildWorkloadImageCommand = $"docker build -t {Quote(workloadImageTag)} -f Dockerfile.generated .",
-            StartContainerCommand = GenerateStartCommand(settings, workload, containerName, workloadImageTag),
+            StartContainerCommand = GenerateStartCommand(machine, workload, containerName, workloadImageTag),
             StopContainerCommand = $"docker rm -f {Quote(containerName)}",
         };
     }
@@ -119,12 +120,12 @@ public sealed class WorkloadContainerCommandService : IWorkloadContainerCommandS
         return builder.ToString().TrimEnd();
     }
 
-    private static string GenerateStartCommand(ConnectionSettings settings, WorkloadDefinition workload, string containerName, string workloadImageTag)
+    private static string GenerateStartCommand(RunnerMachineSettings machine, WorkloadDefinition workload, string containerName, string workloadImageTag)
     {
-        if (string.IsNullOrWhiteSpace(settings.DockerWorkspacePath))
+        if (string.IsNullOrWhiteSpace(machine.DockerWorkspacePath))
             throw new InvalidOperationException("A host workspace path is required before generating the start command.");
 
-        var runnerUrl = new Uri(settings.RunnerUrl);
+        var runnerUrl = new Uri(machine.RunnerUrl);
         var port = runnerUrl.Port;
         var parts = new List<string>
         {
@@ -137,7 +138,7 @@ public sealed class WorkloadContainerCommandService : IWorkloadContainerCommandS
         foreach (var pair in workload.EnvironmentVariables.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
             parts.Add($"-e {pair.Key}={Quote(pair.Value)}");
 
-        parts.Add($"-v {Quote(settings.DockerWorkspacePath)}:{Quote(workload.WorkspaceMountPath)}");
+        parts.Add($"-v {Quote(machine.DockerWorkspacePath)}:{Quote(workload.WorkspaceMountPath)}");
 
         foreach (var mount in workload.AuthMounts)
             parts.Add($"-v {Quote(GetNamedVolumeName(workload, mount.Name))}:{Quote(mount.TargetPath)}");

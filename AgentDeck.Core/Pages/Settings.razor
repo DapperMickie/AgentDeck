@@ -3,7 +3,7 @@
 @inject IWorkloadCatalogService WorkloadCatalog
 @inject IWorkloadContainerCommandService WorkloadContainerCommands
 @inject IWorkloadContainerRuntimeService WorkloadContainerRuntime
-@inject IAgentDeckClient Client
+@inject IRunnerConnectionManager Connections
 @inject IToastService ToastService
 @inject ILogger<Settings> Logger
 @implements IDisposable
@@ -13,191 +13,239 @@
 </div>
 
 <div class="settings-card">
-    <h2>Runner Connection</h2>
-
-    <div class="form-field">
-        <label for="runner-url">Runner URL</label>
-        <input id="runner-url" type="text" class="input" @bind="_settings.RunnerUrl"
-               placeholder="http://localhost:5000" />
-    </div>
-
-    <div class="form-field">
-        <label class="checkbox-label">
-            <input type="checkbox" @bind="_settings.AutoConnect" />
-            Auto-connect on startup
-        </label>
-    </div>
-
-    <div class="form-actions">
-        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
-            @(_saving ? "Saving…" : "Save")
-        </button>
-
-        @if (Client.ConnectionState == HubConnectionState.Connected)
-        {
-            <button class="btn btn-danger" @onclick="DisconnectAsync">Disconnect</button>
-        }
-        else
-        {
-            <button class="btn btn-accent" @onclick="ConnectAsync"
-                    disabled="@(Client.ConnectionState == HubConnectionState.Connecting)">
-                @(Client.ConnectionState == HubConnectionState.Connecting ? "Connecting…" : "Connect")
+    <div class="settings-card__header">
+        <h2>Runner Machines</h2>
+        <div class="form-actions">
+            <button class="btn btn-accent" @onclick="AddMachine">Add Machine</button>
+            <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
+                @(_saving ? "Saving..." : "Save")
             </button>
-        }
+        </div>
     </div>
 
     @if (_errorMessage is not null)
     {
         <p class="error-message">@_errorMessage</p>
     }
-</div>
 
-<div class="settings-card">
-    <h2>Container Orchestration</h2>
-
-    <div class="form-field">
-        <label for="selected-workload">Selected Workload</label>
-        <select id="selected-workload" class="input" @bind="_settings.SelectedWorkloadId">
-            <option value="">Choose a workload…</option>
-            @foreach (var workload in _workloads)
+    <div class="machine-layout">
+        <div class="machine-list">
+            @foreach (var machine in _settings.Machines)
             {
-                <option value="@workload.Id">@workload.Name</option>
+                <button class="machine-card @(IsSelectedMachine(machine) ? "machine-card--selected" : "")"
+                        @onclick="() => SelectMachine(machine.Id)">
+                    <span class="machine-card__title">@machine.Name</span>
+                    <span class="machine-card__url">@machine.RunnerUrl</span>
+                    <span class="machine-card__meta">
+                        @if (string.Equals(_settings.PreferredMachineId, machine.Id, StringComparison.OrdinalIgnoreCase))
+                        {
+                            <span class="machine-badge">Default terminal</span>
+                        }
+                        <span class="machine-state machine-state--@GetStatusClass(machine)">
+                            @GetStatusLabel(machine)
+                        </span>
+                    </span>
+                </button>
             }
-        </select>
-    </div>
-
-    <div class="form-field">
-        <label for="docker-workspace">Host Workspace Path</label>
-        <input id="docker-workspace" type="text" class="input" @bind="_settings.DockerWorkspacePath"
-               placeholder="C:\Projects\Mick\AgentDeck" />
-    </div>
-
-    <div class="form-field">
-        <label for="runner-source-path">Runner Source Path</label>
-        <input id="runner-source-path" type="text" class="input" @bind="_settings.RunnerSourcePath"
-               placeholder="C:\Projects\Mick\AgentDeck" />
-    </div>
-
-    @if (TryGetSelectedWorkload(out var selectedWorkload, out var selectionError))
-    {
-        var commandSet = WorkloadContainerCommands.Resolve(_settings, selectedWorkload);
-
-        <div class="workload-runtime-toolbar">
-            <button class="btn btn-accent" @onclick="RefreshContainerStatusAsync" disabled="@_containerBusy">
-                Refresh Status
-            </button>
-            <button class="btn btn-accent" @onclick="BuildBaseImageAsync" disabled="@_containerBusy">
-                Build Base Image
-            </button>
-            <button class="btn btn-accent" @onclick="BuildWorkloadImageAsync" disabled="@_containerBusy">
-                Build Workload Image
-            </button>
-            <button class="btn btn-primary" @onclick="StartContainerAsync" disabled="@_containerBusy">
-                Start Container
-            </button>
-            <button class="btn btn-danger" @onclick="StopContainerAsync" disabled="@_containerBusy">
-                Stop Container
-            </button>
         </div>
 
-        @if (_containerErrorMessage is not null)
+        @if (SelectedMachine is not null)
         {
-            <p class="error-message">@_containerErrorMessage</p>
-        }
+            <div class="machine-editor">
+                <div class="form-field">
+                    <label for="machine-name">Machine Name</label>
+                    <input id="machine-name" type="text" class="input" @bind="SelectedMachine.Name" />
+                </div>
 
-        <div class="workload-command-grid">
-            <div class="workload-command-card">
-                <h3>Local Docker Status</h3>
-                @if (_containerBusy)
-                {
-                    <p>Running container action…</p>
-                }
-                else if (_containerStatus is null)
-                {
-                    <p>Refresh status to inspect the local Docker state.</p>
-                }
-                else if (!_containerStatus.DockerAvailable)
-                {
-                    <p class="error-message">@_containerStatus.ErrorMessage</p>
-                }
-                else
-                {
-                    <p><strong>Docker:</strong> <code>@_containerStatus.DockerVersion</code></p>
-                    <p><strong>Base image:</strong> @(_containerStatus.BaseImageExists ? "present" : "missing")</p>
-                    <p><strong>Workload image:</strong> @(_containerStatus.WorkloadImageExists ? "present" : "missing")</p>
-                    <p><strong>Container:</strong> @(_containerStatus.ContainerExists ? _containerStatus.ContainerState : "not created")</p>
-                    <p><strong>Auth volumes:</strong> @FormatAvailability(_containerStatus.AuthVolumeExists)</p>
-                    <p><strong>Cache volumes:</strong> @FormatAvailability(_containerStatus.CacheVolumeExists)</p>
-                    <p><strong>Secrets:</strong> @FormatAvailability(_containerStatus.SecretAvailability)</p>
-                    @if (!string.IsNullOrWhiteSpace(_containerStatus.ContainerId))
+                <div class="form-field">
+                    <label for="runner-url">Runner URL</label>
+                    <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
+                           placeholder="http://localhost:5000" />
+                </div>
+
+                <div class="form-field">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="SelectedMachine.AutoConnect" />
+                        Auto-connect on startup
+                    </label>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn btn-accent" @onclick="() => SetPreferredMachine(SelectedMachine.Id)">
+                        Make Default For New Terminals
+                    </button>
+
+                    @if (Connections.GetConnectionState(SelectedMachine.Id) == HubConnectionState.Connected)
                     {
-                        <p><strong>Container ID:</strong> <code>@_containerStatus.ContainerId</code></p>
+                        <button class="btn btn-danger" @onclick="() => DisconnectAsync(SelectedMachine.Id)">Disconnect</button>
                     }
-                }
+                    else
+                    {
+                        <button class="btn btn-primary" @onclick="() => ConnectAsync(SelectedMachine)">
+                            Connect
+                        </button>
+                    }
+
+                    <button class="btn btn-danger"
+                            @onclick="() => DeleteMachineAsync(SelectedMachine.Id)"
+                            disabled="@(_settings.Machines.Count == 1)">
+                        Delete Machine
+                    </button>
+                </div>
             </div>
-            <div class="workload-command-card">
-                <h3>Resolved Names</h3>
-                <p><strong>Base image:</strong> <code>@commandSet.BaseImageTag</code></p>
-                <p><strong>Workload image:</strong> <code>@commandSet.WorkloadImageTag</code></p>
-                <p><strong>Container:</strong> <code>@commandSet.ContainerName</code></p>
-            </div>
-            <div class="workload-command-card">
-                <h3>Build Base Image</h3>
-                @if (commandSet.BuildBaseImageCommand is null)
+        }
+    </div>
+</div>
+
+@if (SelectedMachine is not null)
+{
+    <div class="settings-card">
+        <h2>Container Orchestration: @SelectedMachine.Name</h2>
+
+        <div class="form-field">
+            <label for="selected-workload">Selected Workload</label>
+            <select id="selected-workload" class="input" @bind="SelectedMachine.SelectedWorkloadId">
+                <option value="">Choose a workload...</option>
+                @foreach (var workload in _workloads)
                 {
-                    <p>Set a runner source path to generate the base image build command.</p>
+                    <option value="@workload.Id">@workload.Name</option>
                 }
-                else
-                {
-                    <pre class="command-preview">@commandSet.BuildBaseImageCommand</pre>
-                }
+            </select>
+        </div>
+
+        <div class="form-field">
+            <label for="docker-workspace">Host Workspace Path</label>
+            <input id="docker-workspace" type="text" class="input" @bind="SelectedMachine.DockerWorkspacePath"
+                   placeholder="C:\Projects\Mick\AgentDeck" />
+        </div>
+
+        <div class="form-field">
+            <label for="runner-source-path">Runner Source Path</label>
+            <input id="runner-source-path" type="text" class="input" @bind="SelectedMachine.RunnerSourcePath"
+                   placeholder="C:\Projects\Mick\AgentDeck" />
+        </div>
+
+        @if (TryGetSelectedWorkload(SelectedMachine, out var selectedWorkload, out var selectionError))
+        {
+            var commandSet = WorkloadContainerCommands.Resolve(SelectedMachine, selectedWorkload);
+
+            <div class="workload-runtime-toolbar">
+                <button class="btn btn-accent" @onclick="RefreshContainerStatusAsync" disabled="@_containerBusy">
+                    Refresh Status
+                </button>
+                <button class="btn btn-accent" @onclick="BuildBaseImageAsync" disabled="@_containerBusy">
+                    Build Base Image
+                </button>
+                <button class="btn btn-accent" @onclick="BuildWorkloadImageAsync" disabled="@_containerBusy">
+                    Build Workload Image
+                </button>
+                <button class="btn btn-primary" @onclick="StartContainerAsync" disabled="@_containerBusy">
+                    Start Container
+                </button>
+                <button class="btn btn-danger" @onclick="StopContainerAsync" disabled="@_containerBusy">
+                    Stop Container
+                </button>
             </div>
-            <div class="workload-command-card">
-                <h3>Generated Workload Dockerfile</h3>
-                <pre class="command-preview">@commandSet.GeneratedDockerfile</pre>
-            </div>
-            <div class="workload-command-card">
-                <h3>Build Workload Image</h3>
-                <pre class="command-preview">@commandSet.BuildWorkloadImageCommand</pre>
-            </div>
-            <div class="workload-command-card">
-                <h3>Start Container</h3>
-                <pre class="command-preview">@commandSet.StartContainerCommand</pre>
-            </div>
-            <div class="workload-command-card">
-                <h3>Stop Container</h3>
-                <pre class="command-preview">@commandSet.StopContainerCommand</pre>
-            </div>
-            @if (_lastContainerResult is not null)
+
+            @if (_containerErrorMessage is not null)
             {
-                <div class="workload-command-card workload-command-card--full">
-                    <h3>Last Docker Command</h3>
-                    <pre class="command-preview">@_lastContainerResult.CommandText</pre>
-                    @if (!string.IsNullOrWhiteSpace(_lastContainerResult.StandardOutput))
+                <p class="error-message">@_containerErrorMessage</p>
+            }
+
+            <div class="workload-command-grid">
+                <div class="workload-command-card">
+                    <h3>Local Docker Status</h3>
+                    @if (_containerBusy)
                     {
-                        <h3>Standard Output</h3>
-                        <pre class="command-preview">@_lastContainerResult.StandardOutput</pre>
+                        <p>Running container action...</p>
                     }
-                    @if (!string.IsNullOrWhiteSpace(_lastContainerResult.StandardError))
+                    else if (_containerStatus is null)
                     {
-                        <h3>Standard Error</h3>
-                        <pre class="command-preview">@_lastContainerResult.StandardError</pre>
+                        <p>Refresh status to inspect the local Docker state.</p>
+                    }
+                    else if (!_containerStatus.DockerAvailable)
+                    {
+                        <p class="error-message">@_containerStatus.ErrorMessage</p>
+                    }
+                    else
+                    {
+                        <p><strong>Docker:</strong> <code>@_containerStatus.DockerVersion</code></p>
+                        <p><strong>Base image:</strong> @(_containerStatus.BaseImageExists ? "present" : "missing")</p>
+                        <p><strong>Workload image:</strong> @(_containerStatus.WorkloadImageExists ? "present" : "missing")</p>
+                        <p><strong>Container:</strong> @(_containerStatus.ContainerExists ? _containerStatus.ContainerState : "not created")</p>
+                        <p><strong>Auth volumes:</strong> @FormatAvailability(_containerStatus.AuthVolumeExists)</p>
+                        <p><strong>Cache volumes:</strong> @FormatAvailability(_containerStatus.CacheVolumeExists)</p>
+                        <p><strong>Secrets:</strong> @FormatAvailability(_containerStatus.SecretAvailability)</p>
+                        @if (!string.IsNullOrWhiteSpace(_containerStatus.ContainerId))
+                        {
+                            <p><strong>Container ID:</strong> <code>@_containerStatus.ContainerId</code></p>
+                        }
                     }
                 </div>
-            }
-        </div>
-    }
-    else if (selectionError is not null)
-    {
-        <p class="error-message">@selectionError</p>
-    }
-</div>
+                <div class="workload-command-card">
+                    <h3>Resolved Names</h3>
+                    <p><strong>Base image:</strong> <code>@commandSet.BaseImageTag</code></p>
+                    <p><strong>Workload image:</strong> <code>@commandSet.WorkloadImageTag</code></p>
+                    <p><strong>Container:</strong> <code>@commandSet.ContainerName</code></p>
+                </div>
+                <div class="workload-command-card">
+                    <h3>Build Base Image</h3>
+                    @if (commandSet.BuildBaseImageCommand is null)
+                    {
+                        <p>Set a runner source path to generate the base image build command.</p>
+                    }
+                    else
+                    {
+                        <pre class="command-preview">@commandSet.BuildBaseImageCommand</pre>
+                    }
+                </div>
+                <div class="workload-command-card">
+                    <h3>Generated Workload Dockerfile</h3>
+                    <pre class="command-preview">@commandSet.GeneratedDockerfile</pre>
+                </div>
+                <div class="workload-command-card">
+                    <h3>Build Workload Image</h3>
+                    <pre class="command-preview">@commandSet.BuildWorkloadImageCommand</pre>
+                </div>
+                <div class="workload-command-card">
+                    <h3>Start Container</h3>
+                    <pre class="command-preview">@commandSet.StartContainerCommand</pre>
+                </div>
+                <div class="workload-command-card">
+                    <h3>Stop Container</h3>
+                    <pre class="command-preview">@commandSet.StopContainerCommand</pre>
+                </div>
+                @if (_lastContainerResult is not null)
+                {
+                    <div class="workload-command-card workload-command-card--full">
+                        <h3>Last Docker Command</h3>
+                        <pre class="command-preview">@_lastContainerResult.CommandText</pre>
+                        @if (!string.IsNullOrWhiteSpace(_lastContainerResult.StandardOutput))
+                        {
+                            <h3>Standard Output</h3>
+                            <pre class="command-preview">@_lastContainerResult.StandardOutput</pre>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_lastContainerResult.StandardError))
+                        {
+                            <h3>Standard Error</h3>
+                            <pre class="command-preview">@_lastContainerResult.StandardError</pre>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else if (selectionError is not null)
+        {
+            <p class="error-message">@selectionError</p>
+        }
+    </div>
 
-<div class="settings-card">
-    <h2>Connection Status</h2>
-    <p>State: <strong class="status-text-@GetStatusClass()">@Client.ConnectionState</strong></p>
-    <p>Hub URL: <code>@HubUrl</code></p>
-</div>
+    <div class="settings-card">
+        <h2>Connection Status: @SelectedMachine.Name</h2>
+        <p>State: <strong class="status-text-@GetStatusClass(SelectedMachine)">@GetStatusLabel(SelectedMachine)</strong></p>
+        <p>Hub URL: <code>@GetHubUrl(SelectedMachine)</code></p>
+    </div>
+}
 
 <div class="settings-card">
     <h2>Workload Catalog</h2>
@@ -276,7 +324,7 @@
 }
 
 @code {
-    private ConnectionSettings _settings = new();
+    private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
     private IReadOnlyList<WorkloadDefinition> _workloads = [];
     private WorkloadDefinition? _editingWorkload;
     private string? _editingOriginalId;
@@ -289,46 +337,139 @@
     private WorkloadContainerStatus? _containerStatus;
     private WorkloadContainerExecutionResult? _lastContainerResult;
     private string? _containerErrorMessage;
+    private string? _selectedMachineId;
 
-    private string HubUrl => $"{_settings.RunnerUrl.TrimEnd('/')}/hubs/agent";
+    private RunnerMachineSettings? SelectedMachine => _settings.FindMachine(_selectedMachineId);
 
     protected override async Task OnInitializedAsync()
     {
         _settings = await SettingsService.LoadAsync();
+        _selectedMachineId = _settings.PreferredMachineId;
         await LoadWorkloadsAsync();
         await RefreshContainerStatusIfPossibleAsync();
-        Client.ConnectionStateChanged += OnConnectionStateChanged;
+        Connections.ConnectionStateChanged += OnConnectionStateChanged;
     }
 
     private async Task SaveAsync()
     {
         _saving = true;
         _errorMessage = null;
-        try { await SettingsService.SaveAsync(_settings); }
-        finally { _saving = false; }
+
+        try
+        {
+            _settings.Normalize();
+            await SettingsService.SaveAsync(_settings);
+            ToastService.Show("Machine settings saved", ToastKind.Success);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to save settings: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
     }
 
-    private async Task ConnectAsync()
+    private void AddMachine()
+    {
+        var baseName = "New machine";
+        var suffix = 1;
+        var name = baseName;
+        while (_settings.Machines.Any(machine => string.Equals(machine.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            suffix++;
+            name = $"{baseName} {suffix}";
+        }
+
+        var machine = new RunnerMachineSettings
+        {
+            Name = name,
+            RunnerUrl = "http://localhost:5000",
+            AutoConnect = false
+        };
+
+        _settings.Machines.Add(machine);
+        _selectedMachineId = machine.Id;
+    }
+
+    private void SelectMachine(string machineId)
+    {
+        _selectedMachineId = machineId;
+        _containerStatus = null;
+        _lastContainerResult = null;
+        _containerErrorMessage = null;
+        _ = InvokeAsync(RefreshContainerStatusIfPossibleAsync);
+    }
+
+    private bool IsSelectedMachine(RunnerMachineSettings machine) =>
+        string.Equals(machine.Id, _selectedMachineId, StringComparison.OrdinalIgnoreCase);
+
+    private void SetPreferredMachine(string machineId)
+    {
+        _settings.PreferredMachineId = machineId;
+        _selectedMachineId = machineId;
+    }
+
+    private async Task DeleteMachineAsync(string machineId)
+    {
+        if (_settings.Machines.Count == 1)
+        {
+            _errorMessage = "At least one machine must remain configured.";
+            return;
+        }
+
+        var machine = _settings.FindMachine(machineId);
+        if (machine is null)
+        {
+            return;
+        }
+
+        await Connections.DisconnectAsync(machine.Id);
+        _settings.Machines.RemoveAll(item => string.Equals(item.Id, machine.Id, StringComparison.OrdinalIgnoreCase));
+        _settings.Normalize();
+        _selectedMachineId = _settings.PreferredMachineId;
+        await RefreshContainerStatusIfPossibleAsync();
+    }
+
+    private async Task ConnectAsync(RunnerMachineSettings machine)
     {
         _errorMessage = null;
-        try { await Client.ConnectAsync(HubUrl); }
-        catch (Exception ex) { _errorMessage = $"Connection failed: {ex.Message}"; }
+
+        try
+        {
+            await Connections.ConnectAsync(machine);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Connection failed: {ex.Message}";
+        }
     }
 
-    private async Task DisconnectAsync()
+    private async Task DisconnectAsync(string machineId)
     {
-        await Client.DisconnectAsync();
+        await Connections.DisconnectAsync(machineId);
     }
 
-    private void OnConnectionStateChanged(object? sender, HubConnectionState _) =>
+    private void OnConnectionStateChanged(object? sender, RunnerMachineConnectionChangedEventArgs e) =>
         InvokeAsync(StateHasChanged);
 
-    private string GetStatusClass() => Client.ConnectionState switch
+    private string GetStatusClass(RunnerMachineSettings machine) => Connections.GetConnectionState(machine.Id) switch
     {
         HubConnectionState.Connected => "connected",
         HubConnectionState.Connecting or HubConnectionState.Reconnecting => "connecting",
         _ => "disconnected"
     };
+
+    private string GetStatusLabel(RunnerMachineSettings machine) => Connections.GetConnectionState(machine.Id) switch
+    {
+        HubConnectionState.Connected => "Connected",
+        HubConnectionState.Connecting => "Connecting...",
+        HubConnectionState.Reconnecting => "Reconnecting...",
+        _ => "Disconnected"
+    };
+
+    private static string GetHubUrl(RunnerMachineSettings machine) => $"{machine.RunnerUrl.TrimEnd('/')}/hubs/agent";
 
     private async Task LoadWorkloadsAsync()
     {
@@ -347,8 +488,11 @@
 
     private async Task RefreshContainerStatusIfPossibleAsync()
     {
-        if (!TryGetSelectedWorkload(out _, out _))
+        if (SelectedMachine is null || !TryGetSelectedWorkload(SelectedMachine, out _, out _))
+        {
+            _containerStatus = null;
             return;
+        }
 
         await RefreshContainerStatusAsync();
     }
@@ -395,8 +539,13 @@
             _workloadErrorMessage = null;
             await WorkloadCatalog.SaveCustomAsync(workload, _editingOriginalId);
             await LoadWorkloadsAsync();
-            if (_settings.SelectedWorkloadId == _editingOriginalId || string.IsNullOrWhiteSpace(_settings.SelectedWorkloadId))
-                _settings.SelectedWorkloadId = workload.Id;
+
+            if (SelectedMachine is not null &&
+                (SelectedMachine.SelectedWorkloadId == _editingOriginalId || string.IsNullOrWhiteSpace(SelectedMachine.SelectedWorkloadId)))
+            {
+                SelectedMachine.SelectedWorkloadId = workload.Id;
+            }
+
             await CloseEditorAsync();
             await RefreshContainerStatusIfPossibleAsync();
         }
@@ -416,14 +565,18 @@
             await LoadWorkloadsAsync();
 
             if (_editingOriginalId?.Equals(workloadId, StringComparison.OrdinalIgnoreCase) == true)
-                await CloseEditorAsync();
-
-            if (_settings.SelectedWorkloadId?.Equals(workloadId, StringComparison.OrdinalIgnoreCase) == true)
             {
-                _settings.SelectedWorkloadId = null;
-                _containerStatus = null;
-                _lastContainerResult = null;
+                await CloseEditorAsync();
             }
+
+            foreach (var machine in _settings.Machines.Where(machine =>
+                         machine.SelectedWorkloadId?.Equals(workloadId, StringComparison.OrdinalIgnoreCase) == true))
+            {
+                machine.SelectedWorkloadId = null;
+            }
+
+            _containerStatus = null;
+            _lastContainerResult = null;
         }
         catch (Exception ex)
         {
@@ -452,27 +605,26 @@
     {
         await ExecuteContainerActionAsync(
             "Built base image",
-            (settings, workload, token) => WorkloadContainerRuntime.BuildBaseImageAsync(settings, workload, token));
+            (machine, workload, token) => WorkloadContainerRuntime.BuildBaseImageAsync(machine, workload, token));
     }
 
     private async Task BuildWorkloadImageAsync()
     {
         await ExecuteContainerActionAsync(
             "Built workload image",
-            (settings, workload, token) => WorkloadContainerRuntime.BuildWorkloadImageAsync(settings, workload, token));
+            (machine, workload, token) => WorkloadContainerRuntime.BuildWorkloadImageAsync(machine, workload, token));
     }
 
     private async Task StartContainerAsync()
     {
         await ExecuteContainerActionAsync(
             "Started runner container",
-            async (settings, workload, token) =>
+            async (machine, workload, token) =>
             {
-                var result = await WorkloadContainerRuntime.StartContainerAsync(settings, workload, token);
+                var result = await WorkloadContainerRuntime.StartContainerAsync(machine, workload, token);
                 if (result.Succeeded)
                 {
-                    await SettingsService.SaveAsync(_settings);
-                    await ConnectAsync();
+                    await Connections.ConnectAsync(machine, token);
                 }
 
                 return result;
@@ -483,11 +635,13 @@
     {
         await ExecuteContainerActionAsync(
             "Stopped runner container",
-            async (settings, workload, token) =>
+            async (machine, workload, token) =>
             {
-                var result = await WorkloadContainerRuntime.StopContainerAsync(settings, workload, token);
-                if (result.Succeeded && Client.ConnectionState == HubConnectionState.Connected)
-                    await DisconnectAsync();
+                var result = await WorkloadContainerRuntime.StopContainerAsync(machine, workload, token);
+                if (result.Succeeded && Connections.GetConnectionState(machine.Id) == HubConnectionState.Connected)
+                {
+                    await Connections.DisconnectAsync(machine.Id);
+                }
 
                 return result;
             });
@@ -495,7 +649,8 @@
 
     private async Task RefreshContainerStatusAsync()
     {
-        if (!TryGetSelectedWorkload(out var workload, out var error))
+        string? error = null;
+        if (SelectedMachine is null || !TryGetSelectedWorkload(SelectedMachine, out var workload, out error))
         {
             _containerErrorMessage = error;
             _containerStatus = null;
@@ -507,7 +662,7 @@
 
         try
         {
-            _containerStatus = await WorkloadContainerRuntime.GetStatusAsync(_settings, workload);
+            _containerStatus = await WorkloadContainerRuntime.GetStatusAsync(SelectedMachine, workload);
         }
         catch (Exception ex)
         {
@@ -523,9 +678,10 @@
 
     private async Task ExecuteContainerActionAsync(
         string successMessage,
-        Func<ConnectionSettings, WorkloadDefinition, CancellationToken, Task<WorkloadContainerExecutionResult>> action)
+        Func<RunnerMachineSettings, WorkloadDefinition, CancellationToken, Task<WorkloadContainerExecutionResult>> action)
     {
-        if (!TryGetSelectedWorkload(out var workload, out var error))
+        string? error = null;
+        if (SelectedMachine is null || !TryGetSelectedWorkload(SelectedMachine, out var workload, out error))
         {
             _containerErrorMessage = error;
             return;
@@ -536,7 +692,7 @@
 
         try
         {
-            var result = await action(_settings, workload, CancellationToken.None);
+            var result = await action(SelectedMachine, workload, CancellationToken.None);
             _lastContainerResult = result;
 
             if (result.Succeeded)
@@ -554,7 +710,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Docker action failed for workload {WorkloadId}", workload.Id);
+            Logger.LogError(ex, "Docker action failed for machine {MachineId}", SelectedMachine.Id);
             _containerErrorMessage = ex.Message;
             ToastService.Show("Docker action failed", ToastKind.Error);
         }
@@ -588,23 +744,23 @@
         return string.Join(", ", values.Select(pair => $"{pair.Key}={(pair.Value ? "ready" : "missing")}"));
     }
 
-    private bool TryGetSelectedWorkload(out WorkloadDefinition workload, out string? error)
+    private bool TryGetSelectedWorkload(RunnerMachineSettings machine, out WorkloadDefinition workload, out string? error)
     {
         workload = default!;
         error = null;
 
-        if (string.IsNullOrWhiteSpace(_settings.SelectedWorkloadId))
+        if (string.IsNullOrWhiteSpace(machine.SelectedWorkloadId))
         {
             error = "Choose a workload to generate Docker commands.";
             return false;
         }
 
         workload = _workloads.FirstOrDefault(item =>
-            item.Id.Equals(_settings.SelectedWorkloadId, StringComparison.OrdinalIgnoreCase))!;
+            item.Id.Equals(machine.SelectedWorkloadId, StringComparison.OrdinalIgnoreCase))!;
 
         if (workload is null)
         {
-            error = $"The selected workload '{_settings.SelectedWorkloadId}' is no longer available.";
+            error = $"The selected workload '{machine.SelectedWorkloadId}' is no longer available.";
             return false;
         }
 
@@ -661,5 +817,5 @@
         };
     }
 
-    public void Dispose() => Client.ConnectionStateChanged -= OnConnectionStateChanged;
+    public void Dispose() => Connections.ConnectionStateChanged -= OnConnectionStateChanged;
 }

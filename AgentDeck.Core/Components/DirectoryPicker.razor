@@ -1,4 +1,4 @@
-@inject IAgentDeckClient Client
+@inject IRunnerConnectionManager Connections
 
 <div class="form-group">
     <select class="form-input" value="@_selected" @onchange="OnSelectChanged">
@@ -22,13 +22,21 @@
 @code {
     [Parameter] public string Value { get; set; } = "";
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public RunnerMachineSettings? Machine { get; set; }
 
     private WorkspaceInfo? _workspace;
     private string _selected = "";
+    private string? _loadedMachineId;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        _workspace = await Client.GetWorkspaceAsync();
+        if (Machine is null || string.Equals(_loadedMachineId, Machine.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _loadedMachineId = Machine.Id;
+        _workspace = await Connections.GetWorkspaceAsync(Machine);
     }
 
     private async Task OnSelectChanged(ChangeEventArgs e)

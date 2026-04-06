@@ -1,20 +1,85 @@
 namespace AgentDeck.Core.Models;
 
-/// <summary>User-configured connection settings for the AgentDeck runner.</summary>
+/// <summary>User-configured runner machine profiles for the companion app.</summary>
 public sealed class ConnectionSettings
 {
-    /// <summary>Base URL of the runner (e.g. http://192.168.1.5:5000).</summary>
-    public string RunnerUrl { get; set; } = "http://localhost:5000";
+    /// <summary>Configured runner machines.</summary>
+    public List<RunnerMachineSettings> Machines { get; set; } = [CreateLocalMachine()];
 
-    /// <summary>Whether to automatically connect to the runner on app start.</summary>
-    public bool AutoConnect { get; set; } = true;
+    /// <summary>Machine selected by default when creating a new terminal.</summary>
+    public string? PreferredMachineId { get; set; } = LocalMachineId;
 
-    /// <summary>Selected workload definition used when generating runner container commands.</summary>
-    public string? SelectedWorkloadId { get; set; }
+    public const string LocalMachineId = "local-machine";
 
-    /// <summary>Host path mounted into the runner container as the workspace root.</summary>
-    public string DockerWorkspacePath { get; set; } = string.Empty;
+    public static ConnectionSettings CreateDefault()
+    {
+        return new ConnectionSettings
+        {
+            Machines = [CreateLocalMachine()],
+            PreferredMachineId = LocalMachineId
+        };
+    }
 
-    /// <summary>Local repository path that contains AgentDeck.Runner/Dockerfile for base image builds.</summary>
-    public string RunnerSourcePath { get; set; } = string.Empty;
+    public RunnerMachineSettings? FindMachine(string? machineId)
+    {
+        if (Machines.Count == 0)
+        {
+            Machines.Add(CreateLocalMachine());
+        }
+
+        if (!string.IsNullOrWhiteSpace(machineId))
+        {
+            var exactMatch = Machines.FirstOrDefault(m => string.Equals(m.Id, machineId, StringComparison.OrdinalIgnoreCase));
+            if (exactMatch is not null)
+            {
+                return exactMatch;
+            }
+        }
+
+        var preferred = Machines.FirstOrDefault(m => string.Equals(m.Id, PreferredMachineId, StringComparison.OrdinalIgnoreCase));
+        return preferred ?? Machines[0];
+    }
+
+    public void Normalize()
+    {
+        Machines ??= [];
+
+        if (Machines.Count == 0)
+        {
+            Machines.Add(CreateLocalMachine());
+        }
+
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < Machines.Count; index++)
+        {
+            var machine = Machines[index] ?? new RunnerMachineSettings();
+            machine.Id = string.IsNullOrWhiteSpace(machine.Id) ? Guid.NewGuid().ToString("n") : machine.Id.Trim();
+            machine.Name = string.IsNullOrWhiteSpace(machine.Name) ? $"Machine {index + 1}" : machine.Name.Trim();
+            machine.RunnerUrl = string.IsNullOrWhiteSpace(machine.RunnerUrl) ? "http://localhost:5000" : machine.RunnerUrl.Trim();
+
+            while (!seenIds.Add(machine.Id))
+            {
+                machine.Id = Guid.NewGuid().ToString("n");
+            }
+
+            Machines[index] = machine;
+        }
+
+        if (string.IsNullOrWhiteSpace(PreferredMachineId) ||
+            Machines.All(m => !string.Equals(m.Id, PreferredMachineId, StringComparison.OrdinalIgnoreCase)))
+        {
+            PreferredMachineId = Machines[0].Id;
+        }
+    }
+
+    public static RunnerMachineSettings CreateLocalMachine()
+    {
+        return new RunnerMachineSettings
+        {
+            Id = LocalMachineId,
+            Name = "Local machine",
+            RunnerUrl = "http://localhost:5000",
+            AutoConnect = true
+        };
+    }
 }

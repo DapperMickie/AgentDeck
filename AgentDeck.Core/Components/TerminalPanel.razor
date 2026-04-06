@@ -1,5 +1,5 @@
 @inject TerminalInterop TerminalJs
-@inject IAgentDeckClient Client
+@inject IRunnerConnectionManager Connections
 @implements IAsyncDisposable
 
 <div class="terminal-panel @(IsActive ? "terminal-panel--active" : "")"
@@ -27,8 +27,8 @@
 
         _dotnetRef = DotNetObjectReference.Create(this);
         await TerminalJs.CreateTerminalAsync(_containerId, Session.Id, _dotnetRef);
-        await Client.JoinSessionAsync(Session.Id);
-        Client.OutputReceived += OnOutputReceived;
+        await Connections.JoinSessionAsync(Session.Id);
+        Connections.OutputReceived += OnOutputReceived;
 
         // Fit to the actual container dimensions and explicitly resize the PTY.
         // This is critical: the PTY starts at the CreateTerminalRequest default
@@ -36,7 +36,7 @@
         // on startup as 80 cols and never redraws at the correct width.
         var size = await TerminalJs.FitAndGetSizeAsync(Session.Id);
         if (size.HasValue)
-            await Client.ResizeTerminalAsync(Session.Id, size.Value.Cols, size.Value.Rows);
+            await Connections.ResizeTerminalAsync(Session.Id, size.Value.Cols, size.Value.Rows);
 
         await TerminalJs.FocusAsync(Session.Id);
     }
@@ -49,7 +49,7 @@
             // while this panel was hidden) and push the new size to the runner.
             var size = await TerminalJs.FitAndGetSizeAsync(Session.Id);
             if (size.HasValue)
-                await Client.ResizeTerminalAsync(Session.Id, size.Value.Cols, size.Value.Rows);
+                await Connections.ResizeTerminalAsync(Session.Id, size.Value.Cols, size.Value.Rows);
             await TerminalJs.FocusAsync(Session.Id);
         }
     }
@@ -68,23 +68,23 @@
     [JSInvokable]
     public async Task OnTerminalInput(string data)
     {
-        await Client.SendInputAsync(Session.Id, data);
+        await Connections.SendInputAsync(Session.Id, data);
     }
 
     /// <summary>Called from JS when the terminal is resized.</summary>
     [JSInvokable]
     public async Task OnTerminalResize(int cols, int rows)
     {
-        await Client.ResizeTerminalAsync(Session.Id, cols, rows);
+        await Connections.ResizeTerminalAsync(Session.Id, cols, rows);
     }
 
     public async ValueTask DisposeAsync()
     {
-        Client.OutputReceived -= OnOutputReceived;
+        Connections.OutputReceived -= OnOutputReceived;
 
         if (_initialised)
         {
-            await Client.LeaveSessionAsync(Session.Id);
+            await Connections.LeaveSessionAsync(Session.Id);
             await TerminalJs.DisposeTerminalAsync(Session.Id);
         }
 

@@ -7,13 +7,23 @@
             <h2 class="modal__title">New Terminal</h2>
 
             <div class="form-group">
+                <label class="form-label">Machine</label>
+                <select class="form-input" @bind="_machineId">
+                    @foreach (var machine in Machines)
+                    {
+                        <option value="@machine.Id">@machine.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="form-group">
                 <label class="form-label">Session Name</label>
                 <input class="form-input" type="text" @bind="_name" placeholder="Session name" />
             </div>
 
             <div class="form-group">
                 <label class="form-label">Working Directory</label>
-                <DirectoryPicker @bind-Value="_workingDir" />
+                <DirectoryPicker Machine="SelectedMachine" @bind-Value="_workingDir" />
             </div>
 
             <div class="form-group">
@@ -67,7 +77,9 @@
 @code {
     [Parameter] public bool IsOpen { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
-    [Parameter] public EventCallback<CreateTerminalRequest> OnCreate { get; set; }
+    [Parameter] public EventCallback<NewTerminalRequest> OnCreate { get; set; }
+    [Parameter] public IReadOnlyList<RunnerMachineSettings> Machines { get; set; } = [];
+    [Parameter] public string? DefaultMachineId { get; set; }
 
     private IReadOnlyList<CliPreset> _presets = [];
     private CliPreset? _selectedPreset;
@@ -77,6 +89,11 @@
     private string _error = "";
     private bool _yoloMode = false;
     private bool _wasOpen = false;
+    private string _machineId = "";
+
+    private RunnerMachineSettings? SelectedMachine =>
+        Machines.FirstOrDefault(machine => string.Equals(machine.Id, _machineId, StringComparison.OrdinalIgnoreCase))
+        ?? Machines.FirstOrDefault();
 
     protected override void OnInitialized()
     {
@@ -91,6 +108,7 @@
             _workingDir = "";
             _error = "";
             _yoloMode = false;
+            _machineId = ResolveDefaultMachineId();
             if (_presets.Count > 0)
                 SelectPreset(_presets[0]);
         }
@@ -112,6 +130,12 @@
             return;
         }
 
+        if (SelectedMachine is null)
+        {
+            _error = "Add a machine in Settings before creating a terminal.";
+            return;
+        }
+
         var cmd = ResolveCommandText();
         if (string.IsNullOrWhiteSpace(cmd))
         {
@@ -127,7 +151,11 @@
             Arguments = ResolveArguments(),
         };
 
-        await OnCreate.InvokeAsync(req);
+        await OnCreate.InvokeAsync(new NewTerminalRequest
+        {
+            MachineId = SelectedMachine.Id,
+            Terminal = req
+        });
     }
 
     private string ResolveCommandText()
@@ -151,4 +179,20 @@
 
     private async Task Cancel() => await OnClose.InvokeAsync();
     private async Task HandleBackdropClick() => await OnClose.InvokeAsync();
+
+    private string ResolveDefaultMachineId()
+    {
+        if (Machines.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(DefaultMachineId) &&
+            Machines.Any(machine => string.Equals(machine.Id, DefaultMachineId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return DefaultMachineId;
+        }
+
+        return Machines[0].Id;
+    }
 }

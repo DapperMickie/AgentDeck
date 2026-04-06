@@ -1,5 +1,6 @@
 @page "/"
-@inject IAgentDeckClient Client
+@inject IRunnerConnectionManager Connections
+@inject IConnectionSettingsService SettingsService
 @inject ISessionStateService SessionState
 @inject IActiveSessionService ActiveSession
 @inject TerminalInterop TerminalJs
@@ -24,7 +25,7 @@
             <div class="empty-icon">⬡</div>
             <h2>No active terminals</h2>
             <p>
-                @if (Client.ConnectionState != HubConnectionState.Connected)
+                @if (Connections.ConnectedMachineCount == 0)
                 {
                     <span>Connect to a runner in <a href="/settings">Settings</a> to get started.</span>
                 }
@@ -47,7 +48,9 @@
 
     <NewTerminalDialog IsOpen="ActiveSession.IsDialogOpen"
                        OnClose="CloseDialog"
-                       OnCreate="OnDialogCreate" />
+                       OnCreate="OnDialogCreate"
+                       Machines="_settings.Machines"
+                       DefaultMachineId="_settings.PreferredMachineId" />
 </div>
 
 @if (_showShortcuts)
@@ -75,10 +78,12 @@
     private string _quickCommand = string.Empty;
     private DotNetObjectReference<Index>? _dotnetRef;
     private bool _shortcutsRegistered;
+    private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        Client.ConnectionStateChanged += OnStateChanged;
+        _settings = await SettingsService.LoadAsync();
+        Connections.ConnectionStateChanged += OnStateChanged;
         SessionState.SessionsChanged += OnSessionsChanged;
         ActiveSession.StateChanged += OnActiveSessionChanged;
     }
@@ -104,14 +109,22 @@
 
     private async Task CloseSessionAsync(string sessionId)
     {
-        await Client.CloseSessionAsync(sessionId);
+        await Connections.CloseSessionAsync(sessionId);
     }
 
     private void CloseDialog() => ActiveSession.CloseDialog();
 
-    private async Task OnDialogCreate(CreateTerminalRequest req)
+    private async Task OnDialogCreate(NewTerminalRequest req)
     {
-        await Client.CreateSessionAsync(req);
+        var machine = _settings.FindMachine(req.MachineId);
+        if (machine is null)
+        {
+            return;
+        }
+
+        _settings.PreferredMachineId = machine.Id;
+        await SettingsService.SaveAsync(_settings);
+        await Connections.CreateSessionAsync(machine, req.Terminal);
         ActiveSession.CloseDialog();
     }
 
@@ -119,7 +132,7 @@
     {
         if (e.Key == "Enter" && !string.IsNullOrEmpty(_quickCommand) && ActiveSession.ActiveSessionId is not null)
         {
-            await Client.SendInputAsync(ActiveSession.ActiveSessionId, _quickCommand + "\n");
+            await Connections.SendInputAsync(ActiveSession.ActiveSessionId, _quickCommand + "\n");
             _quickCommand = string.Empty;
         }
     }
@@ -128,7 +141,7 @@
     {
         if (ActiveSession.ActiveSessionId is null) return;
         var input = cmd.EndsWith(' ') ? cmd : cmd + "\n";
-        await Client.SendInputAsync(ActiveSession.ActiveSessionId, input);
+        await Connections.SendInputAsync(ActiveSession.ActiveSessionId, input);
         _quickCommand = string.Empty;
     }
 
@@ -167,7 +180,7 @@
         InvokeAsync(StateHasChanged);
     }
 
-    private void OnStateChanged(object? sender, HubConnectionState _) =>
+    private void OnStateChanged(object? sender, RunnerMachineConnectionChangedEventArgs _) =>
         InvokeAsync(StateHasChanged);
 
     private void OnSessionsChanged(object? sender, EventArgs _)
@@ -181,7 +194,7 @@
 
     public async ValueTask DisposeAsync()
     {
-        Client.ConnectionStateChanged -= OnStateChanged;
+        Connections.ConnectionStateChanged -= OnStateChanged;
         SessionState.SessionsChanged -= OnSessionsChanged;
         ActiveSession.StateChanged -= OnActiveSessionChanged;
         if (_shortcutsRegistered)
