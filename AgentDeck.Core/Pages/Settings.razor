@@ -97,6 +97,12 @@
 @if (SelectedMachine is not null)
 {
     <div class="settings-card">
+        <h2>Connection Status: @SelectedMachine.Name</h2>
+        <p>State: <strong class="status-text-@GetStatusClass(SelectedMachine)">@GetStatusLabel(SelectedMachine)</strong></p>
+        <p>Hub URL: <code>@GetHubUrl(SelectedMachine)</code></p>
+    </div>
+
+    <div class="settings-card">
         <div class="settings-card__header">
             <h2>Machine Setup: @SelectedMachine.Name</h2>
             <div class="form-actions">
@@ -208,32 +214,36 @@
             }
         }
     </div>
-
-    <div class="settings-card">
-        <h2>Connection Status: @SelectedMachine.Name</h2>
-        <p>State: <strong class="status-text-@GetStatusClass(SelectedMachine)">@GetStatusLabel(SelectedMachine)</strong></p>
-        <p>Hub URL: <code>@GetHubUrl(SelectedMachine)</code></p>
-    </div>
 }
 
 @code {
     private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
     private bool _saving;
     private string? _errorMessage;
-    private MachineCapabilitiesSnapshot? _machineCapabilities;
-    private bool _capabilitiesBusy;
-    private string? _capabilitiesErrorMessage;
+    private readonly Dictionary<string, MachineCapabilitiesSnapshot?> _machineCapabilitiesByMachine = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string?> _machineCapabilityErrors = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _capabilitiesBusyMachineIds = new(StringComparer.OrdinalIgnoreCase);
     private string? _installingCapabilityId;
     private MachineCapabilityInstallResult? _lastCapabilityInstallResult;
     private string? _selectedMachineId;
 
     private RunnerMachineSettings? SelectedMachine => _settings.FindMachine(_selectedMachineId);
+    private MachineCapabilitiesSnapshot? _machineCapabilities =>
+        SelectedMachine is not null && _machineCapabilitiesByMachine.TryGetValue(SelectedMachine.Id, out var snapshot)
+            ? snapshot
+            : null;
+    private string? _capabilitiesErrorMessage =>
+        SelectedMachine is not null && _machineCapabilityErrors.TryGetValue(SelectedMachine.Id, out var error)
+            ? error
+            : null;
+    private bool _capabilitiesBusy =>
+        SelectedMachine is not null && _capabilitiesBusyMachineIds.Contains(SelectedMachine.Id);
 
     protected override async Task OnInitializedAsync()
     {
         _settings = await SettingsService.LoadAsync();
         _selectedMachineId = _settings.PreferredMachineId;
-        await RefreshMachineCapabilitiesIfPossibleAsync();
+        await RefreshAllMachineCapabilitiesAsync();
         Connections.ConnectionStateChanged += OnConnectionStateChanged;
     }
 
@@ -283,10 +293,13 @@
     private void SelectMachine(string machineId)
     {
         _selectedMachineId = machineId;
-        _machineCapabilities = null;
-        _capabilitiesErrorMessage = null;
         _lastCapabilityInstallResult = null;
-        _ = InvokeAsync(RefreshMachineCapabilitiesIfPossibleAsync);
+        if (SelectedMachine is not null &&
+            !_machineCapabilitiesByMachine.ContainsKey(SelectedMachine.Id) &&
+            !_machineCapabilityErrors.ContainsKey(SelectedMachine.Id))
+        {
+            _ = InvokeAsync(RefreshMachineCapabilitiesIfPossibleAsync);
+        }
     }
 
     private bool IsSelectedMachine(RunnerMachineSettings machine) =>
@@ -314,6 +327,9 @@
 
         await Connections.DisconnectAsync(machine.Id);
         _settings.Machines.RemoveAll(item => string.Equals(item.Id, machine.Id, StringComparison.OrdinalIgnoreCase));
+        _machineCapabilitiesByMachine.Remove(machine.Id);
+        _machineCapabilityErrors.Remove(machine.Id);
+        _capabilitiesBusyMachineIds.Remove(machine.Id);
         _settings.Normalize();
         _selectedMachineId = _settings.PreferredMachineId;
     }
@@ -362,41 +378,51 @@
     {
         if (SelectedMachine is null)
         {
-            _machineCapabilities = null;
             return Task.CompletedTask;
         }
 
         return RefreshMachineCapabilitiesAsync();
     }
 
-    private async Task RefreshMachineCapabilitiesAsync()
+    private Task RefreshMachineCapabilitiesAsync() =>
+        SelectedMachine is null
+            ? Task.CompletedTask
+            : RefreshMachineCapabilitiesAsync(SelectedMachine);
+
+    private async Task RefreshAllMachineCapabilitiesAsync()
     {
-        if (SelectedMachine is null)
+        var machines = _settings.Machines.ToArray();
+        if (machines.Length == 0)
         {
-            _machineCapabilities = null;
             return;
         }
 
-        _capabilitiesBusy = true;
-        _capabilitiesErrorMessage = null;
+        await Task.WhenAll(machines.Select(machine => RefreshMachineCapabilitiesAsync(machine)));
+    }
+
+    private async Task RefreshMachineCapabilitiesAsync(RunnerMachineSettings machine)
+    {
+        _capabilitiesBusyMachineIds.Add(machine.Id);
+        _machineCapabilityErrors.Remove(machine.Id);
 
         try
         {
-            _machineCapabilities = await Connections.GetMachineCapabilitiesAsync(SelectedMachine);
-            if (_machineCapabilities is null)
+            var capabilities = await Connections.GetMachineCapabilitiesAsync(machine);
+            _machineCapabilitiesByMachine[machine.Id] = capabilities;
+            if (capabilities is null)
             {
-                _capabilitiesErrorMessage = "The runner did not return machine capability data.";
+                _machineCapabilityErrors[machine.Id] = "The runner did not return machine capability data.";
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to detect capabilities for machine {MachineId}", SelectedMachine.Id);
-            _capabilitiesErrorMessage = $"Failed to detect capabilities: {ex.Message}";
-            _machineCapabilities = null;
+            Logger.LogError(ex, "Failed to detect capabilities for machine {MachineId}", machine.Id);
+            _machineCapabilityErrors[machine.Id] = $"Failed to detect capabilities: {ex.Message}";
+            _machineCapabilitiesByMachine[machine.Id] = null;
         }
         finally
         {
-            _capabilitiesBusy = false;
+            _capabilitiesBusyMachineIds.Remove(machine.Id);
         }
     }
 
@@ -407,17 +433,18 @@
             return;
         }
 
+        var machine = SelectedMachine;
         _installingCapabilityId = capability.Id;
-        _capabilitiesErrorMessage = null;
+        _machineCapabilityErrors.Remove(machine.Id);
 
         try
         {
-            var result = await Connections.InstallMachineCapabilityAsync(SelectedMachine, capability.Id);
+            var result = await Connections.InstallMachineCapabilityAsync(machine, capability.Id);
             _lastCapabilityInstallResult = result;
 
             if (result is null)
             {
-                _capabilitiesErrorMessage = $"The runner did not return an installation result for {capability.Name}.";
+                _machineCapabilityErrors[machine.Id] = $"The runner did not return an installation result for {capability.Name}.";
                 return;
             }
 
@@ -434,8 +461,8 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to install capability {CapabilityId} on machine {MachineId}", capability.Id, SelectedMachine.Id);
-            _capabilitiesErrorMessage = $"Failed to install {capability.Name}: {ex.Message}";
+            Logger.LogError(ex, "Failed to install capability {CapabilityId} on machine {MachineId}", capability.Id, machine.Id);
+            _machineCapabilityErrors[machine.Id] = $"Failed to install {capability.Name}: {ex.Message}";
         }
         finally
         {
