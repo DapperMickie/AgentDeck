@@ -23,7 +23,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         libicu72 \
+        sudo \
         wget \
+    && useradd --create-home --shell /bin/sh agentdeck \
+    && echo "agentdeck ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agentdeck \
+    && chmod 0440 /etc/sudoers.d/agentdeck \
     && rm -rf /var/lib/apt/lists/*
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:5000
@@ -32,7 +36,7 @@ ENV AGENTDECK_WORKSPACE=/workspace
 EXPOSE 5000
 VOLUME ["/workspace"]
 
-COPY --from=build /app/publish .
+COPY --from=build --chown=agentdeck:agentdeck /app/publish .
 
-USER root
+USER agentdeck
 ENTRYPOINT ["./AgentDeck.Runner"]

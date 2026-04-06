@@ -124,7 +124,7 @@ public sealed class MachineSetupService : IMachineSetupService
         return RunLinuxCommandAsync(
             "dotnet",
             ".NET SDK",
-            "wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb && dpkg -i packages-microsoft-prod.deb && rm packages-microsoft-prod.deb && apt-get update && apt-get install -y dotnet-sdk-10.0",
+            "wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb && dpkg -i /tmp/packages-microsoft-prod.deb && rm /tmp/packages-microsoft-prod.deb && apt-get update && apt-get install -y dotnet-sdk-10.0",
             cancellationToken);
     }
 
@@ -176,7 +176,9 @@ public sealed class MachineSetupService : IMachineSetupService
         var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
         var nonInteractiveCommand = $"export DEBIAN_FRONTEND=noninteractive && {commandText}";
         var finalCommand =
-            $"if command -v sudo >/dev/null 2>&1; then sudo -n sh -lc {QuotePosix(nonInteractiveCommand)}; else sh -lc {QuotePosix(nonInteractiveCommand)}; fi";
+            $"if command -v sudo >/dev/null 2>&1; then sudo -n sh -lc {QuotePosix(nonInteractiveCommand)}; " +
+            $"elif [ \"$(id -u)\" -eq 0 ]; then sh -lc {QuotePosix(nonInteractiveCommand)}; " +
+            "else echo 'Linux setup actions require root or passwordless sudo.' >&2; exit 1; fi";
 
         return RunDirectCommandAsync(
             capabilityId,

@@ -72,7 +72,7 @@ docker run --rm \
 
 The image exposes port `5000`, defaults the workspace to `/workspace`, and falls back to `/bin/sh` if `/bin/bash` is unavailable.
 
-The checked-in runner image now uses a Debian-based self-contained final stage instead of the stock minimal ASP.NET runtime image, and it includes the native ICU dependency that .NET needs at runtime.
+The checked-in runner image now uses a Debian-based self-contained final stage instead of the stock minimal ASP.NET runtime image, includes the native ICU dependency that .NET needs at runtime, and runs as a non-root `agentdeck` user with passwordless `sudo` for machine-setup actions.
 
 If you run the runner inside a container, AgentDeck treats that container as just another machine. Connect the companion app to the runner URL, then use **Settings -> Machine Setup** to inspect which supported tools are installed and install missing ones inside that machine.
 
