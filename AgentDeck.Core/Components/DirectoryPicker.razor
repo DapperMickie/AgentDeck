@@ -17,6 +17,10 @@
            value="@Value"
            @oninput="OnInputChanged"
            placeholder="Working directory (empty = workspace root)" />
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="error-message">@_errorMessage</div>
+    }
 </div>
 
 @code {
@@ -27,6 +31,7 @@
     private WorkspaceInfo? _workspace;
     private string _selected = "";
     private string? _loadedMachineId;
+    private string? _errorMessage;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -36,7 +41,17 @@
         }
 
         _loadedMachineId = Machine.Id;
-        _workspace = await Connections.GetWorkspaceAsync(Machine);
+        _errorMessage = null;
+
+        try
+        {
+            _workspace = await Connections.GetWorkspaceAsync(Machine);
+        }
+        catch (Exception ex)
+        {
+            _workspace = null;
+            _errorMessage = $"Failed to load workspace folders from {Machine.Name}: {ex.Message}";
+        }
     }
 
     private async Task OnSelectChanged(ChangeEventArgs e)
