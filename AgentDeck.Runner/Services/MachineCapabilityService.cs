@@ -10,15 +10,6 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 {
     private readonly ILogger<MachineCapabilityService> _logger;
 
-    private static readonly CapabilityProbe[] Probes =
-    [
-        new("gh", "GitHub CLI", "cli", [new ProbeCommand("gh", ["--version"])], ParseFirstLineVersion),
-        new("copilot", "GitHub Copilot CLI", "cli", [new ProbeCommand("copilot", ["--version"])], ParseFirstLineVersion),
-        new("node", "Node.js", "sdk", [new ProbeCommand("node", ["--version"])], ParseTrimmedOutput),
-        new("python", "Python", "sdk", [new ProbeCommand("python", ["--version"]), new ProbeCommand("python3", ["--version"])], ParseTrimmedOutput),
-        new("dotnet", ".NET SDK", "sdk", [new ProbeCommand("dotnet", ["--version"])], ParseTrimmedOutput)
-    ];
-
     public MachineCapabilityService(ILogger<MachineCapabilityService> logger)
     {
         _logger = logger;
@@ -26,12 +17,14 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 
     public async Task<MachineCapabilitiesSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
     {
-        var capabilities = new List<MachineCapability>(Probes.Length);
-
-        foreach (var probe in Probes)
+        var capabilities = new List<MachineCapability>
         {
-            capabilities.Add(await DetectAsync(probe, cancellationToken));
-        }
+            await DetectCliAsync("gh", "GitHub CLI", [new ProbeCommand("gh", ["--version"])], ParseFirstLineVersion, cancellationToken),
+            await DetectCliAsync("copilot", "GitHub Copilot CLI", [new ProbeCommand("copilot", ["--version"])], ParseFirstLineVersion, cancellationToken),
+            await DetectNodeAsync(cancellationToken),
+            await DetectPythonAsync(cancellationToken),
+            await DetectDotNetAsync(cancellationToken)
+        };
 
         return new MachineCapabilitiesSnapshot
         {
@@ -40,11 +33,17 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
         };
     }
 
-    private async Task<MachineCapability> DetectAsync(CapabilityProbe probe, CancellationToken cancellationToken)
+    private async Task<MachineCapability> DetectCliAsync(
+        string id,
+        string name,
+        IReadOnlyList<ProbeCommand> commands,
+        Func<string, string, string?> versionParser,
+        CancellationToken cancellationToken)
     {
         string? lastError = null;
+        var sawExecutionFailure = false;
 
-        foreach (var command in probe.Commands)
+        foreach (var command in commands)
         {
             var result = await RunCommandAsync(command.FileName, command.Arguments, cancellationToken);
             if (result.StartFailed)
@@ -55,34 +54,213 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 
             if (!result.Succeeded)
             {
-                return new MachineCapability
-                {
-                    Id = probe.Id,
-                    Name = probe.Name,
-                    Category = probe.Category,
-                    Status = MachineCapabilityStatus.Error,
-                    Message = FirstMeaningfulLine(result.StandardError, result.StandardOutput) ?? "Detection failed."
-                };
+                sawExecutionFailure = true;
+                lastError = FirstMeaningfulLine(result.StandardError, result.StandardOutput) ?? "Detection failed.";
+                continue;
             }
 
+            var version = versionParser(result.StandardOutput, result.StandardError);
+            var installedVersions = string.IsNullOrWhiteSpace(version) ? [] : new[] { version };
             return new MachineCapability
             {
-                Id = probe.Id,
-                Name = probe.Name,
-                Category = probe.Category,
+                Id = id,
+                Name = name,
+                Category = "cli",
                 Status = MachineCapabilityStatus.Installed,
-                Version = probe.VersionParser(result.StandardOutput, result.StandardError),
+                Version = version,
+                InstalledVersions = installedVersions,
                 Message = $"Detected via {command.FileName}"
             };
         }
 
         return new MachineCapability
         {
-            Id = probe.Id,
-            Name = probe.Name,
-            Category = probe.Category,
-            Status = MachineCapabilityStatus.Missing,
+            Id = id,
+            Name = name,
+            Category = "cli",
+            Status = sawExecutionFailure ? MachineCapabilityStatus.Error : MachineCapabilityStatus.Missing,
             Message = lastError ?? "Not installed."
+        };
+    }
+
+    private async Task<MachineCapability> DetectNodeAsync(CancellationToken cancellationToken)
+    {
+        var result = await RunCommandAsync("node", ["--version"], cancellationToken);
+        if (result.StartFailed)
+        {
+            return CreateMissingCapability("node", "Node.js", "sdk", result.ErrorMessage);
+        }
+
+        if (!result.Succeeded)
+        {
+            return CreateErrorCapability("node", "Node.js", "sdk", result.StandardError, result.StandardOutput);
+        }
+
+        var version = NormalizeVersion(ParseTrimmedOutput(result.StandardOutput, result.StandardError));
+        return new MachineCapability
+        {
+            Id = "node",
+            Name = "Node.js",
+            Category = "sdk",
+            Status = MachineCapabilityStatus.Installed,
+            Version = version,
+            InstalledVersions = version is null ? [] : [version],
+            Message = "Detected via node"
+        };
+    }
+
+    private async Task<MachineCapability> DetectPythonAsync(CancellationToken cancellationToken)
+    {
+        var installedVersions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string? primaryVersion = null;
+        string? lastError = null;
+        var sawExecutionFailure = false;
+
+        foreach (var command in new[] { new ProbeCommand("python", ["--version"]), new ProbeCommand("python3", ["--version"]) })
+        {
+            var result = await RunCommandAsync(command.FileName, command.Arguments, cancellationToken);
+            if (result.StartFailed)
+            {
+                lastError = result.ErrorMessage;
+                continue;
+            }
+
+            if (!result.Succeeded)
+            {
+                sawExecutionFailure = true;
+                lastError = FirstMeaningfulLine(result.StandardError, result.StandardOutput) ?? "Detection failed.";
+                continue;
+            }
+
+            var version = NormalizeVersion(ParseTrimmedOutput(result.StandardOutput, result.StandardError));
+            if (!string.IsNullOrWhiteSpace(version))
+            {
+                installedVersions.Add(version);
+                primaryVersion ??= version;
+            }
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            var pyLauncherResult = await RunCommandAsync("py", ["-0p"], cancellationToken);
+            if (!pyLauncherResult.StartFailed && pyLauncherResult.Succeeded)
+            {
+                foreach (var version in ParseVersions(pyLauncherResult.StandardOutput))
+                {
+                    installedVersions.Add(version);
+                    primaryVersion ??= version;
+                }
+            }
+        }
+        else
+        {
+            foreach (var command in FindCommandsMatching(PythonCommandPattern()))
+            {
+                var result = await RunCommandAsync(command, ["--version"], cancellationToken);
+                if (result.StartFailed || !result.Succeeded)
+                {
+                    continue;
+                }
+
+                var version = NormalizeVersion(ParseTrimmedOutput(result.StandardOutput, result.StandardError));
+                if (!string.IsNullOrWhiteSpace(version))
+                {
+                    installedVersions.Add(version);
+                    primaryVersion ??= version;
+                }
+            }
+        }
+
+        if (installedVersions.Count > 0)
+        {
+            var sortedVersions = SortVersionsDescending(installedVersions);
+            return new MachineCapability
+            {
+                Id = "python",
+                Name = "Python",
+                Category = "sdk",
+                Status = MachineCapabilityStatus.Installed,
+                Version = primaryVersion ?? sortedVersions.FirstOrDefault(),
+                InstalledVersions = sortedVersions,
+                Message = sortedVersions.Count > 1
+                    ? "Multiple Python versions detected."
+                    : OperatingSystem.IsWindows() ? "Detected via Python launcher." : "Detected via python/python3."
+            };
+        }
+
+        return new MachineCapability
+        {
+            Id = "python",
+            Name = "Python",
+            Category = "sdk",
+            Status = sawExecutionFailure ? MachineCapabilityStatus.Error : MachineCapabilityStatus.Missing,
+            Message = lastError ?? "Not installed."
+        };
+    }
+
+    private async Task<MachineCapability> DetectDotNetAsync(CancellationToken cancellationToken)
+    {
+        var currentResult = await RunCommandAsync("dotnet", ["--version"], cancellationToken);
+        if (currentResult.StartFailed)
+        {
+            return CreateMissingCapability("dotnet", ".NET SDK", "sdk", currentResult.ErrorMessage);
+        }
+
+        if (!currentResult.Succeeded)
+        {
+            return CreateErrorCapability("dotnet", ".NET SDK", "sdk", currentResult.StandardError, currentResult.StandardOutput);
+        }
+
+        var currentVersion = NormalizeVersion(ParseTrimmedOutput(currentResult.StandardOutput, currentResult.StandardError));
+        var installedVersions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(currentVersion))
+        {
+            installedVersions.Add(currentVersion);
+        }
+
+        var listResult = await RunCommandAsync("dotnet", ["--list-sdks"], cancellationToken);
+        if (!listResult.StartFailed && listResult.Succeeded)
+        {
+            foreach (var version in ParseVersions(listResult.StandardOutput))
+            {
+                installedVersions.Add(version);
+            }
+        }
+
+        var sortedVersions = SortVersionsDescending(installedVersions);
+        return new MachineCapability
+        {
+            Id = "dotnet",
+            Name = ".NET SDK",
+            Category = "sdk",
+            Status = MachineCapabilityStatus.Installed,
+            Version = currentVersion ?? sortedVersions.FirstOrDefault(),
+            InstalledVersions = sortedVersions,
+            Message = sortedVersions.Count > 1 ? "Multiple .NET SDK versions detected." : "Detected via dotnet"
+        };
+    }
+
+    private MachineCapability CreateMissingCapability(string id, string name, string category, string? errorMessage)
+    {
+        return new MachineCapability
+        {
+            Id = id,
+            Name = name,
+            Category = category,
+            Status = MachineCapabilityStatus.Missing,
+            Message = errorMessage ?? "Not installed."
+        };
+    }
+
+    private MachineCapability CreateErrorCapability(string id, string name, string category, params string[] messages)
+    {
+        return new MachineCapability
+        {
+            Id = id,
+            Name = name,
+            Category = category,
+            Status = MachineCapabilityStatus.Error,
+            Message = FirstMeaningfulLine(messages) ?? "Detection failed."
         };
     }
 
@@ -137,11 +315,77 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
         };
     }
 
-    private static string? ParseFirstLineVersion(string standardOutput, string standardError)
+    private static IReadOnlyList<string> FindCommandsMatching(Regex pattern)
     {
-        var line = FirstMeaningfulLine(standardOutput, standardError);
-        return line;
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return [];
+        }
+
+        var matches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(directory))
+                {
+                    var fileName = Path.GetFileName(file);
+                    if (pattern.IsMatch(fileName))
+                    {
+                        matches.Add(Path.GetFileNameWithoutExtension(file));
+                    }
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return matches.ToArray();
     }
+
+    private static IReadOnlyList<string> ParseVersions(string value)
+    {
+        var versions = VersionPattern()
+            .Matches(value)
+            .Select(match => NormalizeVersion(match.Value))
+            .Where(version => !string.IsNullOrWhiteSpace(version))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        return SortVersionsDescending(versions);
+    }
+
+    private static IReadOnlyList<string> SortVersionsDescending(IEnumerable<string> versions)
+    {
+        return versions
+            .Select(version => version.Trim())
+            .Where(version => version.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(version => ParseVersionForSorting(version))
+            .ThenByDescending(version => version, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static Version ParseVersionForSorting(string version)
+    {
+        var normalized = NormalizeVersion(version);
+        return Version.TryParse(normalized, out var parsed)
+            ? parsed
+            : new Version(0, 0);
+    }
+
+    private static string? ParseFirstLineVersion(string standardOutput, string standardError) =>
+        FirstMeaningfulLine(standardOutput, standardError);
 
     private static string? ParseTrimmedOutput(string standardOutput, string standardError)
     {
@@ -153,6 +397,16 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 
         var match = VersionPattern().Match(line);
         return match.Success ? match.Value : line;
+    }
+
+    private static string? NormalizeVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            return null;
+        }
+
+        return version.Trim().TrimStart('v', 'V');
     }
 
     private static string? FirstMeaningfulLine(params string[] values)
@@ -179,12 +433,8 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
     [GeneratedRegex(@"\d+(\.\d+)+")]
     private static partial Regex VersionPattern();
 
-    private sealed record CapabilityProbe(
-        string Id,
-        string Name,
-        string Category,
-        IReadOnlyList<ProbeCommand> Commands,
-        Func<string, string, string?> VersionParser);
+    [GeneratedRegex(@"^python(?:3\.\d+)?(?:\.exe)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex PythonCommandPattern();
 
     private sealed record ProbeCommand(string FileName, IReadOnlyList<string> Arguments);
 

@@ -164,18 +164,49 @@
                             <p><strong>Version:</strong> <code>@capability.Version</code></p>
                         }
 
+                        @if (capability.InstalledVersions.Count > 1)
+                        {
+                            <p><strong>Installed versions:</strong> @string.Join(", ", capability.InstalledVersions)</p>
+                        }
+
                         @if (!string.IsNullOrWhiteSpace(capability.Message))
                         {
                             <p class="capability-card__message">@capability.Message</p>
                         }
 
-                        @if (capability.Status == MachineCapabilityStatus.Missing)
+                        @if (SupportsVersionSelection(capability))
+                        {
+                            <div class="capability-version-picker">
+                                <label>SDK version</label>
+                                <div class="capability-version-picker__inputs">
+                                    <select class="input"
+                                            value="@GetPresetSdkVersion(capability.Id)"
+                                            @onchange="args => SetPresetSdkVersion(capability.Id, args.Value?.ToString())">
+                                        <option value="">Default</option>
+                                        @foreach (var option in GetSdkVersionOptions(capability.Id))
+                                        {
+                                            <option value="@option">@option</option>
+                                        }
+                                    </select>
+                                    <input type="text"
+                                           class="input"
+                                           value="@GetCustomSdkVersion(capability.Id)"
+                                           @oninput="args => SetCustomSdkVersion(capability.Id, args.Value?.ToString())"
+                                           placeholder="Custom version" />
+                                </div>
+                                <p class="capability-card__message">Leave both fields blank to install the default version.</p>
+                            </div>
+                        }
+
+                        @if (capability.Status == MachineCapabilityStatus.Missing || SupportsVersionSelection(capability))
                         {
                             <div class="capability-card__actions">
                                 <button class="btn btn-primary"
                                         @onclick="() => InstallCapabilityAsync(capability)"
                                         disabled="@(_capabilitiesBusy || _installingCapabilityId == capability.Id)">
-                                    @(_installingCapabilityId == capability.Id ? "Installing..." : "Install")
+                                    @(_installingCapabilityId == capability.Id
+                                        ? "Installing..."
+                                        : SupportsVersionSelection(capability) ? "Install Version" : "Install")
                                 </button>
                             </div>
                         }
@@ -191,6 +222,10 @@
                     <p>
                         <strong>@_lastCapabilityInstallResult.CapabilityName:</strong>
                         @(_lastCapabilityInstallResult.Succeeded ? "installed" : "failed")
+                        @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.RequestedVersion))
+                        {
+                            <span> (@_lastCapabilityInstallResult.RequestedVersion)</span>
+                        }
                     </p>
                     @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.Message))
                     {
@@ -223,6 +258,8 @@
     private readonly Dictionary<string, MachineCapabilitiesSnapshot?> _machineCapabilitiesByMachine = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string?> _machineCapabilityErrors = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _capabilitiesBusyMachineIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string?> _selectedSdkVersions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string?> _customSdkVersions = new(StringComparer.OrdinalIgnoreCase);
     private string? _installingCapabilityId;
     private MachineCapabilityInstallResult? _lastCapabilityInstallResult;
     private string? _selectedMachineId;
@@ -286,8 +323,8 @@
             AutoConnect = false
         };
 
-        _settings.Machines.Add(machine);
-        _selectedMachineId = machine.Id;
+            _settings.Machines.Add(machine);
+            _selectedMachineId = machine.Id;
     }
 
     private void SelectMachine(string machineId)
@@ -439,7 +476,8 @@
 
         try
         {
-            var result = await Connections.InstallMachineCapabilityAsync(machine, capability.Id);
+            var requestedVersion = ResolveRequestedSdkVersion(capability.Id);
+            var result = await Connections.InstallMachineCapabilityAsync(machine, capability.Id, requestedVersion);
             _lastCapabilityInstallResult = result;
 
             if (result is null)
@@ -476,6 +514,46 @@
         MachineCapabilityStatus.Missing => "missing",
         _ => "error"
     };
+
+    private static bool SupportsVersionSelection(MachineCapability capability) =>
+        capability.Category.Equals("sdk", StringComparison.OrdinalIgnoreCase) &&
+        capability.Id is "python" or "node" or "dotnet";
+
+    private static IReadOnlyList<string> GetSdkVersionOptions(string capabilityId) => capabilityId switch
+    {
+        "python" => ["3.10", "3.11", "3.12", "3.13"],
+        "node" => ["20", "22", "24"],
+        "dotnet" => ["8.0", "9.0", "10.0"],
+        _ => []
+    };
+
+    private string GetPresetSdkVersion(string capabilityId) =>
+        _selectedSdkVersions.TryGetValue(capabilityId, out var value) ? value ?? string.Empty : string.Empty;
+
+    private void SetPresetSdkVersion(string capabilityId, string? value)
+    {
+        _selectedSdkVersions[capabilityId] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private string GetCustomSdkVersion(string capabilityId) =>
+        _customSdkVersions.TryGetValue(capabilityId, out var value) ? value ?? string.Empty : string.Empty;
+
+    private void SetCustomSdkVersion(string capabilityId, string? value)
+    {
+        _customSdkVersions[capabilityId] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private string? ResolveRequestedSdkVersion(string capabilityId)
+    {
+        var customVersion = GetCustomSdkVersion(capabilityId);
+        if (!string.IsNullOrWhiteSpace(customVersion))
+        {
+            return customVersion;
+        }
+
+        var presetVersion = GetPresetSdkVersion(capabilityId);
+        return string.IsNullOrWhiteSpace(presetVersion) ? null : presetVersion;
+    }
 
     private int GetCapabilityCount(MachineCapabilityStatus status) =>
         _machineCapabilities?.Capabilities.Count(capability => capability.Status == status) ?? 0;
