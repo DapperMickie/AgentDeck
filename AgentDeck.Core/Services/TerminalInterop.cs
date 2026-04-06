@@ -57,6 +57,18 @@ public sealed class TerminalInterop : IAsyncDisposable
         await module.InvokeVoidAsync("focusTerminal", sessionId);
     }
 
+    public async Task RegisterAutoFitAsync(string sessionId)
+    {
+        var module = await _moduleTask.Value;
+        await module.InvokeVoidAsync("registerAutoFit", sessionId);
+    }
+
+    public async Task UnregisterAutoFitAsync(string sessionId)
+    {
+        var module = await _moduleTask.Value;
+        await module.InvokeVoidAsync("unregisterAutoFit", sessionId);
+    }
+
     public async Task DisposeTerminalAsync(string sessionId)
     {
         var module = await _moduleTask.Value;

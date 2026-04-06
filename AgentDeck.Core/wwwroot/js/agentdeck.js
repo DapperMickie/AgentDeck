@@ -3,6 +3,29 @@
 
 const terminals = new Map();
 
+function canMeasureContainer(container) {
+    return !!container
+        && document.body.contains(container)
+        && container.clientWidth > 0
+        && container.clientHeight > 0;
+}
+
+function scheduleFit(entry) {
+    if (!entry || entry.fitFrame !== null) {
+        return;
+    }
+
+    entry.fitFrame = requestAnimationFrame(() => {
+        entry.fitFrame = null;
+
+        if (!canMeasureContainer(entry.container)) {
+            return;
+        }
+
+        try { entry.fitAddon.fit(); } catch (_) {}
+    });
+}
+
 /**
  * Create and mount an xterm.js terminal in the given DOM element.
  * @param {string} elementId - The id of the container div
@@ -71,7 +94,16 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
             .catch(err => console.warn('[AgentDeck] OnTerminalResize failed:', err));
     });
 
-    terminals.set(sessionId, { term, fitAddon, dotnetRef });
+    terminals.set(sessionId, {
+        term,
+        fitAddon,
+        dotnetRef,
+        container,
+        fitFrame: null,
+        resizeObserver: null,
+        resizeHandler: null,
+        viewportResizeHandler: null
+    });
 }
 
 /**
@@ -90,9 +122,7 @@ export function writeToTerminal(sessionId, data) {
 export function fitTerminal(sessionId) {
     const entry = terminals.get(sessionId);
     if (entry) {
-        requestAnimationFrame(() => {
-            try { entry.fitAddon.fit(); } catch (_) {}
-        });
+        scheduleFit(entry);
     }
 }
 
@@ -107,10 +137,62 @@ export function fitAndGetSize(sessionId) {
         requestAnimationFrame(() => {
             const entry = terminals.get(sessionId);
             if (!entry) { resolve(null); return; }
+            if (!canMeasureContainer(entry.container)) { resolve(null); return; }
             try { entry.fitAddon.fit(); } catch (_) {}
             resolve({ cols: entry.term.cols, rows: entry.term.rows });
         });
     });
+}
+
+export function registerAutoFit(sessionId) {
+    const entry = terminals.get(sessionId);
+    if (!entry) {
+        return;
+    }
+
+    unregisterAutoFit(sessionId);
+
+    const onResize = () => scheduleFit(entry);
+    entry.resizeHandler = onResize;
+
+    if (typeof ResizeObserver !== 'undefined') {
+        entry.resizeObserver = new ResizeObserver(onResize);
+        entry.resizeObserver.observe(entry.container);
+    }
+
+    window.addEventListener('resize', onResize);
+
+    if (window.visualViewport) {
+        entry.viewportResizeHandler = onResize;
+        window.visualViewport.addEventListener('resize', onResize);
+    }
+}
+
+export function unregisterAutoFit(sessionId) {
+    const entry = terminals.get(sessionId);
+    if (!entry) {
+        return;
+    }
+
+    if (entry.resizeObserver) {
+        entry.resizeObserver.disconnect();
+        entry.resizeObserver = null;
+    }
+
+    if (entry.resizeHandler) {
+        window.removeEventListener('resize', entry.resizeHandler);
+        entry.resizeHandler = null;
+    }
+
+    if (entry.viewportResizeHandler && window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', entry.viewportResizeHandler);
+        entry.viewportResizeHandler = null;
+    }
+
+    if (entry.fitFrame !== null) {
+        cancelAnimationFrame(entry.fitFrame);
+        entry.fitFrame = null;
+    }
 }
 
 /**
@@ -127,6 +209,7 @@ export function focusTerminal(sessionId) {
 export function disposeTerminal(sessionId) {
     const entry = terminals.get(sessionId);
     if (entry) {
+        unregisterAutoFit(sessionId);
         try { entry.term.dispose(); } catch (_) {}
         // Release the .NET reference immediately rather than waiting for JS GC,
         // since the term.onData/onResize closures captured it.
