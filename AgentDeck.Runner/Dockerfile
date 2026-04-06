@@ -14,8 +14,19 @@ RUN dotnet publish "AgentDeck.Runner/AgentDeck.Runner.csproj" \
     -o /app/publish \
     /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+FROM debian:12-slim AS final
 WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        wget \
+    && wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb \
+    && dpkg -i /tmp/packages-microsoft-prod.deb \
+    && rm /tmp/packages-microsoft-prod.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends aspnetcore-runtime-10.0 \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:5000
 ENV AGENTDECK_WORKSPACE=/workspace
@@ -25,4 +36,5 @@ VOLUME ["/workspace"]
 
 COPY --from=build /app/publish .
 
+USER root
 ENTRYPOINT ["dotnet", "AgentDeck.Runner.dll"]
