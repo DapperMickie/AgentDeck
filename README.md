@@ -72,6 +72,8 @@ docker run --rm \
 
 The image exposes port `5000`, defaults the workspace to `/workspace`, and falls back to `/bin/sh` if `/bin/bash` is unavailable.
 
+The checked-in runner image now uses a Debian-based final stage instead of the stock minimal ASP.NET runtime image so the container behaves like a normal package-manager-capable Linux machine.
+
 If you run the runner inside a container, AgentDeck treats that container as just another machine. Connect the companion app to the runner URL, then use **Settings -> Machine Setup** to inspect which supported tools are installed and install missing ones inside that machine.
 
 ### Running the Companion App (Windows)
