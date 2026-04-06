@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Text;
 using Porta.Pty;
 
@@ -35,6 +36,8 @@ public sealed class PtyProcessManager : IPtyProcessManager
             App = command,
             CommandLine = commandLine,
         };
+
+        LogPtyPreflight(sessionId, command, workingDirectory, commandLine);
 
         _logger.LogInformation(
             "Starting PTY process for session {SessionId}: app={App}, cwd={WorkingDirectory}, cols={Cols}, rows={Rows}, commandLine={CommandLine}",
@@ -147,6 +150,109 @@ public sealed class PtyProcessManager : IPtyProcessManager
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             _logger.LogDebug(ex, "Output read loop ended for session {SessionId}", sessionId);
+        }
+    }
+
+    private void LogPtyPreflight(string sessionId, string command, string workingDirectory, IReadOnlyList<string> commandLine)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var resolvedCommandPath = ResolveCommandPath(command);
+        var commandMetadata = DescribePath(resolvedCommandPath ?? command);
+        var workingDirectoryMetadata = DescribeDirectory(workingDirectory);
+        var ptmxMetadata = DescribePath("/dev/ptmx");
+        var ptsMetadata = DescribeDirectory("/dev/pts");
+
+        _logger.LogInformation(
+            "Linux PTY preflight for session {SessionId}: user={User}, processPath={ProcessPath}, os={OsDescription}, command={Command}, resolvedCommandPath={ResolvedCommandPath}, commandMetadata={CommandMetadata}, workingDirectoryMetadata={WorkingDirectoryMetadata}, devPtmx={DevPtmx}, devPts={DevPts}, commandLine={CommandLine}",
+            sessionId,
+            Environment.UserName,
+            Environment.ProcessPath ?? "<unknown>",
+            RuntimeInformation.OSDescription,
+            command,
+            resolvedCommandPath ?? "<not resolved>",
+            commandMetadata,
+            workingDirectoryMetadata,
+            ptmxMetadata,
+            ptsMetadata,
+            string.Join(" ", commandLine));
+    }
+
+    private static string? ResolveCommandPath(string command)
+    {
+        if (Path.IsPathRooted(command))
+        {
+            return File.Exists(command) ? command : null;
+        }
+
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var candidate = Path.Combine(directory, command);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static string DescribeDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return $"exists=false path={path}";
+        }
+
+        var entries = SafeEnumerate(path).Take(5).ToArray();
+        var sample = entries.Length == 0 ? "<empty>" : string.Join(", ", entries.Select(Path.GetFileName));
+        return $"exists=true path={path} sampleEntries={sample}";
+    }
+
+    private static string DescribePath(string path)
+    {
+        if (!File.Exists(path) && !Directory.Exists(path))
+        {
+            return $"exists=false path={path}";
+        }
+
+        var fileExists = File.Exists(path);
+        var directoryExists = Directory.Exists(path);
+        var unixMode = TryGetUnixFileMode(path);
+
+        return $"exists=true path={path} isFile={fileExists} isDirectory={directoryExists} unixMode={unixMode}";
+    }
+
+    private static string TryGetUnixFileMode(string path)
+    {
+        try
+        {
+            return File.GetUnixFileMode(path).ToString();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return $"unavailable:{ex.GetType().Name}";
+        }
+    }
+
+    private static IEnumerable<string> SafeEnumerate(string path)
+    {
+        try
+        {
+            return Directory.EnumerateFileSystemEntries(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [$"<unavailable:{ex.GetType().Name}>"];
         }
     }
 }
