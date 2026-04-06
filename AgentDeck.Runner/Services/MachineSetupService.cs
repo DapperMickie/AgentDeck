@@ -127,7 +127,7 @@ public sealed class MachineSetupService : IMachineSetupService
         {
             var major = version.Split('.', 2)[0];
             var commandText = $"winget install --id Microsoft.DotNet.SDK.{major} -e --accept-package-agreements --accept-source-agreements";
-            if (version.Contains('.'))
+            if (version.Count(ch => ch == '.') >= 2)
             {
                 commandText += $" --version {QuoteWindowsArgument(version)}";
             }

@@ -527,20 +527,42 @@
         _ => []
     };
 
-    private string GetPresetSdkVersion(string capabilityId) =>
-        _selectedSdkVersions.TryGetValue(capabilityId, out var value) ? value ?? string.Empty : string.Empty;
+    private string GetPresetSdkVersion(string capabilityId)
+    {
+        var key = GetSdkSelectionKey(capabilityId);
+        return key is not null && _selectedSdkVersions.TryGetValue(key, out var value)
+            ? value ?? string.Empty
+            : string.Empty;
+    }
 
     private void SetPresetSdkVersion(string capabilityId, string? value)
     {
-        _selectedSdkVersions[capabilityId] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        var key = GetSdkSelectionKey(capabilityId);
+        if (key is null)
+        {
+            return;
+        }
+
+        _selectedSdkVersions[key] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private string GetCustomSdkVersion(string capabilityId) =>
-        _customSdkVersions.TryGetValue(capabilityId, out var value) ? value ?? string.Empty : string.Empty;
+    private string GetCustomSdkVersion(string capabilityId)
+    {
+        var key = GetSdkSelectionKey(capabilityId);
+        return key is not null && _customSdkVersions.TryGetValue(key, out var value)
+            ? value ?? string.Empty
+            : string.Empty;
+    }
 
     private void SetCustomSdkVersion(string capabilityId, string? value)
     {
-        _customSdkVersions[capabilityId] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        var key = GetSdkSelectionKey(capabilityId);
+        if (key is null)
+        {
+            return;
+        }
+
+        _customSdkVersions[key] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private string? ResolveRequestedSdkVersion(string capabilityId)
@@ -554,6 +576,9 @@
         var presetVersion = GetPresetSdkVersion(capabilityId);
         return string.IsNullOrWhiteSpace(presetVersion) ? null : presetVersion;
     }
+
+    private string? GetSdkSelectionKey(string capabilityId) =>
+        SelectedMachine is null ? null : $"{SelectedMachine.Id}:{capabilityId}";
 
     private int GetCapabilityCount(MachineCapabilityStatus status) =>
         _machineCapabilities?.Capabilities.Count(capability => capability.Status == status) ?? 0;
