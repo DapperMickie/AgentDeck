@@ -284,7 +284,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
                     Message = message ?? active.Message,
                     StartedAt = active.Status == OrchestrationJobStepStatus.Running
                         ? active.StartedAt ?? now
-                        : nextStatus == OrchestrationJobStepStatus.Failed ? active.StartedAt ?? now : null,
+                        : null,
                     CompletedAt = now
                 };
             }
