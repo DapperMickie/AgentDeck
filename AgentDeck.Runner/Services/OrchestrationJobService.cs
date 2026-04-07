@@ -257,9 +257,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
                     Status = nextStatus,
                     Message = message ?? step.Message,
                     StartedAt = nextStatus == OrchestrationJobStepStatus.Completed ? step.StartedAt ?? now : null,
-                    CompletedAt = nextStatus is OrchestrationJobStepStatus.Completed or OrchestrationJobStepStatus.Skipped
-                        ? now
-                        : step.CompletedAt
+                    CompletedAt = nextStatus == OrchestrationJobStepStatus.Completed ? now : null
                 };
             }
         }
@@ -285,7 +283,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
                     StartedAt = active.Status == OrchestrationJobStepStatus.Running
                         ? active.StartedAt ?? now
                         : null,
-                    CompletedAt = now
+                    CompletedAt = active.Status == OrchestrationJobStepStatus.Running ? now : null
                 };
             }
         }
