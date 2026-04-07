@@ -147,7 +147,9 @@ Shared orchestration contracts now also include repository/project metadata, per
 
 The runner also now exposes a first-pass orchestration job API, separate from terminal sessions, so coordinator-managed run/debug work can be queued, tracked by lifecycle status, associated with a target machine, and enriched with step/log data before full cross-machine dispatch is implemented.
 
-That orchestration layer now has its first real execution path for direct-command run jobs: queuing a supported job on a runner starts actual build and launch work on that runner, streams PTY output into job logs, and lets cancellation stop the underlying process. VS Code-backed debug execution is still a later slice.
+That orchestration layer now has real local execution paths for both direct-command run jobs and the first VS Code-backed debug jobs. Direct-command jobs build and launch on the runner, stream PTY output into job logs, and let cancellation stop the underlying process.
+
+VS Code-backed debug jobs now build first, materialize `.vscode` debug assets plus `Properties/launchSettings.json` for the selected startup project, open VS Code on the runner, create a linked VS Code viewer-session record, and trigger the configured debug session on an interactive desktop. Cancellation closes the VS Code host and marks the viewer session closed. The current slice still assumes a single resolvable `.csproj` under the queued workspace and does not yet provide the transport needed to stream the VS Code window remotely.
 
 The runner now also exposes a first-pass remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. This creates a dedicated place to model full-desktop, window, emulator/simulator, and VS Code viewing before actual VNC/RDP/platform-capture implementations are wired in.
 

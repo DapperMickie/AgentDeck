@@ -24,6 +24,7 @@ public sealed class OrchestrationJob
     public VirtualDeviceLaunchSelection? DeviceSelection { get; init; }
     public OrchestrationJobStatus Status { get; set; } = OrchestrationJobStatus.Queued;
     public string? SessionId { get; set; }
+    public string? ViewerSessionId { get; set; }
     public int? ExitCode { get; set; }
     public string? StatusMessage { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;

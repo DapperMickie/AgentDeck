@@ -11,10 +11,12 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         string JobId,
         string SessionId,
         string? MachineId,
-        TaskCompletionSource<int> Completion);
+        TaskCompletionSource<int> Completion,
+        bool IsVsCode = false);
 
     private readonly IOrchestrationJobService _jobs;
     private readonly IPtyProcessManager _ptyManager;
+    private readonly IVsCodeDebugSessionService _vsCodeDebug;
     private readonly IWorkspaceService _workspace;
     private readonly ILogger<OrchestrationExecutionService> _logger;
     private readonly ConcurrentDictionary<string, byte> _activeJobs = new();
@@ -24,11 +26,13 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     public OrchestrationExecutionService(
         IOrchestrationJobService jobs,
         IPtyProcessManager ptyManager,
+        IVsCodeDebugSessionService vsCodeDebug,
         IWorkspaceService workspace,
         ILogger<OrchestrationExecutionService> logger)
     {
         _jobs = jobs;
         _ptyManager = ptyManager;
+        _vsCodeDebug = vsCodeDebug;
         _workspace = workspace;
         _logger = logger;
     }
@@ -65,6 +69,12 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             if (_sessions.TryGetValue(sessionId, out var activeSession))
             {
                 activeSession.Completion.TrySetResult(-1);
+
+                if (activeSession.IsVsCode)
+                {
+                    await _vsCodeDebug.StopAsync(sessionId, cancellationToken);
+                    return;
+                }
             }
 
             await _ptyManager.KillAsync(sessionId, cancellationToken);
@@ -104,17 +114,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
             if (job.Mode == ProjectLaunchMode.Debug || job.LaunchDriver == ProjectLaunchDriver.VsCode)
             {
-                _jobs.AppendLog(jobId, new AppendOrchestrationJobLogRequest
-                {
-                    Level = OrchestrationLogLevel.Warning,
-                    Message = "VS Code-backed debug execution is not implemented yet.",
-                    MachineId = job.TargetMachineId
-                });
-                _jobs.UpdateStatus(jobId, new UpdateOrchestrationJobStatusRequest
-                {
-                    Status = OrchestrationJobStatus.Failed,
-                    Message = "Debug execution is not implemented yet."
-                });
+                await ExecuteVsCodeDebugAsync(job);
                 return;
             }
 
@@ -221,6 +221,90 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         {
             _jobSessions.TryRemove(jobId, out _);
             _activeJobs.TryRemove(jobId, out _);
+        }
+    }
+
+    private async Task ExecuteVsCodeDebugAsync(OrchestrationJob job)
+    {
+        var workingDirectory = ResolveWorkingDirectory(job.WorkingDirectory);
+        _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
+        {
+            Level = OrchestrationLogLevel.Information,
+            Message = $"Preparing VS Code debug execution in '{workingDirectory}'.",
+            MachineId = job.TargetMachineId
+        });
+
+        var buildExitCode = await RunPhaseAsync(
+            job,
+            command: job.BuildCommand,
+            status: OrchestrationJobStatus.Preparing,
+            statusMessage: "Building project for VS Code debugging.",
+            fallbackMachineId: job.TargetMachineId);
+
+        if (await FinishIfTerminalAsync(job.Id, buildExitCode, "Build"))
+        {
+            return;
+        }
+
+        job = _jobs.Get(job.Id) ?? job;
+        if (job.Status is OrchestrationJobStatus.CancelRequested or OrchestrationJobStatus.Cancelled)
+        {
+            _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
+            {
+                Status = OrchestrationJobStatus.Cancelled,
+                ExitCode = buildExitCode,
+                Message = "Job cancelled before VS Code debugging started."
+            });
+            return;
+        }
+
+        var orchestrationSessionId = Guid.NewGuid().ToString("N");
+        var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activeSession = new ActiveSession(job.Id, orchestrationSessionId, job.TargetMachineId, completion, IsVsCode: true);
+        _sessions[orchestrationSessionId] = activeSession;
+        _jobSessions[job.Id] = orchestrationSessionId;
+
+        try
+        {
+            _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
+            {
+                Status = OrchestrationJobStatus.Dispatching,
+                SessionId = orchestrationSessionId,
+                Message = "Launching VS Code debug host on the local runner."
+            });
+
+            var launch = await _vsCodeDebug.LaunchAsync(orchestrationSessionId, job, workingDirectory);
+            _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
+            {
+                Level = OrchestrationLogLevel.Information,
+                Message = $"VS Code opened in '{launch.WorkspaceDirectory}' for '{Path.GetFileName(launch.StartupProjectPath)}'.",
+                MachineId = job.TargetMachineId
+            });
+
+            if (job.DeviceSelection?.HasTarget == true)
+            {
+                _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
+                {
+                    Level = OrchestrationLogLevel.Information,
+                    Message = $"Debug launch recorded device selection '{job.DeviceSelection.DisplayName ?? job.DeviceSelection.DeviceId ?? job.DeviceSelection.ProfileId}'.",
+                    MachineId = job.TargetMachineId
+                });
+            }
+
+            _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
+            {
+                Status = OrchestrationJobStatus.Running,
+                SessionId = orchestrationSessionId,
+                ViewerSessionId = launch.ViewerSessionId,
+                Message = $"Debugging through VS Code configuration '{job.DebugConfigurationName ?? job.LaunchProfileName}'."
+            });
+
+            var exitCode = await _vsCodeDebug.WaitForExitAsync(orchestrationSessionId);
+            await FinishIfTerminalAsync(job.Id, exitCode, "Launch");
+        }
+        finally
+        {
+            _sessions.TryRemove(orchestrationSessionId, out _);
         }
     }
 
