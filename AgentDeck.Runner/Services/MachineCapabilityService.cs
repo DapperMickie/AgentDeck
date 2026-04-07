@@ -54,56 +54,54 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 
         if (OperatingSystem.IsLinux())
         {
-            return
-            [
-                new MachineTargetSupport
-                {
-                    Platform = ApplicationTargetPlatform.Linux,
-                    Status = dotNetInstalled ? MachineTargetSupportStatus.Supported : MachineTargetSupportStatus.RequiresSetup,
-                    DisplayName = "Linux",
-                    RequiredCapabilities = ["dotnet"],
-                    Notes = dotNetInstalled
-                        ? "Linux MAUI projects should reference OpenMaui.Controls.Linux."
-                        : "Install the .NET SDK first. Generated Linux MAUI projects should reference OpenMaui.Controls.Linux."
-                }
-            ];
+            return [CreateTargetSupport(ApplicationTargetPlatform.Linux, dotNetInstalled)];
         }
 
         if (OperatingSystem.IsWindows())
         {
-            return
-            [
-                new MachineTargetSupport
-                {
-                    Platform = ApplicationTargetPlatform.Windows,
-                    Status = dotNetInstalled ? MachineTargetSupportStatus.Supported : MachineTargetSupportStatus.RequiresSetup,
-                    DisplayName = "Windows",
-                    RequiredCapabilities = ["dotnet"],
-                    Notes = dotNetInstalled
-                        ? ".NET MAUI Windows targets can run on this machine."
-                        : "Install the .NET SDK first to prepare this machine for Windows MAUI targets."
-                }
-            ];
+            return [CreateTargetSupport(ApplicationTargetPlatform.Windows, dotNetInstalled)];
         }
 
         if (OperatingSystem.IsMacOS())
         {
-            return
-            [
-                new MachineTargetSupport
-                {
-                    Platform = ApplicationTargetPlatform.MacOS,
-                    Status = dotNetInstalled ? MachineTargetSupportStatus.Supported : MachineTargetSupportStatus.RequiresSetup,
-                    DisplayName = "macOS",
-                    RequiredCapabilities = ["dotnet"],
-                    Notes = dotNetInstalled
-                        ? ".NET MAUI macOS targets can run on this machine."
-                        : "Install the .NET SDK first to prepare this machine for macOS MAUI targets."
-                }
-            ];
+            return [CreateTargetSupport(ApplicationTargetPlatform.MacOS, dotNetInstalled)];
         }
 
         return [];
+    }
+
+    private static MachineTargetSupport CreateTargetSupport(ApplicationTargetPlatform platform, bool dotNetInstalled)
+    {
+        var definition = ProjectTargetCatalog.GetTargets(ProjectWorkloadKind.Maui)
+            .First(target => target.Platform == platform);
+
+        var requiredCapabilities = string.IsNullOrWhiteSpace(definition.CapabilityId)
+            ? []
+            : new[] { definition.CapabilityId };
+
+        var notes = definition.Notes;
+        if (!string.IsNullOrWhiteSpace(definition.PackageRequirement))
+        {
+            notes = string.IsNullOrWhiteSpace(notes)
+                ? $"Requires {definition.PackageRequirement}."
+                : $"{notes} Requires {definition.PackageRequirement}.";
+        }
+
+        if (!dotNetInstalled)
+        {
+            notes = string.IsNullOrWhiteSpace(notes)
+                ? "Install the .NET SDK first."
+                : $"Install the .NET SDK first. {notes}";
+        }
+
+        return new MachineTargetSupport
+        {
+            Platform = definition.Platform,
+            Status = dotNetInstalled ? MachineTargetSupportStatus.Supported : MachineTargetSupportStatus.RequiresSetup,
+            DisplayName = definition.DisplayName,
+            RequiredCapabilities = requiredCapabilities,
+            Notes = notes
+        };
     }
 
     private static RunnerHostPlatform GetHostPlatform()
