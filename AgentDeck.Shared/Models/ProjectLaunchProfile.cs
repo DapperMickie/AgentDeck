@@ -9,11 +9,13 @@ public sealed class ProjectLaunchProfile
     public string DisplayName { get; init; } = string.Empty;
     public ApplicationTargetPlatform Platform { get; init; }
     public ProjectLaunchMode Mode { get; init; }
+    public ProjectLaunchDriver LaunchDriver { get; init; } = ProjectLaunchDriver.DirectCommand;
     public RunnerMachineRole PreferredMachineRole { get; init; } = RunnerMachineRole.Worker;
     public string? PreferredMachineId { get; init; }
     public string BuildCommand { get; init; } = string.Empty;
-    public string LaunchCommand { get; init; } = string.Empty;
-    public string? DebugCommand { get; init; }
+    public string? LaunchCommand { get; init; }
+    public string? BootstrapCommand { get; init; }
+    public string? DebugConfigurationName { get; init; }
     public bool RequiresVsCode { get; init; }
     public bool RequiresEmulator { get; init; }
     public bool RequiresSimulator { get; init; }

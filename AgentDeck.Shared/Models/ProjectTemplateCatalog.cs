@@ -50,6 +50,7 @@ public static class ProjectTemplateCatalog
         var requiresVsCode = mode == ProjectLaunchMode.Debug && target.RequiresVsCodeForDebugging;
         var requiresEmulator = target.Platform == ApplicationTargetPlatform.Android;
         var requiresSimulator = target.Platform == ApplicationTargetPlatform.iOS;
+        var launchDriver = requiresVsCode ? ProjectLaunchDriver.VsCode : ProjectLaunchDriver.DirectCommand;
 
         return new ProjectLaunchProfile
         {
@@ -57,10 +58,12 @@ public static class ProjectTemplateCatalog
             DisplayName = $"{target.DisplayName} {modeLabel}",
             Platform = target.Platform,
             Mode = mode,
+            LaunchDriver = launchDriver,
             PreferredMachineRole = RunnerMachineRole.Worker,
             BuildCommand = "dotnet build",
-            LaunchCommand = BuildLaunchCommand(target),
-            DebugCommand = requiresVsCode ? "code ." : null,
+            LaunchCommand = launchDriver == ProjectLaunchDriver.DirectCommand ? BuildLaunchCommand(target) : null,
+            BootstrapCommand = requiresVsCode ? "code ." : null,
+            DebugConfigurationName = requiresVsCode ? $"{target.DisplayName} Debug" : null,
             RequiresVsCode = requiresVsCode,
             RequiresEmulator = requiresEmulator,
             RequiresSimulator = requiresSimulator,
@@ -90,7 +93,7 @@ public static class ProjectTemplateCatalog
 
         if (mode == ProjectLaunchMode.Debug && target.RequiresVsCodeForDebugging)
         {
-            notes.Add("Debug sessions should be launched through VS Code.");
+            notes.Add("Debug sessions should be launched through the selected VS Code debug configuration.");
         }
 
         if (requiresEmulator)
