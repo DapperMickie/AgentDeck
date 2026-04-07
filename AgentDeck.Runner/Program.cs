@@ -39,6 +39,7 @@ builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
 builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>();
 builder.Services.AddSingleton<IOrchestrationExecutionService, OrchestrationExecutionService>();
 builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionService>();
+builder.Services.AddSingleton<IDesktopViewerBootstrapService, DesktopViewerBootstrapService>();
 builder.Services.AddSingleton<IVsCodeDebugSessionService, VsCodeDebugSessionService>();
 builder.Services.AddSingleton<IVirtualDeviceCatalogService, VirtualDeviceCatalogService>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
@@ -114,11 +115,30 @@ app.MapGet("/api/viewers/sessions", (IRemoteViewerSessionService viewers) =>
 app.MapGet("/api/viewers/sessions/{id}", (string id, IRemoteViewerSessionService viewers) =>
     viewers.Get(id) is { } session ? Results.Ok(session) : Results.NotFound());
 
-app.MapPost("/api/viewers/sessions", (CreateRemoteViewerSessionRequest request, IRemoteViewerSessionService viewers) =>
-    Results.Ok(viewers.Create(request)));
-
-app.MapPost("/api/viewers/sessions/{id}/status", (string id, UpdateRemoteViewerSessionRequest request, IRemoteViewerSessionService viewers) =>
+app.MapPost("/api/viewers/sessions", async (CreateRemoteViewerSessionRequest request, HttpContext httpContext, IRemoteViewerSessionService viewers, IDesktopViewerBootstrapService desktopBootstrap, CancellationToken cancellationToken) =>
 {
+    var session = viewers.Create(request);
+    if (session.Target.Kind == RemoteViewerTargetKind.Desktop)
+    {
+        session = await desktopBootstrap.BootstrapAsync(session.Id, httpContext.Request.Host.Host, cancellationToken) ?? session;
+    }
+
+    return Results.Ok(session);
+});
+
+app.MapPost("/api/viewers/sessions/{id}/status", async (string id, UpdateRemoteViewerSessionRequest request, IRemoteViewerSessionService viewers, IDesktopViewerBootstrapService desktopBootstrap, CancellationToken cancellationToken) =>
+{
+    if (request.Status == RemoteViewerSessionStatus.Closed)
+    {
+        var closeResult = await desktopBootstrap.CloseAsync(id, request.Message, cancellationToken);
+        return closeResult.Outcome switch
+        {
+            RemoteViewerSessionMutationOutcome.Updated when closeResult.Session is not null => Results.Ok(closeResult.Session),
+            RemoteViewerSessionMutationOutcome.InvalidTransition when closeResult.Session is not null => Results.Conflict(closeResult.Session),
+            _ => Results.NotFound()
+        };
+    }
+
     var result = viewers.Update(id, request);
     return result.Outcome switch
     {
@@ -128,9 +148,9 @@ app.MapPost("/api/viewers/sessions/{id}/status", (string id, UpdateRemoteViewerS
     };
 });
 
-app.MapPost("/api/viewers/sessions/{id}/close", (string id, IRemoteViewerSessionService viewers) =>
+app.MapPost("/api/viewers/sessions/{id}/close", async (string id, IDesktopViewerBootstrapService desktopBootstrap, CancellationToken cancellationToken) =>
 {
-    var result = viewers.Close(id);
+    var result = await desktopBootstrap.CloseAsync(id, cancellationToken: cancellationToken);
     return result.Outcome switch
     {
         RemoteViewerSessionMutationOutcome.Updated when result.Session is not null => Results.Ok(result.Session),
