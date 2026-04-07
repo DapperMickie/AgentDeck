@@ -95,6 +95,7 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
     public RemoteViewerSession Create(CreateRemoteViewerSessionRequest request)
     {
         var now = DateTimeOffset.UtcNow;
+        var resolvedProvider = ResolveProvider(request.Provider, request.Target.Kind);
         var session = new RemoteViewerSession
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -102,7 +103,7 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
             MachineName = request.MachineName,
             JobId = request.JobId ?? request.Target.JobId,
             Target = CloneTarget(request.Target),
-            Provider = request.Provider,
+            Provider = resolvedProvider,
             Status = RemoteViewerSessionStatus.Requested,
             StatusMessage = "Viewer session requested.",
             CreatedAt = now,
@@ -239,6 +240,19 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
             VirtualDeviceId = target.VirtualDeviceId,
             VirtualDeviceProfileId = target.VirtualDeviceProfileId
         };
+    }
+
+    private RemoteViewerProviderKind ResolveProvider(RemoteViewerProviderKind requestedProvider, RemoteViewerTargetKind targetKind)
+    {
+        if (requestedProvider != RemoteViewerProviderKind.Auto)
+        {
+            return requestedProvider;
+        }
+
+        var automaticProvider = GetAvailableProviders()
+            .FirstOrDefault(capability => capability.SupportedTargets.Contains(targetKind));
+
+        return automaticProvider?.Provider ?? RemoteViewerProviderKind.Auto;
     }
 
     private void PruneTerminalSessions(string protectedSessionId)
