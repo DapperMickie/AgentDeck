@@ -138,10 +138,10 @@ app.MapPost("/api/viewers/sessions/{id}/close", (string id, IRemoteViewerSession
     };
 });
 
-app.MapGet("/api/virtual-devices/catalogs", (IVirtualDeviceCatalogService devices) =>
-    Results.Ok(devices.GetCatalogs()));
+app.MapGet("/api/virtual-devices/catalogs", async (IVirtualDeviceCatalogService devices, CancellationToken cancellationToken) =>
+    Results.Ok(await devices.GetCatalogsAsync(cancellationToken)));
 
-app.MapGet("/api/virtual-devices/catalogs/{catalogKind}", (string catalogKind, IVirtualDeviceCatalogService devices) =>
+app.MapGet("/api/virtual-devices/catalogs/{catalogKind}", async (string catalogKind, IVirtualDeviceCatalogService devices, CancellationToken cancellationToken) =>
 {
     if (!Enum.TryParse<VirtualDeviceCatalogKind>(catalogKind, true, out var parsedCatalogKind))
     {
@@ -151,7 +151,20 @@ app.MapGet("/api/virtual-devices/catalogs/{catalogKind}", (string catalogKind, I
         });
     }
 
-    return devices.GetCatalog(parsedCatalogKind) is { } snapshot ? Results.Ok(snapshot) : Results.NotFound();
+    return await devices.GetCatalogAsync(parsedCatalogKind, cancellationToken) is { } snapshot ? Results.Ok(snapshot) : Results.NotFound();
+});
+
+app.MapPost("/api/virtual-devices/resolve", async (VirtualDeviceLaunchSelection selection, IVirtualDeviceCatalogService devices, CancellationToken cancellationToken) =>
+{
+    if (!selection.HasTarget)
+    {
+        return Results.BadRequest(new
+        {
+            message = "Device selection must include either a device ID or a profile ID."
+        });
+    }
+
+    return Results.Ok(await devices.ResolveSelectionAsync(selection, cancellationToken));
 });
 
 app.MapGet("/api/workspace", (IWorkspaceService workspace) =>

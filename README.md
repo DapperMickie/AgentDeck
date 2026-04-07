@@ -151,7 +151,7 @@ That orchestration layer now has its first real execution path for direct-comman
 
 The runner now also exposes a first-pass remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. This creates a dedicated place to model full-desktop, window, emulator/simulator, and VS Code viewing before actual VNC/RDP/platform-capture implementations are wired in.
 
-The shared model now also includes first-pass virtual device catalogs for Android emulators and Apple simulators, plus launch-selection contracts that can be attached to orchestration jobs. The runner exposes `/api/virtual-devices/catalogs` so later worker-specific emulator discovery and startup logic can plug into a stable API surface.
+The shared model now also includes first-pass virtual device catalogs for Android emulators and Apple simulators, plus launch-selection contracts that can be attached to orchestration jobs. The runner exposes `/api/virtual-devices/catalogs` and `/api/virtual-devices/resolve`, and the catalog endpoint now performs real runner-side discovery where Android emulator or Apple simulator tooling is available.
 
 ### Machine Capabilities
 

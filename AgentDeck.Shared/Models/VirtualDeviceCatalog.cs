@@ -82,6 +82,7 @@ public static class VirtualDeviceCatalog
             {
                 CatalogKind = VirtualDeviceCatalogKind.AndroidEmulator,
                 HostPlatform = hostPlatform,
+                DiscoverySupported = true,
                 Profiles = AndroidProfiles
             });
         }
@@ -92,6 +93,7 @@ public static class VirtualDeviceCatalog
             {
                 CatalogKind = VirtualDeviceCatalogKind.AppleSimulator,
                 HostPlatform = hostPlatform,
+                DiscoverySupported = true,
                 Profiles = AppleSimulatorProfiles
             });
         }
