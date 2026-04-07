@@ -86,6 +86,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             updatedJob.Status = request.Status;
             updatedJob.StatusMessage = request.Message ?? updatedJob.StatusMessage;
             updatedJob.SessionId = request.SessionId ?? updatedJob.SessionId;
+            updatedJob.ViewerSessionId = request.ViewerSessionId ?? updatedJob.ViewerSessionId;
             updatedJob.ExitCode = request.ExitCode ?? updatedJob.ExitCode;
             updatedJob.UpdatedAt = DateTimeOffset.UtcNow;
             updatedJob.Steps = UpdateSteps(updatedJob.Steps, updatedJob.Status, updatedJob.StatusMessage);
@@ -348,6 +349,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             DeviceSelection = CloneDeviceSelection(job.DeviceSelection),
             Status = job.Status,
             SessionId = job.SessionId,
+            ViewerSessionId = job.ViewerSessionId,
             ExitCode = job.ExitCode,
             StatusMessage = job.StatusMessage,
             CreatedAt = job.CreatedAt,

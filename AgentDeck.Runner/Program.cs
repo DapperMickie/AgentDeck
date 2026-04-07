@@ -39,6 +39,7 @@ builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
 builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>();
 builder.Services.AddSingleton<IOrchestrationExecutionService, OrchestrationExecutionService>();
 builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionService>();
+builder.Services.AddSingleton<IVsCodeDebugSessionService, VsCodeDebugSessionService>();
 builder.Services.AddSingleton<IVirtualDeviceCatalogService, VirtualDeviceCatalogService>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
 builder.Services.AddSingleton<IMachineCapabilityService, MachineCapabilityService>();

@@ -1,0 +1,9 @@
+namespace AgentDeck.Runner.Services;
+
+/// <summary>Describes a launched VS Code debug host session.</summary>
+public sealed class VsCodeDebugLaunchResult
+{
+    public required string ViewerSessionId { get; init; }
+    public required string WorkspaceDirectory { get; init; }
+    public required string StartupProjectPath { get; init; }
+}

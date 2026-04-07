@@ -8,5 +8,6 @@ public sealed class UpdateOrchestrationJobStatusRequest
     public OrchestrationJobStatus Status { get; init; }
     public string? Message { get; init; }
     public string? SessionId { get; init; }
+    public string? ViewerSessionId { get; init; }
     public int? ExitCode { get; init; }
 }
