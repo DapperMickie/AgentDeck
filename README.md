@@ -147,6 +147,8 @@ Shared orchestration contracts now also include repository/project metadata, per
 
 The runner also now exposes a first-pass orchestration job API, separate from terminal sessions, so coordinator-managed run/debug work can be queued, tracked by lifecycle status, associated with a target machine, and enriched with step/log data before full cross-machine dispatch is implemented.
 
+The runner now also exposes a first-pass remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. This creates a dedicated place to model full-desktop, window, emulator/simulator, and VS Code viewing before actual VNC/RDP/platform-capture implementations are wired in.
+
 ### Machine Capabilities
 
 The **Machine Setup** section can detect whether the selected machine has these supported tools available:
