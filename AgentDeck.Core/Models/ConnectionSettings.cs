@@ -1,3 +1,5 @@
+using AgentDeck.Shared.Enums;
+
 namespace AgentDeck.Core.Models;
 
 /// <summary>User-configured runner machine profiles for the companion app.</summary>
@@ -78,6 +80,7 @@ public sealed class ConnectionSettings
         {
             Id = LocalMachineId,
             Name = "Local machine",
+            Role = RunnerMachineRole.Standalone,
             RunnerUrl = "http://localhost:5000",
             AutoConnect = true
         };

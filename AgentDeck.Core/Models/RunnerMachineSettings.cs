@@ -1,3 +1,5 @@
+using AgentDeck.Shared.Enums;
+
 namespace AgentDeck.Core.Models;
 
 /// <summary>Named runner machine profile managed by the companion app.</summary>
@@ -8,6 +10,9 @@ public sealed class RunnerMachineSettings
 
     /// <summary>User-facing machine name.</summary>
     public string Name { get; set; } = "Local machine";
+
+    /// <summary>Intended orchestration role for this machine profile.</summary>
+    public RunnerMachineRole Role { get; set; } = RunnerMachineRole.Standalone;
 
     /// <summary>Base URL of the runner (e.g. http://192.168.1.5:5000).</summary>
     public string RunnerUrl { get; set; } = "http://localhost:5000";
@@ -21,6 +26,7 @@ public sealed class RunnerMachineSettings
         {
             Id = Id,
             Name = Name,
+            Role = Role,
             RunnerUrl = RunnerUrl,
             AutoConnect = AutoConnect
         };

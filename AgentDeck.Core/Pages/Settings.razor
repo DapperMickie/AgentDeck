@@ -41,6 +41,7 @@
                         <span class="machine-card__title">@machine.Name</span>
                         <span class="machine-card__url">@machine.RunnerUrl</span>
                         <span class="machine-card__meta">
+                            <span class="machine-badge">@GetMachineRoleLabel(machine.Role)</span>
                             @if (string.Equals(_settings.PreferredMachineId, machine.Id, StringComparison.OrdinalIgnoreCase))
                             {
                                 <span class="machine-badge">Default terminal</span>
@@ -65,6 +66,17 @@
                         <label for="runner-url">Runner URL</label>
                         <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
                                placeholder="http://localhost:5000" />
+                    </div>
+
+                    <div class="form-field">
+                        <label for="machine-role">Machine Role</label>
+                        <select id="machine-role" class="input" @bind="SelectedMachine.Role">
+                            @foreach (var role in _machineRoles)
+                            {
+                                <option value="@role">@GetMachineRoleLabel(role)</option>
+                            }
+                        </select>
+                        <p class="settings-card__description">@GetMachineRoleDescription(SelectedMachine.Role)</p>
                     </div>
 
                     <div class="form-field">
@@ -117,9 +129,41 @@
                         <strong class="status-text-@GetStatusClass(SelectedMachine)">@GetStatusLabel(SelectedMachine)</strong>
                     </div>
                     <div class="settings-status-row">
+                        <span class="settings-status-row__label">Role</span>
+                        <strong class="settings-status-row__value">@GetMachineRoleLabel(SelectedMachine.Role)</strong>
+                    </div>
+                    <div class="settings-status-row">
                         <span class="settings-status-row__label">Hub URL</span>
                         <code class="settings-status-row__value">@GetHubUrl(SelectedMachine)</code>
                     </div>
+                    @if (_machineCapabilities?.Platform is not null)
+                    {
+                        <div class="settings-status-row">
+                            <span class="settings-status-row__label">Detected platform</span>
+                            <strong class="settings-status-row__value">@GetHostPlatformLabel(_machineCapabilities.Platform.HostPlatform)</strong>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_machineCapabilities.Platform.Architecture))
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Architecture</span>
+                                <span class="settings-status-row__value">@_machineCapabilities.Platform.Architecture</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_machineCapabilities.Platform.OperatingSystemDescription))
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">OS description</span>
+                                <span class="settings-status-row__value">@_machineCapabilities.Platform.OperatingSystemDescription</span>
+                            </div>
+                        }
+                        @if (_machineCapabilities.SupportedTargets.Count > 0)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Target readiness</span>
+                                <span class="settings-status-row__value">@string.Join(", ", _machineCapabilities.SupportedTargets.Select(FormatTargetSummary))</span>
+                            </div>
+                        }
+                    }
                 </div>
             </div>
 
@@ -291,6 +335,8 @@
 
 @code {
     private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
+    private static readonly RunnerMachineRole[] _machineRoles =
+        [RunnerMachineRole.Standalone, RunnerMachineRole.Coordinator, RunnerMachineRole.Worker];
     private bool _saving;
     private string? _errorMessage;
     private readonly Dictionary<string, MachineCapabilitiesSnapshot?> _machineCapabilitiesByMachine = new(StringComparer.OrdinalIgnoreCase);
@@ -358,6 +404,7 @@
         var machine = new RunnerMachineSettings
         {
             Name = name,
+            Role = RunnerMachineRole.Standalone,
             RunnerUrl = "http://localhost:5000",
             AutoConnect = false
         };
@@ -447,6 +494,31 @@
         HubConnectionState.Reconnecting => "Reconnecting...",
         _ => "Disconnected"
     };
+
+    private static string GetMachineRoleLabel(RunnerMachineRole role) => role switch
+    {
+        RunnerMachineRole.Coordinator => "Coordinator",
+        RunnerMachineRole.Worker => "Worker",
+        _ => "Standalone"
+    };
+
+    private static string GetMachineRoleDescription(RunnerMachineRole role) => role switch
+    {
+        RunnerMachineRole.Coordinator => "Use this machine as the main orchestration runner that will coordinate worker machines later.",
+        RunnerMachineRole.Worker => "Use this machine as a remote worker that receives run/debug work from a coordinator.",
+        _ => "Use this machine independently without assigning it to coordinator/worker orchestration yet."
+    };
+
+    private static string GetHostPlatformLabel(RunnerHostPlatform platform) => platform switch
+    {
+        RunnerHostPlatform.Linux => "Linux",
+        RunnerHostPlatform.Windows => "Windows",
+        RunnerHostPlatform.MacOS => "macOS",
+        _ => "Unknown"
+    };
+
+    private static string FormatTargetSummary(MachineTargetSupport target) =>
+        $"{target.DisplayName} ({target.Status})";
 
     private static string GetHubUrl(RunnerMachineSettings machine) => $"{machine.RunnerUrl.TrimEnd('/')}/hubs/agent";
 
