@@ -30,7 +30,7 @@ public static class ProjectTemplateCatalog
         ProjectWorkloadKind workload,
         IReadOnlyList<ProjectTargetDefinition> targets)
     {
-        if (workload != ProjectWorkloadKind.Maui)
+        if (targets.Count == 0)
         {
             return [];
         }
@@ -59,7 +59,7 @@ public static class ProjectTemplateCatalog
             Mode = mode,
             PreferredMachineRole = RunnerMachineRole.Worker,
             BuildCommand = "dotnet build",
-            LaunchCommand = mode == ProjectLaunchMode.Debug ? "code ." : "dotnet build -t:Run",
+            LaunchCommand = BuildLaunchCommand(target),
             DebugCommand = requiresVsCode ? "code ." : null,
             RequiresVsCode = requiresVsCode,
             RequiresEmulator = requiresEmulator,
@@ -67,6 +67,13 @@ public static class ProjectTemplateCatalog
             Notes = BuildLaunchNotes(target, mode, requiresEmulator, requiresSimulator)
         };
     }
+
+    private static string BuildLaunchCommand(ProjectTargetDefinition target) => target.Workload switch
+    {
+        ProjectWorkloadKind.Blazor => "dotnet run",
+        ProjectWorkloadKind.Maui => "dotnet build -t:Run",
+        _ => "dotnet run"
+    };
 
     private static string? BuildLaunchNotes(
         ProjectTargetDefinition target,
