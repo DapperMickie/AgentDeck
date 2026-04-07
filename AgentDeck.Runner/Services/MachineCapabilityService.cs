@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
@@ -29,8 +30,100 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
         return new MachineCapabilitiesSnapshot
         {
             CapturedAt = DateTimeOffset.UtcNow,
+            Platform = BuildPlatformProfile(),
+            SupportedTargets = BuildSupportedTargets(capabilities),
             Capabilities = capabilities
         };
+    }
+
+    private static MachinePlatformProfile BuildPlatformProfile()
+    {
+        return new MachinePlatformProfile
+        {
+            HostPlatform = GetHostPlatform(),
+            OperatingSystemDescription = RuntimeInformation.OSDescription,
+            Architecture = RuntimeInformation.OSArchitecture.ToString()
+        };
+    }
+
+    private static IReadOnlyList<MachineTargetSupport> BuildSupportedTargets(IReadOnlyList<MachineCapability> capabilities)
+    {
+        var dotNetInstalled = capabilities.Any(capability =>
+            capability.Id.Equals("dotnet", StringComparison.OrdinalIgnoreCase) &&
+            capability.Status == MachineCapabilityStatus.Installed);
+
+        if (OperatingSystem.IsLinux())
+        {
+            return
+            [
+                new MachineTargetSupport
+                {
+                    Platform = ApplicationTargetPlatform.Linux,
+                    Status = dotNetInstalled ? MachineTargetSupportStatus.Supported : MachineTargetSupportStatus.RequiresSetup,
+                    DisplayName = "Linux",
+                    RequiredCapabilities = ["dotnet"],
+                    Notes = dotNetInstalled
+                        ? "Linux MAUI projects should reference OpenMaui.Controls.Linux."
+                        : "Install the .NET SDK first. Generated Linux MAUI projects should reference OpenMaui.Controls.Linux."
+                }
+            ];
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return
+            [
+                new MachineTargetSupport
+                {
+                    Platform = ApplicationTargetPlatform.Windows,
+                    Status = dotNetInstalled ? MachineTargetSupportStatus.Supported : MachineTargetSupportStatus.RequiresSetup,
+                    DisplayName = "Windows",
+                    RequiredCapabilities = ["dotnet"],
+                    Notes = dotNetInstalled
+                        ? ".NET MAUI Windows targets can run on this machine."
+                        : "Install the .NET SDK first to prepare this machine for Windows MAUI targets."
+                }
+            ];
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return
+            [
+                new MachineTargetSupport
+                {
+                    Platform = ApplicationTargetPlatform.MacOS,
+                    Status = dotNetInstalled ? MachineTargetSupportStatus.Supported : MachineTargetSupportStatus.RequiresSetup,
+                    DisplayName = "macOS",
+                    RequiredCapabilities = ["dotnet"],
+                    Notes = dotNetInstalled
+                        ? ".NET MAUI macOS targets can run on this machine."
+                        : "Install the .NET SDK first to prepare this machine for macOS MAUI targets."
+                }
+            ];
+        }
+
+        return [];
+    }
+
+    private static RunnerHostPlatform GetHostPlatform()
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            return RunnerHostPlatform.Linux;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return RunnerHostPlatform.Windows;
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return RunnerHostPlatform.MacOS;
+        }
+
+        return RunnerHostPlatform.Unknown;
     }
 
     private async Task<MachineCapability> DetectCliAsync(
