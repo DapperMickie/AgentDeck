@@ -149,22 +149,13 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             }
         };
 
-        if (request.LaunchDriver == ProjectLaunchDriver.VsCode)
-        {
-            steps.Add(new OrchestrationJobStep
-            {
-                Name = "Bootstrap IDE",
-                Status = OrchestrationJobStepStatus.Pending,
-                Message = request.BootstrapCommand
-            });
-        }
-
         steps.Add(new OrchestrationJobStep
         {
             Name = request.Mode == ProjectLaunchMode.Debug ? "Debug" : "Launch",
             Status = OrchestrationJobStepStatus.Pending,
             Message = request.Mode == ProjectLaunchMode.Debug
-                ? request.DebugConfigurationName ?? request.BootstrapCommand
+                ? string.Join(" | ", new[] { request.BootstrapCommand, request.DebugConfigurationName }
+                    .Where(value => !string.IsNullOrWhiteSpace(value)))
                 : request.LaunchCommand
         });
 
