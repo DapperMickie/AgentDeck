@@ -15,6 +15,8 @@ RunnerOptions.ApplyEnvironmentOverrides(runnerOptions);
 builder.Services.AddOptions<RunnerOptions>()
     .Bind(builder.Configuration.GetSection(RunnerOptions.SectionName))
     .Configure(RunnerOptions.ApplyEnvironmentOverrides);
+builder.Services.AddOptions<TrustPolicyOptions>()
+    .Bind(builder.Configuration.GetSection(TrustPolicyOptions.SectionName));
 
 builder.WebHost.UseUrls($"http://0.0.0.0:{runnerOptions.Port}");
 
@@ -40,6 +42,8 @@ builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>
 builder.Services.AddSingleton<IOrchestrationExecutionService, OrchestrationExecutionService>();
 builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionService>();
 builder.Services.AddSingleton<IDesktopViewerBootstrapService, DesktopViewerBootstrapService>();
+builder.Services.AddSingleton<IRunnerAuditService, RunnerAuditService>();
+builder.Services.AddSingleton<IRunnerTrustPolicy, RunnerTrustPolicy>();
 builder.Services.AddSingleton<IVsCodeDebugSessionService, VsCodeDebugSessionService>();
 builder.Services.AddSingleton<IVirtualDeviceCatalogService, VirtualDeviceCatalogService>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
@@ -54,6 +58,9 @@ var app = builder.Build();
 app.UseCors();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }));
+
+app.MapGet("/api/audit/events", (IRunnerAuditService audit) =>
+    Results.Ok(audit.GetRecent()));
 
 app.MapGet("/api/sessions", (IAgentSessionStore store) =>
     Results.Ok(store.GetAll()));
@@ -74,10 +81,23 @@ app.MapGet("/api/orchestration/jobs", (IOrchestrationJobService jobs) =>
 app.MapGet("/api/orchestration/jobs/{id}", (string id, IOrchestrationJobService jobs) =>
     jobs.Get(id) is { } job ? Results.Ok(job) : Results.NotFound());
 
-app.MapPost("/api/orchestration/jobs", (CreateOrchestrationJobRequest request, IOrchestrationJobService jobs, IOrchestrationExecutionService execution) =>
+app.MapPost("/api/orchestration/jobs", (CreateOrchestrationJobRequest request, HttpContext httpContext, IOrchestrationJobService jobs, IOrchestrationExecutionService execution, IRunnerTrustPolicy trustPolicy, IRunnerAuditService audit) =>
 {
+    var decision = trustPolicy.Evaluate(
+        httpContext,
+        action: "orchestration.queue",
+        targetType: "project",
+        targetId: request.ProjectId,
+        targetDisplayName: request.ProjectName);
+
+    if (!decision.Allowed)
+    {
+        return Deny(decision, audit);
+    }
+
     if (request.DeviceSelection is not null && !request.DeviceSelection.HasTarget)
     {
+        audit.Record(decision, RunnerAuditOutcome.Failed, "Device selection must include either a device ID or a profile ID.");
         return Results.BadRequest(new
         {
             message = "Device selection must include either a device ID or a profile ID."
@@ -86,6 +106,7 @@ app.MapPost("/api/orchestration/jobs", (CreateOrchestrationJobRequest request, I
 
     var job = jobs.Queue(request);
     execution.Start(job.Id);
+    audit.Record(decision, RunnerAuditOutcome.Succeeded, $"Queued orchestration job '{job.Id}' for launch profile '{request.LaunchProfileId}'.");
     return Results.Ok(job);
 });
 
@@ -95,14 +116,27 @@ app.MapPost("/api/orchestration/jobs/{id}/status", (string id, UpdateOrchestrati
 app.MapPost("/api/orchestration/jobs/{id}/logs", (string id, AppendOrchestrationJobLogRequest request, IOrchestrationJobService jobs) =>
     jobs.AppendLog(id, request) is { } job ? Results.Ok(job) : Results.NotFound());
 
-app.MapPost("/api/orchestration/jobs/{id}/cancel", async (string id, IOrchestrationJobService jobs, IOrchestrationExecutionService execution, CancellationToken cancellationToken) =>
+app.MapPost("/api/orchestration/jobs/{id}/cancel", async (string id, HttpContext httpContext, IOrchestrationJobService jobs, IOrchestrationExecutionService execution, IRunnerTrustPolicy trustPolicy, IRunnerAuditService audit, CancellationToken cancellationToken) =>
 {
+    var decision = trustPolicy.Evaluate(
+        httpContext,
+        action: "orchestration.cancel",
+        targetType: "orchestration-job",
+        targetId: id);
+
+    if (!decision.Allowed)
+    {
+        return Deny(decision, audit);
+    }
+
     if (jobs.RequestCancellation(id) is null)
     {
+        audit.Record(decision, RunnerAuditOutcome.Failed, "The orchestration job was not found.");
         return Results.NotFound();
     }
 
     await execution.RequestCancellationAsync(id, cancellationToken);
+    audit.Record(decision, RunnerAuditOutcome.Succeeded, $"Requested cancellation for orchestration job '{id}'.");
     return jobs.Get(id) is { } job ? Results.Ok(job) : Results.NotFound();
 });
 
@@ -115,22 +149,55 @@ app.MapGet("/api/viewers/sessions", (IRemoteViewerSessionService viewers) =>
 app.MapGet("/api/viewers/sessions/{id}", (string id, IRemoteViewerSessionService viewers) =>
     viewers.Get(id) is { } session ? Results.Ok(session) : Results.NotFound());
 
-app.MapPost("/api/viewers/sessions", async (CreateRemoteViewerSessionRequest request, HttpContext httpContext, IRemoteViewerSessionService viewers, IDesktopViewerBootstrapService desktopBootstrap, CancellationToken cancellationToken) =>
+app.MapPost("/api/viewers/sessions", async (CreateRemoteViewerSessionRequest request, HttpContext httpContext, IRemoteViewerSessionService viewers, IDesktopViewerBootstrapService desktopBootstrap, IRunnerTrustPolicy trustPolicy, IRunnerAuditService audit, CancellationToken cancellationToken) =>
 {
+    var action = request.Target.Kind == RemoteViewerTargetKind.Desktop
+        ? "viewer.desktop.create"
+        : "viewer.create";
+    var decision = trustPolicy.Evaluate(
+        httpContext,
+        action,
+        targetType: request.Target.Kind.ToString(),
+        targetId: request.JobId ?? request.Target.JobId,
+        targetDisplayName: request.Target.DisplayName);
+
+    if (!decision.Allowed)
+    {
+        return Deny(decision, audit);
+    }
+
     var session = viewers.Create(request);
     if (session.Target.Kind == RemoteViewerTargetKind.Desktop)
     {
         session = await desktopBootstrap.BootstrapAsync(session.Id, httpContext.Request.Host.Host, cancellationToken) ?? session;
     }
 
+    audit.Record(
+        decision,
+        session.Status == RemoteViewerSessionStatus.Failed ? RunnerAuditOutcome.Failed : RunnerAuditOutcome.Succeeded,
+        session.StatusMessage ?? $"Created viewer session '{session.Id}'.");
+
     return Results.Ok(session);
 });
 
-app.MapPost("/api/viewers/sessions/{id}/status", async (string id, UpdateRemoteViewerSessionRequest request, IRemoteViewerSessionService viewers, IDesktopViewerBootstrapService desktopBootstrap, CancellationToken cancellationToken) =>
+app.MapPost("/api/viewers/sessions/{id}/status", async (string id, UpdateRemoteViewerSessionRequest request, HttpContext httpContext, IRemoteViewerSessionService viewers, IDesktopViewerBootstrapService desktopBootstrap, IRunnerTrustPolicy trustPolicy, IRunnerAuditService audit, CancellationToken cancellationToken) =>
 {
     if (request.Status == RemoteViewerSessionStatus.Closed)
     {
+        var decision = trustPolicy.Evaluate(httpContext, "viewer.close", "viewer-session", id);
+        if (!decision.Allowed)
+        {
+            return Deny(decision, audit);
+        }
+
         var closeResult = await desktopBootstrap.CloseAsync(id, request.Message, cancellationToken);
+        if (closeResult.Session is not null)
+        {
+            audit.Record(
+                decision,
+                closeResult.Outcome == RemoteViewerSessionMutationOutcome.Updated ? RunnerAuditOutcome.Succeeded : RunnerAuditOutcome.Failed,
+                closeResult.Session.StatusMessage);
+        }
         return closeResult.Outcome switch
         {
             RemoteViewerSessionMutationOutcome.Updated when closeResult.Session is not null => Results.Ok(closeResult.Session),
@@ -148,9 +215,22 @@ app.MapPost("/api/viewers/sessions/{id}/status", async (string id, UpdateRemoteV
     };
 });
 
-app.MapPost("/api/viewers/sessions/{id}/close", async (string id, IDesktopViewerBootstrapService desktopBootstrap, CancellationToken cancellationToken) =>
+app.MapPost("/api/viewers/sessions/{id}/close", async (string id, HttpContext httpContext, IDesktopViewerBootstrapService desktopBootstrap, IRunnerTrustPolicy trustPolicy, IRunnerAuditService audit, CancellationToken cancellationToken) =>
 {
+    var decision = trustPolicy.Evaluate(httpContext, "viewer.close", "viewer-session", id);
+    if (!decision.Allowed)
+    {
+        return Deny(decision, audit);
+    }
+
     var result = await desktopBootstrap.CloseAsync(id, cancellationToken: cancellationToken);
+    if (result.Session is not null)
+    {
+        audit.Record(
+            decision,
+            result.Outcome == RemoteViewerSessionMutationOutcome.Updated ? RunnerAuditOutcome.Succeeded : RunnerAuditOutcome.Failed,
+            result.Session.StatusMessage);
+    }
     return result.Outcome switch
     {
         RemoteViewerSessionMutationOutcome.Updated when result.Session is not null => Results.Ok(result.Session),
@@ -194,11 +274,31 @@ app.MapGet("/api/workspace", (IWorkspaceService workspace) =>
 app.MapGet("/api/capabilities", async (IMachineCapabilityService capabilities, CancellationToken cancellationToken) =>
     Results.Ok(await capabilities.GetSnapshotAsync(cancellationToken)));
 
-app.MapPost("/api/capabilities/{capabilityId}/install", async (string capabilityId, MachineCapabilityInstallRequest? request, IMachineSetupService setup, CancellationToken cancellationToken) =>
-    Results.Ok(await setup.InstallCapabilityAsync(capabilityId, request?.Version, cancellationToken)));
+app.MapPost("/api/capabilities/{capabilityId}/install", async (string capabilityId, MachineCapabilityInstallRequest? request, HttpContext httpContext, IMachineSetupService setup, IRunnerTrustPolicy trustPolicy, IRunnerAuditService audit, CancellationToken cancellationToken) =>
+{
+    var decision = trustPolicy.Evaluate(httpContext, "capability.install", "capability", capabilityId, capabilityId);
+    if (!decision.Allowed)
+    {
+        return Deny(decision, audit);
+    }
 
-app.MapPost("/api/capabilities/{capabilityId}/update", async (string capabilityId, IMachineSetupService setup, CancellationToken cancellationToken) =>
-    Results.Ok(await setup.UpdateCapabilityAsync(capabilityId, cancellationToken)));
+    var result = await setup.InstallCapabilityAsync(capabilityId, request?.Version, cancellationToken);
+    audit.Record(decision, result.Succeeded ? RunnerAuditOutcome.Succeeded : RunnerAuditOutcome.Failed, result.Message);
+    return Results.Ok(result);
+});
+
+app.MapPost("/api/capabilities/{capabilityId}/update", async (string capabilityId, HttpContext httpContext, IMachineSetupService setup, IRunnerTrustPolicy trustPolicy, IRunnerAuditService audit, CancellationToken cancellationToken) =>
+{
+    var decision = trustPolicy.Evaluate(httpContext, "capability.update", "capability", capabilityId, capabilityId);
+    if (!decision.Allowed)
+    {
+        return Deny(decision, audit);
+    }
+
+    var result = await setup.UpdateCapabilityAsync(capabilityId, cancellationToken);
+    audit.Record(decision, result.Succeeded ? RunnerAuditOutcome.Succeeded : RunnerAuditOutcome.Failed, result.Message);
+    return Results.Ok(result);
+});
 
 app.MapHub<AgentHub>("/hubs/agent");
 
@@ -211,3 +311,14 @@ app.Lifetime.ApplicationStarted.Register(() =>
 });
 
 app.Run();
+
+static IResult Deny(RunnerTrustDecision decision, IRunnerAuditService audit)
+{
+    audit.Record(decision, RunnerAuditOutcome.Denied, decision.Message);
+    return Results.Json(
+        new
+        {
+            message = decision.Message ?? "This action is denied by the current trust policy."
+        },
+        statusCode: StatusCodes.Status403Forbidden);
+}

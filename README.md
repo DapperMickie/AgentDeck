@@ -111,9 +111,17 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
     "WorkspaceRoot": "/workspace",
     "Port": 5000,
     "AllowedOrigins": ["*"]
+  },
+  "TrustPolicy": {
+    "ActorHeaderName": "X-AgentDeck-Actor",
+    "RequireActorHeaderForPrivilegedActions": false,
+    "RequireLoopbackForMachineSetup": false,
+    "RequireLoopbackForDesktopViewerBootstrap": false
   }
 }
 ```
+
+`TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
 
 ---
 
@@ -150,6 +158,8 @@ The runner also now exposes a first-pass orchestration job API, separate from te
 That orchestration layer now has real local execution paths for both direct-command run jobs and the first VS Code-backed debug jobs. Direct-command jobs build and launch on the runner, stream PTY output into job logs, and let cancellation stop the underlying process.
 
 VS Code-backed debug jobs now build first, materialize `.vscode` debug assets plus `Properties/launchSettings.json` for the selected startup project, open VS Code on the runner, create a linked VS Code viewer-session record, and trigger the configured debug session on an interactive desktop. Cancellation closes the VS Code host and marks the viewer session closed. The current slice still assumes a single resolvable `.csproj` under the queued workspace and does not yet provide the transport needed to stream the VS Code window remotely.
+
+Privileged orchestration, viewer, and machine setup actions now also run through a first-pass trust-policy hook and emit bounded audit records at `/api/audit/events`. Audit entries include the action, actor, remote address, target, and success/denied/failed outcome so later authorization work has a stable trail to build on.
 
 The runner now also exposes a remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. Full-desktop viewer requests now attempt real transport bootstrap on the local runner: Windows desktops resolve against live RDP endpoints, macOS desktops resolve against Screen Sharing when port `5900` is listening, and Linux desktops can launch `x11vnc` when `DISPLAY` and `x11vnc` are available. When a real desktop transport is not available, the session now fails explicitly with a transport-specific message instead of staying as a placeholder record.
 
