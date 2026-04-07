@@ -36,6 +36,7 @@ builder.Services.AddSignalR(opts =>
 
 builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
 builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>();
+builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionService>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
 builder.Services.AddSingleton<IMachineCapabilityService, MachineCapabilityService>();
 builder.Services.AddSingleton<IMachineSetupService, MachineSetupService>();
@@ -78,6 +79,40 @@ app.MapPost("/api/orchestration/jobs/{id}/logs", (string id, AppendOrchestration
 
 app.MapPost("/api/orchestration/jobs/{id}/cancel", (string id, IOrchestrationJobService jobs) =>
     jobs.RequestCancellation(id) is { } job ? Results.Ok(job) : Results.NotFound());
+
+app.MapGet("/api/viewers/providers", (IRemoteViewerSessionService viewers) =>
+    Results.Ok(viewers.GetAvailableProviders()));
+
+app.MapGet("/api/viewers/sessions", (IRemoteViewerSessionService viewers) =>
+    Results.Ok(viewers.GetAll()));
+
+app.MapGet("/api/viewers/sessions/{id}", (string id, IRemoteViewerSessionService viewers) =>
+    viewers.Get(id) is { } session ? Results.Ok(session) : Results.NotFound());
+
+app.MapPost("/api/viewers/sessions", (CreateRemoteViewerSessionRequest request, IRemoteViewerSessionService viewers) =>
+    Results.Ok(viewers.Create(request)));
+
+app.MapPost("/api/viewers/sessions/{id}/status", (string id, UpdateRemoteViewerSessionRequest request, IRemoteViewerSessionService viewers) =>
+{
+    var result = viewers.Update(id, request);
+    return result.Outcome switch
+    {
+        RemoteViewerSessionMutationOutcome.Updated when result.Session is not null => Results.Ok(result.Session),
+        RemoteViewerSessionMutationOutcome.InvalidTransition when result.Session is not null => Results.Conflict(result.Session),
+        _ => Results.NotFound()
+    };
+});
+
+app.MapPost("/api/viewers/sessions/{id}/close", (string id, IRemoteViewerSessionService viewers) =>
+{
+    var result = viewers.Close(id);
+    return result.Outcome switch
+    {
+        RemoteViewerSessionMutationOutcome.Updated when result.Session is not null => Results.Ok(result.Session),
+        RemoteViewerSessionMutationOutcome.InvalidTransition when result.Session is not null => Results.Conflict(result.Session),
+        _ => Results.NotFound()
+    };
+});
 
 app.MapGet("/api/workspace", (IWorkspaceService workspace) =>
     Results.Ok(workspace.GetWorkspaceInfo()));
