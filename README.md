@@ -145,6 +145,8 @@ The current orchestration foundation is additive: roles do not change terminal b
 
 Shared orchestration contracts now also include repository/project metadata, per-machine workspace mappings, supported targets, and default run/debug launch profiles so later coordinator work can build on a stable project model instead of raw terminal sessions alone.
 
+The runner also now exposes a first-pass orchestration job API, separate from terminal sessions, so coordinator-managed run/debug work can be queued, tracked by lifecycle status, associated with a target machine, and enriched with step/log data before full cross-machine dispatch is implemented.
+
 ### Machine Capabilities
 
 The **Machine Setup** section can detect whether the selected machine has these supported tools available:
