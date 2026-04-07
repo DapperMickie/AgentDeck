@@ -134,11 +134,14 @@ The companion app supports multiple named runner machines.
 
 In **Settings** you can:
 - add and name machines
+- assign each machine a role (`Standalone`, `Coordinator`, or `Worker`)
 - set a default machine for new terminals
 - connect and disconnect each machine independently
 - inspect the connection status and hub URL for the selected machine
 
 When you create a new terminal, you choose which machine it should run on.
+
+The current orchestration foundation is additive: roles do not change terminal behavior yet, but they let you declare which machine is intended to act as the main coordinator and which machines are intended to act as workers as the distributed run/debug workflow grows.
 
 ### Machine Capabilities
 
