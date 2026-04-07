@@ -191,17 +191,51 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
 
         if (status is OrchestrationJobStatus.Preparing or OrchestrationJobStatus.Dispatching or OrchestrationJobStatus.Running)
         {
-            var nextPendingIndex = updatedSteps.FindIndex(step => step.Status == OrchestrationJobStepStatus.Pending);
-            if (nextPendingIndex >= 0)
+            var activeIndex = status switch
             {
-                var nextPending = updatedSteps[nextPendingIndex];
-                updatedSteps[nextPendingIndex] = new OrchestrationJobStep
+                OrchestrationJobStatus.Preparing => 0,
+                OrchestrationJobStatus.Dispatching => Math.Min(1, updatedSteps.Count - 1),
+                OrchestrationJobStatus.Running => updatedSteps.Count - 1,
+                _ => 0
+            };
+
+            for (var index = 0; index < updatedSteps.Count; index++)
+            {
+                var step = updatedSteps[index];
+
+                if (index < activeIndex)
                 {
-                    Name = nextPending.Name,
-                    Status = OrchestrationJobStepStatus.Running,
-                    Message = message ?? nextPending.Message,
-                    StartedAt = nextPending.StartedAt ?? now,
-                    CompletedAt = nextPending.CompletedAt
+                    updatedSteps[index] = new OrchestrationJobStep
+                    {
+                        Name = step.Name,
+                        Status = OrchestrationJobStepStatus.Completed,
+                        Message = step.Message,
+                        StartedAt = step.StartedAt ?? now,
+                        CompletedAt = step.CompletedAt ?? now
+                    };
+                    continue;
+                }
+
+                if (index == activeIndex)
+                {
+                    updatedSteps[index] = new OrchestrationJobStep
+                    {
+                        Name = step.Name,
+                        Status = OrchestrationJobStepStatus.Running,
+                        Message = message ?? step.Message,
+                        StartedAt = step.StartedAt ?? now,
+                        CompletedAt = null
+                    };
+                    continue;
+                }
+
+                updatedSteps[index] = new OrchestrationJobStep
+                {
+                    Name = step.Name,
+                    Status = OrchestrationJobStepStatus.Pending,
+                    Message = step.Message,
+                    StartedAt = step.StartedAt,
+                    CompletedAt = step.CompletedAt
                 };
             }
         }
@@ -248,7 +282,9 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
                     Name = active.Name,
                     Status = nextStatus,
                     Message = message ?? active.Message,
-                    StartedAt = nextStatus == OrchestrationJobStepStatus.Failed ? active.StartedAt ?? now : null,
+                    StartedAt = active.Status == OrchestrationJobStepStatus.Running
+                        ? active.StartedAt ?? now
+                        : nextStatus == OrchestrationJobStepStatus.Failed ? active.StartedAt ?? now : null,
                     CompletedAt = now
                 };
             }
