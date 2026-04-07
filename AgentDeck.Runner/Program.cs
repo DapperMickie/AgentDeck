@@ -37,6 +37,7 @@ builder.Services.AddSignalR(opts =>
 
 builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
 builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>();
+builder.Services.AddSingleton<IOrchestrationExecutionService, OrchestrationExecutionService>();
 builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionService>();
 builder.Services.AddSingleton<IVirtualDeviceCatalogService, VirtualDeviceCatalogService>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
@@ -44,6 +45,7 @@ builder.Services.AddSingleton<IMachineCapabilityService, MachineCapabilityServic
 builder.Services.AddSingleton<IMachineSetupService, MachineSetupService>();
 builder.Services.AddSingleton<IPtyProcessManager, PtyProcessManager>();
 builder.Services.AddHostedService<HubOutputForwarder>();
+builder.Services.AddHostedService(sp => (OrchestrationExecutionService)sp.GetRequiredService<IOrchestrationExecutionService>());
 
 var app = builder.Build();
 
@@ -70,7 +72,7 @@ app.MapGet("/api/orchestration/jobs", (IOrchestrationJobService jobs) =>
 app.MapGet("/api/orchestration/jobs/{id}", (string id, IOrchestrationJobService jobs) =>
     jobs.Get(id) is { } job ? Results.Ok(job) : Results.NotFound());
 
-app.MapPost("/api/orchestration/jobs", (CreateOrchestrationJobRequest request, IOrchestrationJobService jobs) =>
+app.MapPost("/api/orchestration/jobs", (CreateOrchestrationJobRequest request, IOrchestrationJobService jobs, IOrchestrationExecutionService execution) =>
 {
     if (request.DeviceSelection is not null && !request.DeviceSelection.HasTarget)
     {
@@ -80,7 +82,9 @@ app.MapPost("/api/orchestration/jobs", (CreateOrchestrationJobRequest request, I
         });
     }
 
-    return Results.Ok(jobs.Queue(request));
+    var job = jobs.Queue(request);
+    execution.Start(job.Id);
+    return Results.Ok(job);
 });
 
 app.MapPost("/api/orchestration/jobs/{id}/status", (string id, UpdateOrchestrationJobStatusRequest request, IOrchestrationJobService jobs) =>
@@ -89,8 +93,16 @@ app.MapPost("/api/orchestration/jobs/{id}/status", (string id, UpdateOrchestrati
 app.MapPost("/api/orchestration/jobs/{id}/logs", (string id, AppendOrchestrationJobLogRequest request, IOrchestrationJobService jobs) =>
     jobs.AppendLog(id, request) is { } job ? Results.Ok(job) : Results.NotFound());
 
-app.MapPost("/api/orchestration/jobs/{id}/cancel", (string id, IOrchestrationJobService jobs) =>
-    jobs.RequestCancellation(id) is { } job ? Results.Ok(job) : Results.NotFound());
+app.MapPost("/api/orchestration/jobs/{id}/cancel", async (string id, IOrchestrationJobService jobs, IOrchestrationExecutionService execution, CancellationToken cancellationToken) =>
+{
+    if (jobs.RequestCancellation(id) is null)
+    {
+        return Results.NotFound();
+    }
+
+    await execution.RequestCancellationAsync(id, cancellationToken);
+    return jobs.Get(id) is { } job ? Results.Ok(job) : Results.NotFound();
+});
 
 app.MapGet("/api/viewers/providers", (IRemoteViewerSessionService viewers) =>
     Results.Ok(viewers.GetAvailableProviders()));
