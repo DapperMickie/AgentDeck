@@ -4,5 +4,7 @@ namespace AgentDeck.Shared.Models;
 public sealed class MachineCapabilitiesSnapshot
 {
     public DateTimeOffset CapturedAt { get; init; } = DateTimeOffset.UtcNow;
+    public MachinePlatformProfile Platform { get; init; } = new();
+    public IReadOnlyList<MachineTargetSupport> SupportedTargets { get; init; } = [];
     public IReadOnlyList<MachineCapability> Capabilities { get; init; } = [];
 }

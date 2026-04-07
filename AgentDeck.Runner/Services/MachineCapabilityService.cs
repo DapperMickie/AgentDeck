@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
@@ -29,8 +30,98 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
         return new MachineCapabilitiesSnapshot
         {
             CapturedAt = DateTimeOffset.UtcNow,
+            Platform = BuildPlatformProfile(),
+            SupportedTargets = BuildSupportedTargets(capabilities),
             Capabilities = capabilities
         };
+    }
+
+    private static MachinePlatformProfile BuildPlatformProfile()
+    {
+        return new MachinePlatformProfile
+        {
+            HostPlatform = GetHostPlatform(),
+            OperatingSystemDescription = RuntimeInformation.OSDescription,
+            Architecture = RuntimeInformation.OSArchitecture.ToString()
+        };
+    }
+
+    private static IReadOnlyList<MachineTargetSupport> BuildSupportedTargets(IReadOnlyList<MachineCapability> capabilities)
+    {
+        var dotNetInstalled = capabilities.Any(capability =>
+            capability.Id.Equals("dotnet", StringComparison.OrdinalIgnoreCase) &&
+            capability.Status == MachineCapabilityStatus.Installed);
+
+        if (OperatingSystem.IsLinux())
+        {
+            return [CreateTargetSupport(ApplicationTargetPlatform.Linux, dotNetInstalled)];
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return [CreateTargetSupport(ApplicationTargetPlatform.Windows, dotNetInstalled)];
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return [CreateTargetSupport(ApplicationTargetPlatform.MacOS, dotNetInstalled)];
+        }
+
+        return [];
+    }
+
+    private static MachineTargetSupport CreateTargetSupport(ApplicationTargetPlatform platform, bool dotNetInstalled)
+    {
+        var definition = ProjectTargetCatalog.GetTargets(ProjectWorkloadKind.Maui)
+            .First(target => target.Platform == platform);
+
+        var requiredCapabilities = string.IsNullOrWhiteSpace(definition.CapabilityId)
+            ? []
+            : new[] { definition.CapabilityId };
+
+        var notes = definition.Notes;
+        if (!string.IsNullOrWhiteSpace(definition.PackageRequirement))
+        {
+            notes = string.IsNullOrWhiteSpace(notes)
+                ? $"Requires {definition.PackageRequirement}."
+                : $"{notes} Requires {definition.PackageRequirement}.";
+        }
+
+        if (!dotNetInstalled)
+        {
+            notes = string.IsNullOrWhiteSpace(notes)
+                ? "Install the .NET SDK first."
+                : $"Install the .NET SDK first. {notes}";
+        }
+
+        return new MachineTargetSupport
+        {
+            Platform = definition.Platform,
+            Status = dotNetInstalled ? MachineTargetSupportStatus.Supported : MachineTargetSupportStatus.RequiresSetup,
+            DisplayName = definition.DisplayName,
+            RequiredCapabilities = requiredCapabilities,
+            Notes = notes
+        };
+    }
+
+    private static RunnerHostPlatform GetHostPlatform()
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            return RunnerHostPlatform.Linux;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return RunnerHostPlatform.Windows;
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return RunnerHostPlatform.MacOS;
+        }
+
+        return RunnerHostPlatform.Unknown;
     }
 
     private async Task<MachineCapability> DetectCliAsync(

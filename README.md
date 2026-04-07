@@ -154,6 +154,8 @@ The **Machine Setup** section can detect whether the selected machine has these 
 
 For each capability, AgentDeck shows whether it is installed, missing, or errored, plus version information when available.
 
+Machine capability snapshots now also include host-platform metadata and structured target-readiness data for future orchestration work. The first explicit MAUI target assumption is **Linux**, which is treated as a supported runtime target when generated projects reference `OpenMaui.Controls.Linux`.
+
 ### Installing Missing Tools
 
 From **Settings -> Machine Setup**, you can trigger install actions for missing tools directly through the runner.
