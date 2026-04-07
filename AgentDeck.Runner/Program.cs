@@ -1,6 +1,7 @@
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Runner.Hubs;
 using AgentDeck.Runner.Services;
+using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,6 +38,7 @@ builder.Services.AddSignalR(opts =>
 builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
 builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>();
 builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionService>();
+builder.Services.AddSingleton<IVirtualDeviceCatalogService, VirtualDeviceCatalogService>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
 builder.Services.AddSingleton<IMachineCapabilityService, MachineCapabilityService>();
 builder.Services.AddSingleton<IMachineSetupService, MachineSetupService>();
@@ -69,7 +71,17 @@ app.MapGet("/api/orchestration/jobs/{id}", (string id, IOrchestrationJobService 
     jobs.Get(id) is { } job ? Results.Ok(job) : Results.NotFound());
 
 app.MapPost("/api/orchestration/jobs", (CreateOrchestrationJobRequest request, IOrchestrationJobService jobs) =>
-    Results.Ok(jobs.Queue(request)));
+{
+    if (request.DeviceSelection is not null && !request.DeviceSelection.HasTarget)
+    {
+        return Results.BadRequest(new
+        {
+            message = "Device selection must include either a device ID or a profile ID."
+        });
+    }
+
+    return Results.Ok(jobs.Queue(request));
+});
 
 app.MapPost("/api/orchestration/jobs/{id}/status", (string id, UpdateOrchestrationJobStatusRequest request, IOrchestrationJobService jobs) =>
     jobs.UpdateStatus(id, request) is { } job ? Results.Ok(job) : Results.NotFound());
@@ -112,6 +124,22 @@ app.MapPost("/api/viewers/sessions/{id}/close", (string id, IRemoteViewerSession
         RemoteViewerSessionMutationOutcome.InvalidTransition when result.Session is not null => Results.Conflict(result.Session),
         _ => Results.NotFound()
     };
+});
+
+app.MapGet("/api/virtual-devices/catalogs", (IVirtualDeviceCatalogService devices) =>
+    Results.Ok(devices.GetCatalogs()));
+
+app.MapGet("/api/virtual-devices/catalogs/{catalogKind}", (string catalogKind, IVirtualDeviceCatalogService devices) =>
+{
+    if (!Enum.TryParse<VirtualDeviceCatalogKind>(catalogKind, true, out var parsedCatalogKind))
+    {
+        return Results.BadRequest(new
+        {
+            message = $"Unknown virtual device catalog '{catalogKind}'."
+        });
+    }
+
+    return devices.GetCatalog(parsedCatalogKind) is { } snapshot ? Results.Ok(snapshot) : Results.NotFound();
 });
 
 app.MapGet("/api/workspace", (IWorkspaceService workspace) =>

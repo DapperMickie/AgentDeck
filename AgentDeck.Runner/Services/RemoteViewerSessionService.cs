@@ -236,7 +236,8 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
             JobId = target.JobId,
             SessionId = target.SessionId,
             WindowTitle = target.WindowTitle,
-            DeviceProfile = target.DeviceProfile
+            VirtualDeviceId = target.VirtualDeviceId,
+            VirtualDeviceProfileId = target.VirtualDeviceProfileId
         };
     }
 
