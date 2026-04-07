@@ -222,7 +222,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
                     Name = step.Name,
                     Status = nextStatus,
                     Message = message ?? step.Message,
-                    StartedAt = step.Status == OrchestrationJobStepStatus.Pending ? step.StartedAt : step.StartedAt ?? now,
+                    StartedAt = step.Status == OrchestrationJobStepStatus.Pending ? now : step.StartedAt ?? now,
                     CompletedAt = nextStatus is OrchestrationJobStepStatus.Completed or OrchestrationJobStepStatus.Skipped
                         ? now
                         : step.CompletedAt
