@@ -7,6 +7,7 @@ namespace AgentDeck.Runner.Services;
 /// <inheritdoc />
 public sealed class OrchestrationJobService : IOrchestrationJobService
 {
+    private readonly Lock _gate = new();
     private readonly ConcurrentDictionary<string, OrchestrationJob> _jobs = new();
 
     public OrchestrationJob Queue(CreateOrchestrationJobRequest request)
@@ -47,57 +48,78 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             ]
         };
 
-        _jobs[job.Id] = job;
-        return job;
+        lock (_gate)
+        {
+            _jobs[job.Id] = job;
+        }
+
+        return CloneJob(job);
     }
 
-    public OrchestrationJob? Get(string jobId) => _jobs.TryGetValue(jobId, out var job) ? job : null;
+    public OrchestrationJob? Get(string jobId)
+    {
+        lock (_gate)
+        {
+            return _jobs.TryGetValue(jobId, out var job) ? CloneJob(job) : null;
+        }
+    }
 
     public IReadOnlyList<OrchestrationJob> GetAll() =>
-        [.. _jobs.Values.OrderByDescending(job => job.CreatedAt)];
+        GetAllInternal();
 
     public OrchestrationJob? UpdateStatus(string jobId, UpdateOrchestrationJobStatusRequest request)
     {
-        if (!_jobs.TryGetValue(jobId, out var job))
+        lock (_gate)
         {
-            return null;
+            if (!_jobs.TryGetValue(jobId, out var job))
+            {
+                return null;
+            }
+
+            if (!IsValidTransition(job.Status, request.Status))
+            {
+                return null;
+            }
+
+            var updatedJob = CloneJob(job);
+            updatedJob.Status = request.Status;
+            updatedJob.StatusMessage = request.Message ?? updatedJob.StatusMessage;
+            updatedJob.SessionId = request.SessionId ?? updatedJob.SessionId;
+            updatedJob.ExitCode = request.ExitCode ?? updatedJob.ExitCode;
+            updatedJob.UpdatedAt = DateTimeOffset.UtcNow;
+            updatedJob.Steps = UpdateSteps(updatedJob.Steps, updatedJob.Status, updatedJob.StatusMessage);
+
+            _jobs[jobId] = updatedJob;
+            return CloneJob(updatedJob);
         }
-
-        var updatedJob = CloneJob(job);
-        updatedJob.Status = request.Status;
-        updatedJob.StatusMessage = request.Message ?? updatedJob.StatusMessage;
-        updatedJob.SessionId = request.SessionId ?? updatedJob.SessionId;
-        updatedJob.ExitCode = request.ExitCode ?? updatedJob.ExitCode;
-        updatedJob.UpdatedAt = DateTimeOffset.UtcNow;
-        updatedJob.Steps = UpdateSteps(updatedJob.Steps, updatedJob.Status, updatedJob.StatusMessage);
-
-        _jobs[jobId] = updatedJob;
-        return updatedJob;
     }
 
     public OrchestrationJob? AppendLog(string jobId, AppendOrchestrationJobLogRequest request)
     {
-        if (!_jobs.TryGetValue(jobId, out var job))
+        lock (_gate)
         {
-            return null;
-        }
-
-        var updatedJob = CloneJob(job);
-        updatedJob.UpdatedAt = DateTimeOffset.UtcNow;
-        updatedJob.Logs =
-        [
-            ..updatedJob.Logs,
-            new OrchestrationJobLogEntry
+            if (!_jobs.TryGetValue(jobId, out var job))
             {
-                Timestamp = updatedJob.UpdatedAt,
-                Level = request.Level,
-                Message = request.Message,
-                MachineId = request.MachineId
+                return null;
             }
-        ];
 
-        _jobs[jobId] = updatedJob;
-        return updatedJob;
+            var updatedJob = CloneJob(job);
+            updatedJob.UpdatedAt = DateTimeOffset.UtcNow;
+            updatedJob.Logs =
+            [
+                ..updatedJob.Logs,
+                new OrchestrationJobLogEntry
+                {
+                    Timestamp = updatedJob.UpdatedAt,
+                    Level = request.Level,
+                    Message = request.Message,
+                    MachineId = request.MachineId
+                }
+            ];
+
+            _jobs[jobId] = updatedJob;
+            return CloneJob(updatedJob);
+        }
     }
 
     public OrchestrationJob? RequestCancellation(string jobId, string? message = null)
@@ -209,15 +231,19 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
         }
         else if (status is OrchestrationJobStatus.Failed or OrchestrationJobStatus.CancelRequested or OrchestrationJobStatus.Cancelled)
         {
-            var activeIndex = updatedSteps.FindIndex(step => step.Status is OrchestrationJobStepStatus.Running or OrchestrationJobStepStatus.Pending);
-            if (activeIndex >= 0)
+            for (var index = 0; index < updatedSteps.Count; index++)
             {
-                var active = updatedSteps[activeIndex];
+                var active = updatedSteps[index];
+                if (active.Status is not (OrchestrationJobStepStatus.Running or OrchestrationJobStepStatus.Pending))
+                {
+                    continue;
+                }
+
                 var nextStatus = status == OrchestrationJobStatus.Failed
                     ? OrchestrationJobStepStatus.Failed
                     : OrchestrationJobStepStatus.Skipped;
 
-                updatedSteps[activeIndex] = new OrchestrationJobStep
+                updatedSteps[index] = new OrchestrationJobStep
                 {
                     Name = active.Name,
                     Status = nextStatus,
@@ -229,6 +255,46 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
         }
 
         return updatedSteps;
+    }
+
+    private IReadOnlyList<OrchestrationJob> GetAllInternal()
+    {
+        lock (_gate)
+        {
+            return [.. _jobs.Values
+                .OrderByDescending(job => job.CreatedAt)
+                .Select(CloneJob)];
+        }
+    }
+
+    private static bool IsValidTransition(OrchestrationJobStatus from, OrchestrationJobStatus to)
+    {
+        if (from == to)
+        {
+            return true;
+        }
+
+        return (from, to) switch
+        {
+            (OrchestrationJobStatus.Queued, OrchestrationJobStatus.Preparing) => true,
+            (OrchestrationJobStatus.Queued, OrchestrationJobStatus.CancelRequested) => true,
+            (OrchestrationJobStatus.Queued, OrchestrationJobStatus.Cancelled) => true,
+            (OrchestrationJobStatus.Preparing, OrchestrationJobStatus.Dispatching) => true,
+            (OrchestrationJobStatus.Preparing, OrchestrationJobStatus.Failed) => true,
+            (OrchestrationJobStatus.Preparing, OrchestrationJobStatus.CancelRequested) => true,
+            (OrchestrationJobStatus.Preparing, OrchestrationJobStatus.Cancelled) => true,
+            (OrchestrationJobStatus.Dispatching, OrchestrationJobStatus.Running) => true,
+            (OrchestrationJobStatus.Dispatching, OrchestrationJobStatus.Failed) => true,
+            (OrchestrationJobStatus.Dispatching, OrchestrationJobStatus.CancelRequested) => true,
+            (OrchestrationJobStatus.Dispatching, OrchestrationJobStatus.Cancelled) => true,
+            (OrchestrationJobStatus.Running, OrchestrationJobStatus.Completed) => true,
+            (OrchestrationJobStatus.Running, OrchestrationJobStatus.Failed) => true,
+            (OrchestrationJobStatus.Running, OrchestrationJobStatus.CancelRequested) => true,
+            (OrchestrationJobStatus.Running, OrchestrationJobStatus.Cancelled) => true,
+            (OrchestrationJobStatus.CancelRequested, OrchestrationJobStatus.Cancelled) => true,
+            (OrchestrationJobStatus.CancelRequested, OrchestrationJobStatus.Failed) => true,
+            _ => false
+        };
     }
 
     private static OrchestrationJob CloneJob(OrchestrationJob job)
