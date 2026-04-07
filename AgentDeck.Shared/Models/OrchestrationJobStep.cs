@@ -6,8 +6,8 @@ namespace AgentDeck.Shared.Models;
 public sealed class OrchestrationJobStep
 {
     public string Name { get; init; } = string.Empty;
-    public OrchestrationJobStepStatus Status { get; set; } = OrchestrationJobStepStatus.Pending;
-    public string? Message { get; set; }
-    public DateTimeOffset? StartedAt { get; set; }
-    public DateTimeOffset? CompletedAt { get; set; }
+    public OrchestrationJobStepStatus Status { get; init; } = OrchestrationJobStepStatus.Pending;
+    public string? Message { get; init; }
+    public DateTimeOffset? StartedAt { get; init; }
+    public DateTimeOffset? CompletedAt { get; init; }
 }
