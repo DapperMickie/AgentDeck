@@ -5,6 +5,37 @@ namespace AgentDeck.Shared.Models;
 /// <summary>Shared catalog of default project targets that AgentDeck can orchestrate.</summary>
 public static class ProjectTargetCatalog
 {
+    private static readonly IReadOnlyList<ProjectTargetDefinition> BlazorTargets =
+    [
+        new()
+        {
+            Workload = ProjectWorkloadKind.Blazor,
+            Platform = ApplicationTargetPlatform.Linux,
+            DisplayName = "Blazor on Linux",
+            CapabilityId = "dotnet",
+            RequiresVsCodeForDebugging = true,
+            Notes = "Run the Blazor app on a Linux host and debug through VS Code when needed."
+        },
+        new()
+        {
+            Workload = ProjectWorkloadKind.Blazor,
+            Platform = ApplicationTargetPlatform.Windows,
+            DisplayName = "Blazor on Windows",
+            CapabilityId = "dotnet",
+            RequiresVsCodeForDebugging = true,
+            Notes = "Run the Blazor app on a Windows host and debug through VS Code when needed."
+        },
+        new()
+        {
+            Workload = ProjectWorkloadKind.Blazor,
+            Platform = ApplicationTargetPlatform.MacOS,
+            DisplayName = "Blazor on macOS",
+            CapabilityId = "dotnet",
+            RequiresVsCodeForDebugging = true,
+            Notes = "Run the Blazor app on a macOS host and debug through VS Code when needed."
+        }
+    ];
+
     private static readonly IReadOnlyList<ProjectTargetDefinition> MauiTargets =
     [
         new()
@@ -58,6 +89,7 @@ public static class ProjectTargetCatalog
     /// <summary>Gets the default targets for a specific workload.</summary>
     public static IReadOnlyList<ProjectTargetDefinition> GetTargets(ProjectWorkloadKind workload) => workload switch
     {
+        ProjectWorkloadKind.Blazor => BlazorTargets,
         ProjectWorkloadKind.Maui => MauiTargets,
         _ => []
     };

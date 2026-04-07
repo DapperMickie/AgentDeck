@@ -143,6 +143,8 @@ When you create a new terminal, you choose which machine it should run on.
 
 The current orchestration foundation is additive: roles do not change terminal behavior yet, but they let you declare which machine is intended to act as the main coordinator and which machines are intended to act as workers as the distributed run/debug workflow grows.
 
+Shared orchestration contracts now also include repository/project metadata, per-machine workspace mappings, supported targets, and default run/debug launch profiles so later coordinator work can build on a stable project model instead of raw terminal sessions alone.
+
 ### Machine Capabilities
 
 The **Machine Setup** section can detect whether the selected machine has these supported tools available:
