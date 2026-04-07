@@ -35,6 +35,7 @@ builder.Services.AddSignalR(opts =>
 });
 
 builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
+builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
 builder.Services.AddSingleton<IMachineCapabilityService, MachineCapabilityService>();
 builder.Services.AddSingleton<IMachineSetupService, MachineSetupService>();
@@ -59,6 +60,24 @@ app.MapDelete("/api/sessions/{id}", async (string id, IAgentSessionStore store, 
     store.Remove(id);
     return Results.NoContent();
 });
+
+app.MapGet("/api/orchestration/jobs", (IOrchestrationJobService jobs) =>
+    Results.Ok(jobs.GetAll()));
+
+app.MapGet("/api/orchestration/jobs/{id}", (string id, IOrchestrationJobService jobs) =>
+    jobs.Get(id) is { } job ? Results.Ok(job) : Results.NotFound());
+
+app.MapPost("/api/orchestration/jobs", (CreateOrchestrationJobRequest request, IOrchestrationJobService jobs) =>
+    Results.Ok(jobs.Queue(request)));
+
+app.MapPost("/api/orchestration/jobs/{id}/status", (string id, UpdateOrchestrationJobStatusRequest request, IOrchestrationJobService jobs) =>
+    jobs.UpdateStatus(id, request) is { } job ? Results.Ok(job) : Results.NotFound());
+
+app.MapPost("/api/orchestration/jobs/{id}/logs", (string id, AppendOrchestrationJobLogRequest request, IOrchestrationJobService jobs) =>
+    jobs.AppendLog(id, request) is { } job ? Results.Ok(job) : Results.NotFound());
+
+app.MapPost("/api/orchestration/jobs/{id}/cancel", (string id, IOrchestrationJobService jobs) =>
+    jobs.RequestCancellation(id) is { } job ? Results.Ok(job) : Results.NotFound());
 
 app.MapGet("/api/workspace", (IWorkspaceService workspace) =>
     Results.Ok(workspace.GetWorkspaceInfo()));
