@@ -147,6 +147,8 @@ Shared orchestration contracts now also include repository/project metadata, per
 
 The runner also now exposes a first-pass orchestration job API, separate from terminal sessions, so coordinator-managed run/debug work can be queued, tracked by lifecycle status, associated with a target machine, and enriched with step/log data before full cross-machine dispatch is implemented.
 
+That orchestration layer now has its first real execution path for direct-command run jobs: queuing a supported job on a runner starts actual build and launch work on that runner, streams PTY output into job logs, and lets cancellation stop the underlying process. VS Code-backed debug execution is still a later slice.
+
 The runner now also exposes a first-pass remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. This creates a dedicated place to model full-desktop, window, emulator/simulator, and VS Code viewing before actual VNC/RDP/platform-capture implementations are wired in.
 
 The shared model now also includes first-pass virtual device catalogs for Android emulators and Apple simulators, plus launch-selection contracts that can be attached to orchestration jobs. The runner exposes `/api/virtual-devices/catalogs` so later worker-specific emulator discovery and startup logic can plug into a stable API surface.

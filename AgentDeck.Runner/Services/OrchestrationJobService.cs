@@ -307,6 +307,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             (OrchestrationJobStatus.Queued, OrchestrationJobStatus.CancelRequested) => true,
             (OrchestrationJobStatus.Queued, OrchestrationJobStatus.Cancelled) => true,
             (OrchestrationJobStatus.Preparing, OrchestrationJobStatus.Dispatching) => true,
+            (OrchestrationJobStatus.Preparing, OrchestrationJobStatus.Completed) => true,
             (OrchestrationJobStatus.Preparing, OrchestrationJobStatus.Failed) => true,
             (OrchestrationJobStatus.Preparing, OrchestrationJobStatus.CancelRequested) => true,
             (OrchestrationJobStatus.Preparing, OrchestrationJobStatus.Cancelled) => true,
