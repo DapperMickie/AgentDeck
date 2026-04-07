@@ -31,6 +31,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             LaunchCommand = request.LaunchCommand,
             BootstrapCommand = request.BootstrapCommand,
             DebugConfigurationName = request.DebugConfigurationName,
+            DeviceSelection = CloneDeviceSelection(request.DeviceSelection),
             Status = OrchestrationJobStatus.Queued,
             StatusMessage = "Queued for orchestration.",
             CreatedAt = now,
@@ -156,7 +157,8 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             Message = request.Mode == ProjectLaunchMode.Debug
                 ? string.Join(" | ", new[] { request.BootstrapCommand, request.DebugConfigurationName }
                     .Where(value => !string.IsNullOrWhiteSpace(value)))
-                : request.LaunchCommand
+                : string.Join(" | ", new[] { request.LaunchCommand, request.DeviceSelection?.DisplayName }
+                    .Where(value => !string.IsNullOrWhiteSpace(value)))
         });
 
         return steps;
@@ -342,6 +344,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             LaunchCommand = job.LaunchCommand,
             BootstrapCommand = job.BootstrapCommand,
             DebugConfigurationName = job.DebugConfigurationName,
+            DeviceSelection = CloneDeviceSelection(job.DeviceSelection),
             Status = job.Status,
             SessionId = job.SessionId,
             ExitCode = job.ExitCode,
@@ -370,5 +373,21 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
                 })
             ]
         };
+    }
+
+    private static VirtualDeviceLaunchSelection? CloneDeviceSelection(VirtualDeviceLaunchSelection? selection)
+    {
+        return selection is null
+            ? null
+            : new VirtualDeviceLaunchSelection
+            {
+                CatalogKind = selection.CatalogKind,
+                TargetPlatform = selection.TargetPlatform,
+                DeviceId = selection.DeviceId,
+                ProfileId = selection.ProfileId,
+                DisplayName = selection.DisplayName,
+                StartBeforeLaunch = selection.StartBeforeLaunch,
+                ReuseRunningDevice = selection.ReuseRunningDevice
+            };
     }
 }

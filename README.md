@@ -149,6 +149,8 @@ The runner also now exposes a first-pass orchestration job API, separate from te
 
 The runner now also exposes a first-pass remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. This creates a dedicated place to model full-desktop, window, emulator/simulator, and VS Code viewing before actual VNC/RDP/platform-capture implementations are wired in.
 
+The shared model now also includes first-pass virtual device catalogs for Android emulators and Apple simulators, plus launch-selection contracts that can be attached to orchestration jobs. The runner exposes `/api/virtual-devices/catalogs` so later worker-specific emulator discovery and startup logic can plug into a stable API surface.
+
 ### Machine Capabilities
 
 The **Machine Setup** section can detect whether the selected machine has these supported tools available:

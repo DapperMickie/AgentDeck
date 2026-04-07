@@ -51,6 +51,18 @@ public static class ProjectTemplateCatalog
         var requiresEmulator = target.Platform == ApplicationTargetPlatform.Android;
         var requiresSimulator = target.Platform == ApplicationTargetPlatform.iOS;
         var launchDriver = requiresVsCode ? ProjectLaunchDriver.VsCode : ProjectLaunchDriver.DirectCommand;
+        VirtualDeviceCatalogKind? deviceCatalog = target.Platform switch
+        {
+            ApplicationTargetPlatform.Android => VirtualDeviceCatalogKind.AndroidEmulator,
+            ApplicationTargetPlatform.iOS => VirtualDeviceCatalogKind.AppleSimulator,
+            _ => null
+        };
+        var defaultDeviceProfileId = target.Platform switch
+        {
+            ApplicationTargetPlatform.Android => "android-phone-default",
+            ApplicationTargetPlatform.iOS => "apple-iphone-default",
+            _ => null
+        };
 
         return new ProjectLaunchProfile
         {
@@ -67,6 +79,8 @@ public static class ProjectTemplateCatalog
             RequiresVsCode = requiresVsCode,
             RequiresEmulator = requiresEmulator,
             RequiresSimulator = requiresSimulator,
+            DeviceCatalog = deviceCatalog,
+            DefaultDeviceProfileId = defaultDeviceProfileId,
             Notes = BuildLaunchNotes(target, mode, requiresEmulator, requiresSimulator)
         };
     }

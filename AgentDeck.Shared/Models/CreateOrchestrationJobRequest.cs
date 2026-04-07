@@ -20,4 +20,5 @@ public sealed class CreateOrchestrationJobRequest
     public string? LaunchCommand { get; init; }
     public string? BootstrapCommand { get; init; }
     public string? DebugConfigurationName { get; init; }
+    public VirtualDeviceLaunchSelection? DeviceSelection { get; init; }
 }

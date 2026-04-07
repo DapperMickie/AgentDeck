@@ -21,6 +21,7 @@ public sealed class OrchestrationJob
     public string? LaunchCommand { get; init; }
     public string? BootstrapCommand { get; init; }
     public string? DebugConfigurationName { get; init; }
+    public VirtualDeviceLaunchSelection? DeviceSelection { get; init; }
     public OrchestrationJobStatus Status { get; set; } = OrchestrationJobStatus.Queued;
     public string? SessionId { get; set; }
     public int? ExitCode { get; set; }

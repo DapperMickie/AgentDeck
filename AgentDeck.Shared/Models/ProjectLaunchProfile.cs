@@ -19,6 +19,7 @@ public sealed class ProjectLaunchProfile
     public bool RequiresVsCode { get; init; }
     public bool RequiresEmulator { get; init; }
     public bool RequiresSimulator { get; init; }
-    public string? DeviceProfile { get; init; }
+    public VirtualDeviceCatalogKind? DeviceCatalog { get; init; }
+    public string? DefaultDeviceProfileId { get; init; }
     public string? Notes { get; init; }
 }
