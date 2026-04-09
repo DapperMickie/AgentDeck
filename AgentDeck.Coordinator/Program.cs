@@ -23,6 +23,12 @@ builder.Services.AddSingleton<IRunnerBrokerService>(static services => services.
 
 var app = builder.Build();
 
+app.Logger.LogInformation(
+    "Starting AgentDeck coordinator on port {Port} with worker heartbeat {HeartbeatInterval} and expiry {WorkerExpiry}",
+    coordinatorOptions.Port,
+    coordinatorOptions.WorkerHeartbeatInterval,
+    coordinatorOptions.WorkerExpiry);
+
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }));
 
 app.MapGet("/api/machines", async (IWorkerRegistryService registry, CancellationToken cancellationToken) =>
