@@ -31,6 +31,9 @@ public sealed class WorkerCoordinatorOptions
     /// <summary>Allow plain HTTP only when the configured coordinator resolves to a loopback host.</summary>
     public bool AllowInsecureHttpCoordinatorForLoopback { get; set; } = true;
 
+    /// <summary>Development-only override that also allows plain HTTP for non-loopback coordinators.</summary>
+    public bool AllowInsecureHttpCoordinatorForDevelopment { get; set; }
+
     /// <summary>Trusted public keys used to verify signed update manifests.</summary>
     public IReadOnlyList<RunnerTrustedManifestSigner> TrustedManifestSigners { get; set; } = [];
 

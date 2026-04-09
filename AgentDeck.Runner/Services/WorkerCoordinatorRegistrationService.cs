@@ -37,10 +37,23 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         }
 
         var coordinatorUrl = AppendTrailingSlash(_coordinatorOptions.CoordinatorUrl);
-        if (!TryValidateCoordinatorUrl(coordinatorUrl, _coordinatorOptions.AllowInsecureHttpCoordinatorForLoopback, out var validationMessage))
+        if (!TryValidateCoordinatorUrl(
+                coordinatorUrl,
+                _coordinatorOptions.AllowInsecureHttpCoordinatorForLoopback,
+                _coordinatorOptions.AllowInsecureHttpCoordinatorForDevelopment,
+                out var validationMessage))
         {
             _logger.LogError("Runner coordinator registration disabled: {Message}", validationMessage);
             return;
+        }
+
+        if (IsUsingDevelopmentHttpCoordinatorOverride(
+                coordinatorUrl,
+                _coordinatorOptions.AllowInsecureHttpCoordinatorForDevelopment))
+        {
+            _logger.LogWarning(
+                "Runner coordinator registration is using the development-only non-HTTPS override for {CoordinatorUrl}. Disable 'Coordinator:AllowInsecureHttpCoordinatorForDevelopment' outside temporary cross-machine testing.",
+                coordinatorUrl);
         }
 
         var agentVersion = GetAgentVersion();
@@ -178,7 +191,11 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         return assembly.GetName().Version?.ToString() ?? "0.0.0-dev";
     }
 
-    private static bool TryValidateCoordinatorUrl(string coordinatorUrl, bool allowInsecureHttpCoordinatorForLoopback, out string validationMessage)
+    private static bool TryValidateCoordinatorUrl(
+        string coordinatorUrl,
+        bool allowInsecureHttpCoordinatorForLoopback,
+        bool allowInsecureHttpCoordinatorForDevelopment,
+        out string validationMessage)
     {
         if (!Uri.TryCreate(coordinatorUrl, UriKind.Absolute, out var coordinatorUri))
         {
@@ -204,7 +221,27 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
             return true;
         }
 
-        validationMessage = $"Configured coordinator URL '{coordinatorUrl}' must use HTTPS unless it targets loopback and 'Coordinator:AllowInsecureHttpCoordinatorForLoopback' is enabled.";
+        if (allowInsecureHttpCoordinatorForDevelopment)
+        {
+            validationMessage = string.Empty;
+            return true;
+        }
+
+        validationMessage = $"Configured coordinator URL '{coordinatorUrl}' must use HTTPS unless it targets loopback and 'Coordinator:AllowInsecureHttpCoordinatorForLoopback' is enabled, or the development-only override 'Coordinator:AllowInsecureHttpCoordinatorForDevelopment' is enabled.";
         return false;
+    }
+
+    private static bool IsUsingDevelopmentHttpCoordinatorOverride(
+        string coordinatorUrl,
+        bool allowInsecureHttpCoordinatorForDevelopment)
+    {
+        if (!allowInsecureHttpCoordinatorForDevelopment ||
+            !Uri.TryCreate(coordinatorUrl, UriKind.Absolute, out var coordinatorUri))
+        {
+            return false;
+        }
+
+        return string.Equals(coordinatorUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+               !coordinatorUri.IsLoopback;
     }
 }
