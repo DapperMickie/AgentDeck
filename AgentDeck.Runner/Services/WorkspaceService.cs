@@ -24,11 +24,21 @@ public sealed class WorkspaceService : IWorkspaceService
 
     public string GetWorkspaceRoot() => _root;
 
-    public string ResolveDirectory(string relativePath)
+    public string ResolvePath(string path)
     {
-        var full = Path.GetFullPath(Path.Combine(_root, relativePath));
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var full = Path.IsPathRooted(path)
+            ? Path.GetFullPath(path)
+            : Path.GetFullPath(Path.Combine(_root, path));
+
         EnsureUnderRoot(full);
         return full;
+    }
+
+    public string ResolveDirectory(string relativePath)
+    {
+        return ResolvePath(relativePath);
     }
 
     public void CreateDirectory(string relativePath)

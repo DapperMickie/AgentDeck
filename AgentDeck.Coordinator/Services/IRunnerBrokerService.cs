@@ -12,6 +12,7 @@ public interface IRunnerBrokerService
     Task ResizeTerminalAsync(string sessionId, int cols, int rows, CancellationToken cancellationToken = default);
     Task SendInputAsync(string sessionId, string data, CancellationToken cancellationToken = default);
     Task<WorkspaceInfo?> GetWorkspaceAsync(string machineId, CancellationToken cancellationToken = default);
+    Task<OpenProjectOnRunnerResult?> OpenProjectAsync(string machineId, OpenProjectOnRunnerRequest request, string actorId, CancellationToken cancellationToken = default);
     Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken cancellationToken = default);
     Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string machineId, string capabilityId, MachineCapabilityInstallRequest request, string actorId, CancellationToken cancellationToken = default);
     Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string machineId, string capabilityId, string actorId, CancellationToken cancellationToken = default);

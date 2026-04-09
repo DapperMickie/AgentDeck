@@ -72,8 +72,28 @@ public sealed class ProjectRegistryService : IProjectRegistryService
             }
 
             var normalizedWorkspace = NormalizeWorkspace(workspace);
-            var workspaces = existingProject.Workspaces
+            var otherWorkspaces = existingProject.Workspaces
                 .Where(existing => !string.Equals(existing.MachineId, normalizedWorkspace.MachineId, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var shouldBePrimary = normalizedWorkspace.IsPrimary || !otherWorkspaces.Any(existing => existing.IsPrimary);
+            normalizedWorkspace = new ProjectWorkspaceMapping
+            {
+                MachineId = normalizedWorkspace.MachineId,
+                MachineName = normalizedWorkspace.MachineName,
+                ProjectPath = normalizedWorkspace.ProjectPath,
+                IsPrimary = shouldBePrimary
+            };
+
+            var workspaces = otherWorkspaces
+                .Select(existing => shouldBePrimary && existing.IsPrimary
+                    ? new ProjectWorkspaceMapping
+                    {
+                        MachineId = existing.MachineId,
+                        MachineName = existing.MachineName,
+                        ProjectPath = existing.ProjectPath,
+                        IsPrimary = false
+                    }
+                    : existing)
                 .Append(normalizedWorkspace)
                 .ToArray();
 

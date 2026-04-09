@@ -120,6 +120,30 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         return await entry.HttpClient!.GetFromJsonAsync<WorkspaceInfo>("api/workspace", cancellationToken);
     }
 
+    public async Task<OpenProjectOnRunnerResult?> OpenProjectAsync(string machineId, OpenProjectOnRunnerRequest request, string actorId, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering project open for {ProjectId} on machine {MachineName} ({MachineId}) requested by {ActorId}",
+            request.ProjectId,
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            actorId);
+        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, "api/projects/open", actorId)
+            .WithJsonContent(request)
+            .SendAsync(entry.HttpClient!, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+            var message = string.IsNullOrWhiteSpace(responseText)
+                ? $"Runner open-project request failed with HTTP {(int)response.StatusCode}."
+                : responseText;
+            throw new InvalidOperationException(message);
+        }
+
+        return await response.Content.ReadFromJsonAsync<OpenProjectOnRunnerResult>(cancellationToken: cancellationToken);
+    }
+
     public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);

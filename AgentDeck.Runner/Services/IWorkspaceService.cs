@@ -6,6 +6,7 @@ namespace AgentDeck.Runner.Services;
 public interface IWorkspaceService
 {
     string GetWorkspaceRoot();
+    string ResolvePath(string path);
     string ResolveDirectory(string relativePath);
     void CreateDirectory(string relativePath);
     WorkspaceInfo GetWorkspaceInfo();

@@ -59,6 +59,7 @@ builder.Services.AddSingleton<IRunnerUpdateStagingService, RunnerUpdateStagingSe
 builder.Services.AddSingleton<IVsCodeDebugSessionService, VsCodeDebugSessionService>();
 builder.Services.AddSingleton<IVirtualDeviceCatalogService, VirtualDeviceCatalogService>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
+builder.Services.AddSingleton<IProjectWorkspaceBootstrapService, ProjectWorkspaceBootstrapService>();
 builder.Services.AddSingleton<IMachineCapabilityService, MachineCapabilityService>();
 builder.Services.AddSingleton<IMachineSetupService, MachineSetupService>();
 builder.Services.AddSingleton<IPtyProcessManager, PtyProcessManager>();
@@ -289,6 +290,22 @@ app.MapPost("/api/virtual-devices/resolve", async (VirtualDeviceLaunchSelection 
 
 app.MapGet("/api/workspace", (IWorkspaceService workspace) =>
     Results.Ok(workspace.GetWorkspaceInfo()));
+
+app.MapPost("/api/projects/open", async (OpenProjectOnRunnerRequest request, IProjectWorkspaceBootstrapService bootstrap, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await bootstrap.OpenProjectAsync(request, cancellationToken));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+});
 
 app.MapGet("/api/capabilities", async (IMachineCapabilityService capabilities, CancellationToken cancellationToken) =>
     Results.Ok(await capabilities.GetSnapshotAsync(cancellationToken)));
