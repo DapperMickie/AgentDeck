@@ -4,6 +4,7 @@ namespace AgentDeck.Shared.Enums;
 public enum RemoteViewerProviderKind
 {
     Auto,
+    Managed,
     Vnc,
     Rdp,
     ScreenSharing,

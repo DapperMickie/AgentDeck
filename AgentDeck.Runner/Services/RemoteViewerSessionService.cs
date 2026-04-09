@@ -1,5 +1,7 @@
+using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
+using Microsoft.Extensions.Options;
 
 namespace AgentDeck.Runner.Services;
 
@@ -9,12 +11,25 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
     private const int MaxRetainedTerminalHistory = 100;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, RemoteViewerSession> _sessions = [];
+    private readonly DesktopViewerTransportOptions _desktopTransportOptions;
+
+    public RemoteViewerSessionService(IOptions<DesktopViewerTransportOptions> desktopTransportOptions)
+    {
+        _desktopTransportOptions = desktopTransportOptions.Value;
+    }
 
     public IReadOnlyList<RemoteViewerProviderCapability> GetAvailableProviders()
     {
+        var managedProvider = GetManagedProviderCapability();
         if (OperatingSystem.IsWindows())
         {
-            return
+            var providers = new List<RemoteViewerProviderCapability>();
+            if (managedProvider is not null)
+            {
+                providers.Add(managedProvider);
+            }
+
+            providers.AddRange(
             [
                 new RemoteViewerProviderCapability
                 {
@@ -32,12 +47,20 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
                     RequiresInteractiveDesktop = true,
                     Notes = "Window targeting still requires platform-specific capture support."
                 }
-            ];
+            ]);
+
+            return providers;
         }
 
         if (OperatingSystem.IsMacOS())
         {
-            return
+            var providers = new List<RemoteViewerProviderCapability>();
+            if (managedProvider is not null)
+            {
+                providers.Add(managedProvider);
+            }
+
+            providers.AddRange(
             [
                 new RemoteViewerProviderCapability
                 {
@@ -55,12 +78,20 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
                     RequiresInteractiveDesktop = true,
                     Notes = "Window-level targeting is still an orchestration concern above the transport."
                 }
-            ];
+            ]);
+
+            return providers;
         }
 
         if (OperatingSystem.IsLinux())
         {
-            return
+            var providers = new List<RemoteViewerProviderCapability>();
+            if (managedProvider is not null)
+            {
+                providers.Add(managedProvider);
+            }
+
+            providers.AddRange(
             [
                 new RemoteViewerProviderCapability
                 {
@@ -86,10 +117,12 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
                     RequiresInteractiveDesktop = true,
                     Notes = "Wayland support depends on compositor-specific capture hooks."
                 }
-            ];
+            ]);
+
+            return providers;
         }
 
-        return [];
+        return managedProvider is null ? [] : [managedProvider];
     }
 
     public RemoteViewerSession Create(CreateRemoteViewerSessionRequest request)
@@ -253,6 +286,23 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
             .FirstOrDefault(capability => capability.SupportedTargets.Contains(targetKind));
 
         return automaticProvider?.Provider ?? RemoteViewerProviderKind.Auto;
+    }
+
+    private RemoteViewerProviderCapability? GetManagedProviderCapability()
+    {
+        if (!_desktopTransportOptions.Managed.IsConfigured)
+        {
+            return null;
+        }
+
+        return new RemoteViewerProviderCapability
+        {
+            Provider = RemoteViewerProviderKind.Managed,
+            DisplayName = "AgentDeck-managed desktop transport",
+            SupportedTargets = [RemoteViewerTargetKind.Desktop],
+            RequiresInteractiveDesktop = true,
+            Notes = "Runner launches a configured AgentDeck-managed helper and advertises its connection URI."
+        };
     }
 
     private void PruneTerminalSessions(string protectedSessionId)
