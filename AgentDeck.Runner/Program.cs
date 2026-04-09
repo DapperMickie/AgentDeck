@@ -15,6 +15,8 @@ RunnerOptions.ApplyEnvironmentOverrides(runnerOptions);
 builder.Services.AddOptions<RunnerOptions>()
     .Bind(builder.Configuration.GetSection(RunnerOptions.SectionName))
     .Configure(RunnerOptions.ApplyEnvironmentOverrides);
+builder.Services.AddOptions<WorkerCoordinatorOptions>()
+    .Bind(builder.Configuration.GetSection(WorkerCoordinatorOptions.SectionName));
 builder.Services.AddOptions<TrustPolicyOptions>()
     .Bind(builder.Configuration.GetSection(TrustPolicyOptions.SectionName));
 
@@ -37,6 +39,7 @@ builder.Services.AddSignalR(opts =>
     opts.MaximumReceiveMessageSize = 1024 * 1024;
 });
 
+builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
 builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>();
 builder.Services.AddSingleton<IOrchestrationExecutionService, OrchestrationExecutionService>();
@@ -52,6 +55,7 @@ builder.Services.AddSingleton<IMachineSetupService, MachineSetupService>();
 builder.Services.AddSingleton<IPtyProcessManager, PtyProcessManager>();
 builder.Services.AddHostedService<HubOutputForwarder>();
 builder.Services.AddHostedService(sp => (OrchestrationExecutionService)sp.GetRequiredService<IOrchestrationExecutionService>());
+builder.Services.AddHostedService<WorkerCoordinatorRegistrationService>();
 
 var app = builder.Build();
 

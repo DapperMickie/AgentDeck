@@ -1,6 +1,7 @@
 @page "/settings"
 @inject IConnectionSettingsService SettingsService
 @inject IRunnerConnectionManager Connections
+@inject ICoordinatorApiClient CoordinatorClient
 @inject IToastService ToastService
 @inject ILogger<Settings> Logger
 @implements IDisposable
@@ -9,15 +10,91 @@
     <div class="page-header settings-page__header">
         <div>
             <h1>Settings</h1>
-            <p>Manage runner machines, connectivity, and machine setup from one place.</p>
+            <p>Manage the coordinator API, runner machines, connectivity, and machine setup from one place.</p>
         </div>
     </div>
 
     <div class="settings-card settings-page__card">
         <div class="settings-card__header settings-page__section-header">
             <div>
+                <h2>Coordinator API</h2>
+                <p class="settings-card__description">Use one coordinator as the single entry point for machine discovery and future orchestration.</p>
+            </div>
+            <div class="form-actions form-actions--toolbar">
+                <button class="btn btn-accent" @onclick="RefreshCoordinatorDirectoryAsync" disabled="@_registeredMachinesBusy">
+                    @(_registeredMachinesBusy ? "Refreshing..." : "Refresh Directory")
+                </button>
+                <button class="btn btn-danger" @onclick="ClearCoordinatorDirectory" disabled="@(!_coordinatorReachable && _registeredMachines.Count == 0 && _registeredMachinesErrorMessage is null)">
+                    Clear Status
+                </button>
+            </div>
+        </div>
+
+        <div class="machine-editor machine-editor--settings">
+            <div class="form-field">
+                <label for="coordinator-url">Coordinator URL</label>
+                <input id="coordinator-url" type="text" class="input" @bind="_settings.CoordinatorUrl"
+                       placeholder="http://localhost:5001" />
+            </div>
+        </div>
+
+        <div class="settings-status-list">
+            <div class="settings-status-row">
+                <span class="settings-status-row__label">State</span>
+                <strong class="status-text-@(_coordinatorReachable ? "connected" : "disconnected")">
+                    @(_coordinatorReachable ? "Reachable" : "Not checked")
+                </strong>
+            </div>
+            <div class="settings-status-row">
+                <span class="settings-status-row__label">Directory source</span>
+                <code class="settings-status-row__value">@_settings.CoordinatorUrl</code>
+            </div>
+        </div>
+
+        @if (_registeredMachinesErrorMessage is not null)
+        {
+            <p class="error-message">@_registeredMachinesErrorMessage</p>
+        }
+        else if (_registeredMachinesBusy)
+        {
+            <p>Refreshing registered workers from the coordinator...</p>
+        }
+        else if (_registeredMachines.Count == 0)
+        {
+            <p>No worker machines are currently visible through the coordinator.</p>
+        }
+        else
+        {
+            <div class="machine-list machine-list--settings">
+                @foreach (var machine in _registeredMachines.OrderBy(machine => machine.MachineName))
+                {
+                    <article class="machine-card">
+                        <span class="machine-card__title">@machine.MachineName</span>
+                        <span class="machine-card__url">@(!string.IsNullOrWhiteSpace(machine.RunnerUrl) ? machine.RunnerUrl : "(runner URL not advertised)")</span>
+                        <span class="machine-card__meta">
+                            <span class="machine-badge">@GetMachineRoleLabel(machine.Role)</span>
+                            <span class="machine-state machine-state--@(machine.IsOnline ? "connected" : "disconnected")">
+                                @(machine.IsOnline ? "Online" : "Offline")
+                            </span>
+                        </span>
+                        <span class="settings-card__description">
+                            Last seen @machine.LastSeenAt.ToLocalTime().ToString("g")
+                            @if (machine.Platform is not null)
+                            {
+                                <span> • @GetHostPlatformLabel(machine.Platform.HostPlatform)</span>
+                            }
+                        </span>
+                    </article>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="settings-card settings-page__card">
+        <div class="settings-card__header settings-page__section-header">
+            <div>
                 <h2>Runner Machines</h2>
-                <p class="settings-card__description">Choose a machine, update its connection details, and control how new terminals are created.</p>
+                <p class="settings-card__description">Choose a runner machine, update its connection details, and control how new terminals are created.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
                 <button class="btn btn-accent" @onclick="AddMachine">Add Machine</button>
@@ -123,7 +200,7 @@
                         <p class="settings-card__description">@SelectedMachine.Name</p>
                     </div>
                 </div>
-                <div class="settings-status-list">
+                    <div class="settings-status-list">
                     <div class="settings-status-row">
                         <span class="settings-status-row__label">State</span>
                         <strong class="status-text-@GetStatusClass(SelectedMachine)">@GetStatusLabel(SelectedMachine)</strong>
@@ -136,8 +213,8 @@
                         <span class="settings-status-row__label">Hub URL</span>
                         <code class="settings-status-row__value">@GetHubUrl(SelectedMachine)</code>
                     </div>
-                    @if (_machineCapabilities?.Platform is not null)
-                    {
+                        @if (_machineCapabilities?.Platform is not null)
+                        {
                         <div class="settings-status-row">
                             <span class="settings-status-row__label">Detected platform</span>
                             <strong class="settings-status-row__value">@GetHostPlatformLabel(_machineCapabilities.Platform.HostPlatform)</strong>
@@ -163,9 +240,9 @@
                                 <span class="settings-status-row__value">@string.Join(", ", _machineCapabilities.SupportedTargets.Select(FormatTargetSummary))</span>
                             </div>
                         }
-                    }
+                        }
+                    </div>
                 </div>
-            </div>
 
             <div class="settings-card settings-page__card">
                 <div class="settings-card__header settings-page__section-header">
@@ -336,7 +413,7 @@
 @code {
     private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
     private static readonly RunnerMachineRole[] _machineRoles =
-        [RunnerMachineRole.Standalone, RunnerMachineRole.Coordinator, RunnerMachineRole.Worker];
+        [RunnerMachineRole.Standalone, RunnerMachineRole.Worker];
     private bool _saving;
     private string? _errorMessage;
     private readonly Dictionary<string, MachineCapabilitiesSnapshot?> _machineCapabilitiesByMachine = new(StringComparer.OrdinalIgnoreCase);
@@ -347,6 +424,10 @@
     private string? _activeCapabilityId;
     private string? _activeCapabilityAction;
     private MachineCapabilityInstallResult? _lastCapabilityInstallResult;
+    private IReadOnlyList<RegisteredRunnerMachine> _registeredMachines = [];
+    private bool _registeredMachinesBusy;
+    private string? _registeredMachinesErrorMessage;
+    private bool _coordinatorReachable;
     private string? _selectedMachineId;
 
     private RunnerMachineSettings? SelectedMachine => _settings.FindMachine(_selectedMachineId);
@@ -365,7 +446,9 @@
     {
         _settings = await SettingsService.LoadAsync();
         _selectedMachineId = _settings.PreferredMachineId;
-        await RefreshAllMachineCapabilitiesAsync();
+        await Task.WhenAll(
+            RefreshAllMachineCapabilitiesAsync(),
+            RefreshCoordinatorDirectoryAsync());
         Connections.ConnectionStateChanged += OnConnectionStateChanged;
     }
 
@@ -497,15 +580,13 @@
 
     private static string GetMachineRoleLabel(RunnerMachineRole role) => role switch
     {
-        RunnerMachineRole.Coordinator => "Coordinator",
         RunnerMachineRole.Worker => "Worker",
         _ => "Standalone"
     };
 
     private static string GetMachineRoleDescription(RunnerMachineRole role) => role switch
     {
-        RunnerMachineRole.Coordinator => "Use this machine as the main orchestration runner that will coordinate worker machines later.",
-        RunnerMachineRole.Worker => "Use this machine as a remote worker that receives run/debug work from a coordinator.",
+        RunnerMachineRole.Worker => "Use this machine as a remote worker agent that registers outward to the central coordinator API.",
         _ => "Use this machine independently without assigning it to coordinator/worker orchestration yet."
     };
 
@@ -530,6 +611,44 @@
         }
 
         return RefreshMachineCapabilitiesAsync();
+    }
+
+    private async Task RefreshCoordinatorDirectoryAsync()
+    {
+        _registeredMachinesBusy = true;
+        _registeredMachinesErrorMessage = null;
+        _coordinatorReachable = false;
+
+        try
+        {
+            _coordinatorReachable = await CoordinatorClient.CheckHealthAsync(_settings.CoordinatorUrl);
+            if (!_coordinatorReachable)
+            {
+                _registeredMachines = [];
+                _registeredMachinesErrorMessage = "The coordinator API did not respond successfully.";
+                return;
+            }
+
+            _registeredMachines = await CoordinatorClient.GetMachinesAsync(_settings.CoordinatorUrl);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to refresh registered machines from coordinator API {CoordinatorUrl}", _settings.CoordinatorUrl);
+            _registeredMachinesErrorMessage = $"Failed to refresh coordinator directory: {ex.Message}";
+            _registeredMachines = [];
+            _coordinatorReachable = false;
+        }
+        finally
+        {
+            _registeredMachinesBusy = false;
+        }
+    }
+
+    private void ClearCoordinatorDirectory()
+    {
+        _registeredMachines = [];
+        _registeredMachinesErrorMessage = null;
+        _coordinatorReachable = false;
     }
 
     private Task RefreshMachineCapabilitiesAsync() =>

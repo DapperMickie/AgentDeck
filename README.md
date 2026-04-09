@@ -1,17 +1,25 @@
 # AgentDeck
 
-A cross-platform system for managing GitHub Copilot and other CLI agents. AgentDeck consists of a **Runner** background service and a **Companion App** built with .NET MAUI.
+A cross-platform system for managing GitHub Copilot and other CLI agents. AgentDeck consists of a **Coordinator API**, one or more **Runner** agents, and a **Companion App** built with .NET MAUI.
 
 ---
 
 ## Components
 
+### Coordinator API (`AgentDeck.Coordinator`)
+A lightweight ASP.NET Core service that:
+- Acts as the single public entry point for companion apps
+- Tracks registered runner agents
+- Exposes the coordinator-side machine directory
+
 ### Runner (`AgentDeck.Runner`)
 A cross-platform ASP.NET Core service that:
+- Runs on a worker machine
 - Manages pseudo-terminal (PTY) sessions for CLI processes (GitHub Copilot, Bash, PowerShell, etc.)
 - Streams terminal I/O in real-time over SignalR
 - Exposes a REST API for session management
 - Scopes project creation to a configurable workspace root directory
+- Can register outward to the coordinator API
 
 **Supported platforms:** Windows, Linux (macOS planned)
 
@@ -31,13 +39,23 @@ A .NET MAUI + Blazor WebView app that:
 | Project | Framework | Purpose |
 |---------|-----------|---------|
 | `AgentDeck` | .NET MAUI 10 | Companion app shell (all platforms) |
+| `AgentDeck.Coordinator` | ASP.NET Core 10 | Central coordinator API |
 | `AgentDeck.Core` | Blazor Razor Library | Shared UI pages and services |
-| `AgentDeck.Runner` | ASP.NET Core 10 | Runner service |
+| `AgentDeck.Runner` | ASP.NET Core 10 | Worker runner agent |
 | `AgentDeck.Shared` | .NET 10 | Shared contracts, models, hub interfaces |
 
 ---
 
 ## Getting Started
+
+### Running the Coordinator API
+
+```bash
+cd AgentDeck.Coordinator
+dotnet run
+```
+
+The coordinator starts on `http://localhost:5001` by default.
 
 ### Running the Runner
 
@@ -103,6 +121,18 @@ After the secrets are configured, trigger **Build iOS IPA** from the Actions tab
 
 ## Configuration
 
+Coordinator configuration (`AgentDeck.Coordinator/appsettings.json`):
+
+```json
+{
+  "Coordinator": {
+    "Port": 5001,
+    "WorkerHeartbeatInterval": "00:00:15",
+    "WorkerExpiry": "00:00:45"
+  }
+}
+```
+
 Runner configuration (`AgentDeck.Runner/appsettings.json`):
 
 ```json
@@ -111,6 +141,13 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
     "WorkspaceRoot": "/workspace",
     "Port": 5000,
     "AllowedOrigins": ["*"]
+  },
+  "Coordinator": {
+    "MachineId": "worker-1",
+    "MachineName": "Worker 1",
+    "CoordinatorUrl": "http://localhost:5001",
+    "AdvertisedRunnerUrl": "http://worker-host:5000",
+    "WorkerHeartbeatInterval": "00:00:15"
   },
   "TrustPolicy": {
     "ActorHeaderName": "X-AgentDeck-Actor",
@@ -121,7 +158,7 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
 }
 ```
 
-`TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
+The runner's `Coordinator` section controls how a worker agent registers outward to the central coordinator API. `TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
 
 ---
 
@@ -141,15 +178,16 @@ The companion app treats all of them the same way: connect to the runner, inspec
 The companion app supports multiple named runner machines.
 
 In **Settings** you can:
+- set the coordinator API URL used for machine discovery
 - add and name machines
-- assign each machine a role (`Standalone`, `Coordinator`, or `Worker`)
+- assign each machine a role (`Standalone` or `Worker`)
 - set a default machine for new terminals
 - connect and disconnect each machine independently
 - inspect the connection status and hub URL for the selected machine
 
 When you create a new terminal, you choose which machine it should run on.
 
-The current orchestration foundation is additive: roles do not change terminal behavior yet, but they let you declare which machine is intended to act as the main coordinator and which machines are intended to act as workers as the distributed run/debug workflow grows.
+The current orchestration foundation is additive: the companion app now has a separate coordinator URL for machine discovery, while direct runner connections still back existing terminal and setup flows until the rest of orchestration is routed through the coordinator.
 
 Shared orchestration contracts now also include repository/project metadata, per-machine workspace mappings, supported targets, and default run/debug launch profiles so later coordinator work can build on a stable project model instead of raw terminal sessions alone.
 

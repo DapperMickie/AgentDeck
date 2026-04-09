@@ -5,6 +5,9 @@ namespace AgentDeck.Core.Models;
 /// <summary>User-configured runner machine profiles for the companion app.</summary>
 public sealed class ConnectionSettings
 {
+    /// <summary>Base URL of the central coordinator API.</summary>
+    public string CoordinatorUrl { get; set; } = "http://localhost:5001";
+
     /// <summary>Configured runner machines.</summary>
     public List<RunnerMachineSettings> Machines { get; set; } = [CreateLocalMachine()];
 
@@ -17,6 +20,7 @@ public sealed class ConnectionSettings
     {
         return new ConnectionSettings
         {
+            CoordinatorUrl = "http://localhost:5001",
             Machines = [CreateLocalMachine()],
             PreferredMachineId = LocalMachineId
         };
@@ -44,6 +48,10 @@ public sealed class ConnectionSettings
 
     public void Normalize()
     {
+        CoordinatorUrl = string.IsNullOrWhiteSpace(CoordinatorUrl)
+            ? "http://localhost:5001"
+            : CoordinatorUrl.Trim();
+
         Machines ??= [];
 
         if (Machines.Count == 0)
@@ -58,6 +66,10 @@ public sealed class ConnectionSettings
             machine.Id = string.IsNullOrWhiteSpace(machine.Id) ? Guid.NewGuid().ToString("n") : machine.Id.Trim();
             machine.Name = string.IsNullOrWhiteSpace(machine.Name) ? $"Machine {index + 1}" : machine.Name.Trim();
             machine.RunnerUrl = string.IsNullOrWhiteSpace(machine.RunnerUrl) ? "http://localhost:5000" : machine.RunnerUrl.Trim();
+            if (machine.Role == RunnerMachineRole.Coordinator)
+            {
+                machine.Role = RunnerMachineRole.Standalone;
+            }
 
             while (!seenIds.Add(machine.Id))
             {
