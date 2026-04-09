@@ -32,6 +32,7 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
         string? coordinatorError = null;
         IReadOnlyList<RegisteredRunnerMachine> registeredMachines = [];
         IReadOnlyList<ProjectDefinition> projects = [];
+        IReadOnlyList<ProjectSessionRecord> projectSessions = [];
 
         if (coordinatorConfigured)
         {
@@ -42,6 +43,7 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                 {
                     registeredMachines = await _coordinator.GetMachinesAsync(settings.CoordinatorUrl, cancellationToken);
                     projects = await _coordinator.GetProjectsAsync(settings.CoordinatorUrl, cancellationToken);
+                    projectSessions = await _coordinator.GetProjectSessionsAsync(settings.CoordinatorUrl, cancellationToken: cancellationToken);
                 }
                 else
                 {
@@ -94,6 +96,7 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
             CoordinatorErrorMessage = coordinatorError,
             Machines = machines,
             Projects = projectSummaries,
+            ProjectSessions = projectSessions,
             ViewerSurfaces = viewerSurfaces,
             ActiveSessions = _sessions.Sessions
         };

@@ -68,7 +68,7 @@
     private void SelectSession(string sessionId)
     {
         ActiveSession.SetActiveSession(sessionId);
-        Nav.NavigateTo("/");
+        Nav.NavigateTo($"/terminals/{Uri.EscapeDataString(sessionId)}");
     }
 
     private bool IsActive(string sessionId) => string.Equals(ActiveSession.ActiveSessionId, sessionId, StringComparison.Ordinal);
