@@ -36,6 +36,7 @@
             </div>
             <div class="project-page__actions">
                 <a class="btn btn-accent" href="/">Dashboard</a>
+                <button class="btn btn-accent" @onclick="RefreshRuntimeAsync">Refresh runtime state</button>
             </div>
         </div>
 
@@ -73,13 +74,193 @@
                             <div class="project-machine-card__actions">
                                 <button class="btn btn-primary"
                                         disabled="@(!machine.IsOnline || _openingMachineId == machine.MachineId)"
-                                        @onclick="() => OpenProjectAsync(machine.MachineId)">
+                                        @onclick="() => OpenProjectAsync(machine.MachineId, navigateToSession: true)">
                                     @(_openingMachineId == machine.MachineId ? "Opening..." : "Open project")
                                 </button>
                             </div>
                         </article>
                     }
                 </div>
+            </section>
+
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Launch profiles</h2>
+                        <p>Queue real run and debug jobs through the coordinator, with host selection, device selection, and live viewer/job state tied to the selected machine.</p>
+                    </div>
+                </div>
+
+                <div class="project-template-grid">
+                    @foreach (var profile in _project.Definition.LaunchProfiles.OrderBy(profile => profile.Platform).ThenBy(profile => profile.Mode).ThenBy(profile => profile.DisplayName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        var availableMachines = GetAvailableMachines(profile);
+                        var selectedMachineId = GetSelectedMachineId(profile, availableMachines);
+                        var selectedMachine = availableMachines.FirstOrDefault(machine => string.Equals(machine.MachineId, selectedMachineId, StringComparison.OrdinalIgnoreCase));
+                        var deviceChoices = GetDeviceChoices(profile, selectedMachineId);
+                        var selectedDeviceChoice = GetSelectedDeviceChoice(profile, deviceChoices);
+
+                        <article class="project-template-card">
+                            <div class="project-template-card__header">
+                                <div>
+                                    <h3>@profile.DisplayName</h3>
+                                    <p>@GetLaunchProfileSummary(profile)</p>
+                                </div>
+                                <span class="machine-badge">@profile.Platform</span>
+                            </div>
+
+                            <div class="orchestration-form">
+                                <label class="form-field">
+                                    <span class="orchestration-form__label">Machine</span>
+                                    <select class="input"
+                                            value="@selectedMachineId"
+                                            @onchange="args => OnMachineChanged(profile.Id, args.Value?.ToString())">
+                                        <option value="">Select machine</option>
+                                        @foreach (var machine in availableMachines)
+                                        {
+                                            <option value="@machine.MachineId">@machine.MachineName (@GetPlatformLabel(machine.HostPlatform))</option>
+                                        }
+                                    </select>
+                                </label>
+
+                                @if (ProfileNeedsDeviceSelection(profile))
+                                {
+                                    <label class="form-field">
+                                        <span class="orchestration-form__label">@GetDeviceLabel(profile)</span>
+                                        <select class="input"
+                                                value="@selectedDeviceChoice"
+                                                disabled="@string.IsNullOrWhiteSpace(selectedMachineId)"
+                                                @onchange="args => OnDeviceChanged(profile.Id, args.Value?.ToString())">
+                                            <option value="">Select device</option>
+                                            @foreach (var choice in deviceChoices)
+                                            {
+                                                <option value="@choice.Value">@choice.Label</option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <p class="project-template-target__note">@GetDeviceStatusMessage(profile, selectedMachineId, deviceChoices.Count)</p>
+                                }
+                                else
+                                {
+                                    <p class="project-template-target__note">@GetMachineStatusMessage(profile, availableMachines.Count)</p>
+                                }
+
+                                @if (!string.IsNullOrWhiteSpace(profile.Notes))
+                                {
+                                    <p class="project-template-target__note">@profile.Notes</p>
+                                }
+
+                                <div class="project-machine-card__actions">
+                                    <button class="btn btn-primary"
+                                            disabled="@(!CanQueueProfile(profile, selectedMachineId, deviceChoices.Count))"
+                                            @onclick="() => QueueLaunchAsync(profile)">
+                                        @GetQueueButtonLabel(profile)
+                                    </button>
+                                </div>
+                            </div>
+                        </article>
+                    }
+                </div>
+            </section>
+
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Live orchestration jobs</h2>
+                        <p>Real runner-backed run and debug jobs, including session IDs, viewer links, and current lifecycle state.</p>
+                    </div>
+                </div>
+
+                @if (_projectJobs.Count == 0)
+                {
+                    <p>No orchestration jobs are currently tracked for this project.</p>
+                }
+                else
+                {
+                    <div class="project-list">
+                        @foreach (var job in _projectJobs.OrderByDescending(job => job.UpdatedAt))
+                        {
+                            <article class="project-list-card">
+                                <div class="project-runtime-card__body">
+                                    <div class="project-session-card__header">
+                                        <div>
+                                            <h3>@job.LaunchProfileName</h3>
+                                            <p>@GetJobSummary(job)</p>
+                                        </div>
+                                        <span class="machine-badge">@job.Status</span>
+                                    </div>
+                                    <p class="project-template-target__note">Machine @(job.TargetMachineName ?? job.TargetMachineId ?? "unknown") • updated @job.UpdatedAt.ToLocalTime().ToString("g")</p>
+                                    @if (job.Logs.Count > 0)
+                                    {
+                                        <p class="project-template-target__note">@job.Logs.Last().Message</p>
+                                    }
+                                    <div class="project-machine-card__targets">
+                                        @if (!string.IsNullOrWhiteSpace(job.SessionId))
+                                        {
+                                            <span class="project-template-profile">Session @job.SessionId[..Math.Min(job.SessionId.Length, 8)]</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(job.ViewerSessionId))
+                                        {
+                                            <span class="project-template-profile">Viewer @job.ViewerSessionId[..Math.Min(job.ViewerSessionId.Length, 8)]</span>
+                                        }
+                                        @if (job.DeviceSelection?.HasTarget == true)
+                                        {
+                                            <span class="project-template-profile">@GetDeviceSelectionLabel(job.DeviceSelection)</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="project-runtime-card__actions">
+                                    @if (CanCancelJob(job))
+                                    {
+                                        <button class="btn btn-danger" @onclick="() => CancelJobAsync(job)">Cancel</button>
+                                    }
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
+            </section>
+
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Viewer session entry points</h2>
+                        <p>Viewer sessions created by runner execution, surfaced here through the coordinator rather than direct machine access.</p>
+                    </div>
+                </div>
+
+                @if (_projectViewerSessions.Count == 0)
+                {
+                    <p>No viewer sessions are currently registered for this project.</p>
+                }
+                else
+                {
+                    <div class="project-list">
+                        @foreach (var viewer in _projectViewerSessions.OrderByDescending(viewer => viewer.UpdatedAt))
+                        {
+                            <article class="project-list-card">
+                                <div class="project-runtime-card__body">
+                                    <div class="project-session-card__header">
+                                        <div>
+                                            <h3>@viewer.Target.DisplayName</h3>
+                                            <p>@GetViewerSummary(viewer)</p>
+                                        </div>
+                                        <span class="machine-badge">@viewer.Status</span>
+                                    </div>
+                                    <p class="project-template-target__note">Machine @(viewer.MachineName ?? viewer.MachineId ?? "unknown") • updated @viewer.UpdatedAt.ToLocalTime().ToString("g")</p>
+                                    @if (!string.IsNullOrWhiteSpace(viewer.ConnectionUri))
+                                    {
+                                        <p class="project-template-target__note"><code>@viewer.ConnectionUri</code></p>
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(viewer.StatusMessage))
+                                    {
+                                        <p class="project-template-target__note">@viewer.StatusMessage</p>
+                                    }
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
             </section>
 
             <section class="dashboard-section-card">
@@ -134,12 +315,12 @@
                             <a class="project-session-card project-session-card--link" href="/project-sessions/@Uri.EscapeDataString(session.Id)">
                                 <div class="project-session-card__header">
                                     <div>
-                                        <h3>@session.MachineName</h3>
+                                        <h3>@(session.MachineName ?? "Coordinator session")</h3>
                                         <p>@GetControllerSummary(session)</p>
                                     </div>
                                     <span class="machine-badge">@session.Surfaces.Count tabs</span>
                                 </div>
-                                <p class="project-session-card__meta">Updated @session.UpdatedAt.ToLocalTime().ToString("g")</p>
+                                <p class="project-session-card__meta">@GetProjectSessionMeta(session)</p>
                             </a>
                         }
                     </div>
@@ -152,11 +333,19 @@
 @code {
     [Parameter] public string ProjectId { get; set; } = string.Empty;
 
+    private readonly Dictionary<string, string?> _selectedMachineByProfileId = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string?> _selectedDeviceByProfileId = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IReadOnlyList<VirtualDeviceCatalogSnapshot>> _deviceCatalogsByMachineId = new(StringComparer.OrdinalIgnoreCase);
     private CompanionDashboardState _dashboard = new();
     private CompanionProjectSummary? _project;
     private IReadOnlyList<ProjectSessionRecord> _projectSessions = [];
+    private IReadOnlyList<OrchestrationJob> _projectJobs = [];
+    private IReadOnlyList<RemoteViewerSession> _projectViewerSessions = [];
     private bool _loading = true;
     private string? _openingMachineId;
+    private string? _queueingProfileId;
+    private string? _cancellingJobId;
+    private string? _coordinatorUrl;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -168,12 +357,21 @@
         _loading = true;
         try
         {
+            var settings = await SettingsService.LoadAsync();
+            _coordinatorUrl = settings.CoordinatorUrl;
             _dashboard = await DashboardState.BuildAsync();
             _project = _dashboard.Projects.FirstOrDefault(project =>
                 string.Equals(project.Definition.Id, ProjectId, StringComparison.OrdinalIgnoreCase));
             _projectSessions = _dashboard.ProjectSessions
                 .Where(session => string.Equals(session.ProjectId, ProjectId, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
+
+            if (_project is not null)
+            {
+                InitializeProfileSelections();
+                await EnsureDeviceCatalogsAsync();
+                await LoadRuntimeStateAsync();
+            }
         }
         finally
         {
@@ -181,24 +379,141 @@
         }
     }
 
-    private async Task OpenProjectAsync(string machineId)
+    private async Task RefreshRuntimeAsync()
     {
         if (_project is null)
         {
             return;
         }
 
-        var settings = await SettingsService.LoadAsync();
-        if (string.IsNullOrWhiteSpace(settings.CoordinatorUrl))
+        try
         {
-            Toasts.Show("Configure a coordinator URL before opening projects.", ToastKind.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+    }
+
+    private void InitializeProfileSelections()
+    {
+        if (_project is null)
+        {
+            return;
+        }
+
+        foreach (var profile in _project.Definition.LaunchProfiles)
+        {
+            if (_selectedMachineByProfileId.ContainsKey(profile.Id))
+            {
+                continue;
+            }
+
+            var availableMachines = GetAvailableMachines(profile);
+            _selectedMachineByProfileId[profile.Id] = availableMachines.FirstOrDefault()?.MachineId;
+        }
+    }
+
+    private IReadOnlyList<CompanionMachineSummary> GetAvailableMachines(ProjectLaunchProfile profile)
+    {
+        return _dashboard.Machines
+            .Where(machine => machine.IsOnline && machine.SupportedTargets.Any(target =>
+                target.Platform == profile.Platform &&
+                target.Status == MachineTargetSupportStatus.Supported))
+            .OrderByDescending(machine => string.Equals(machine.MachineId, profile.PreferredMachineId, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(machine => machine.MachineName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private string? GetSelectedMachineId(ProjectLaunchProfile profile, IReadOnlyList<CompanionMachineSummary> availableMachines)
+    {
+        if (_selectedMachineByProfileId.TryGetValue(profile.Id, out var machineId) &&
+            availableMachines.Any(machine => string.Equals(machine.MachineId, machineId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return machineId;
+        }
+
+        var defaultMachineId = availableMachines.FirstOrDefault()?.MachineId;
+        _selectedMachineByProfileId[profile.Id] = defaultMachineId;
+        return defaultMachineId;
+    }
+
+    private async Task EnsureDeviceCatalogsAsync()
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        foreach (var profile in _project.Definition.LaunchProfiles.Where(ProfileNeedsDeviceSelection))
+        {
+            if (!_selectedMachineByProfileId.TryGetValue(profile.Id, out var machineId) || string.IsNullOrWhiteSpace(machineId))
+            {
+                continue;
+            }
+
+            if (_deviceCatalogsByMachineId.ContainsKey(machineId))
+            {
+                continue;
+            }
+
+            _deviceCatalogsByMachineId[machineId] = await CoordinatorClient.GetMachineVirtualDeviceCatalogsAsync(_coordinatorUrl, machineId);
+        }
+    }
+
+    private async Task LoadRuntimeStateAsync()
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            _projectJobs = [];
+            _projectViewerSessions = [];
+            return;
+        }
+
+        var machinesToQuery = _dashboard.Machines
+            .Where(machine => machine.IsOnline && (
+                _project.Definition.Workspaces.Any(workspace => string.Equals(workspace.MachineId, machine.MachineId, StringComparison.OrdinalIgnoreCase)) ||
+                _project.Definition.LaunchProfiles.Any(profile => GetAvailableMachines(profile).Any(candidate => string.Equals(candidate.MachineId, machine.MachineId, StringComparison.OrdinalIgnoreCase)))))
+            .Select(machine => machine.MachineId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var jobs = new List<OrchestrationJob>();
+        var viewers = new List<RemoteViewerSession>();
+
+        foreach (var machineId in machinesToQuery)
+        {
+            jobs.AddRange((await CoordinatorClient.GetMachineOrchestrationJobsAsync(_coordinatorUrl, machineId))
+                .Where(job => string.Equals(job.ProjectId, ProjectId, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        var jobIds = jobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var machineId in machinesToQuery)
+        {
+            viewers.AddRange((await CoordinatorClient.GetMachineViewerSessionsAsync(_coordinatorUrl, machineId))
+                .Where(viewer => !string.IsNullOrWhiteSpace(viewer.JobId) && jobIds.Contains(viewer.JobId)));
+        }
+
+        _projectJobs = jobs
+            .OrderByDescending(job => job.UpdatedAt)
+            .ToArray();
+        _projectViewerSessions = viewers
+            .OrderByDescending(viewer => viewer.UpdatedAt)
+            .ToArray();
+    }
+
+    private async Task OpenProjectAsync(string machineId, bool navigateToSession)
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
             return;
         }
 
         _openingMachineId = machineId;
         try
         {
-            var result = await CoordinatorClient.OpenProjectOnMachineAsync(settings.CoordinatorUrl, _project.Definition.Id, machineId);
+            var result = await CoordinatorClient.OpenProjectOnMachineAsync(_coordinatorUrl, _project.Definition.Id, machineId);
             if (result is null)
             {
                 Toasts.Show("The coordinator could not open that project on the selected machine.", ToastKind.Error);
@@ -208,7 +523,11 @@
             SessionState.AddOrUpdate(result.Session);
             ActiveSession.SetActiveSession(result.Session.Id);
             Toasts.Show($"Opened {result.Project.Name} on {result.Workspace.MachineName ?? result.Workspace.MachineId}.", ToastKind.Success);
-            Nav.NavigateTo($"/project-sessions/{Uri.EscapeDataString(result.ProjectSession.Id)}");
+            await LoadAsync();
+            if (navigateToSession)
+            {
+                Nav.NavigateTo($"/project-sessions/{Uri.EscapeDataString(result.ProjectSession.Id)}");
+            }
         }
         catch (Exception ex)
         {
@@ -220,10 +539,257 @@
         }
     }
 
+    private async Task QueueLaunchAsync(ProjectLaunchProfile profile)
+    {
+        if (_project is null || string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        var availableMachines = GetAvailableMachines(profile);
+        var machineId = GetSelectedMachineId(profile, availableMachines);
+        if (string.IsNullOrWhiteSpace(machineId))
+        {
+            Toasts.Show("Select a machine before launching this profile.", ToastKind.Warning);
+            return;
+        }
+
+        _queueingProfileId = profile.Id;
+        try
+        {
+            var workspace = _project.Definition.Workspaces.FirstOrDefault(candidate =>
+                string.Equals(candidate.MachineId, machineId, StringComparison.OrdinalIgnoreCase));
+            if (workspace is null)
+            {
+                await OpenProjectAsync(machineId, navigateToSession: false);
+                workspace = _project?.Definition.Workspaces.FirstOrDefault(candidate =>
+                    string.Equals(candidate.MachineId, machineId, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (workspace is null)
+            {
+                throw new InvalidOperationException("The project workspace is not available on the selected machine.");
+            }
+
+            VirtualDeviceLaunchSelection? deviceSelection = null;
+            if (ProfileNeedsDeviceSelection(profile))
+            {
+                deviceSelection = await BuildDeviceSelectionAsync(profile, machineId);
+            }
+
+            var machine = availableMachines.FirstOrDefault(candidate => string.Equals(candidate.MachineId, machineId, StringComparison.OrdinalIgnoreCase));
+            var request = new CreateOrchestrationJobRequest
+            {
+                ProjectId = _project.Definition.Id,
+                ProjectName = _project.Definition.Name,
+                LaunchProfileId = profile.Id,
+                LaunchProfileName = profile.DisplayName,
+                WorkingDirectory = workspace.ProjectPath,
+                Platform = profile.Platform,
+                Mode = profile.Mode,
+                LaunchDriver = profile.LaunchDriver,
+                TargetMachineRole = machine?.Role ?? RunnerMachineRole.Worker,
+                TargetMachineId = machineId,
+                TargetMachineName = machine?.MachineName,
+                BuildCommand = profile.BuildCommand,
+                LaunchCommand = profile.LaunchCommand,
+                BootstrapCommand = profile.BootstrapCommand,
+                DebugConfigurationName = profile.DebugConfigurationName,
+                DeviceSelection = deviceSelection
+            };
+
+            var job = await CoordinatorClient.QueueMachineOrchestrationJobAsync(_coordinatorUrl, machineId, request);
+            if (job is null)
+            {
+                Toasts.Show("The coordinator could not queue that launch.", ToastKind.Error);
+                return;
+            }
+
+            Toasts.Show($"Queued {profile.DisplayName} on {machine?.MachineName ?? machineId}.", ToastKind.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _queueingProfileId = null;
+        }
+    }
+
+    private async Task<VirtualDeviceLaunchSelection?> BuildDeviceSelectionAsync(ProjectLaunchProfile profile, string machineId)
+    {
+        var selectedValue = GetSelectedDeviceChoice(profile, GetDeviceChoices(profile, machineId));
+        if (string.IsNullOrWhiteSpace(selectedValue) || profile.DeviceCatalog is null)
+        {
+            throw new InvalidOperationException("Select a device or profile before launching this target.");
+        }
+
+        var selection = selectedValue.StartsWith("device:", StringComparison.OrdinalIgnoreCase)
+            ? new VirtualDeviceLaunchSelection
+            {
+                CatalogKind = profile.DeviceCatalog.Value,
+                TargetPlatform = profile.Platform,
+                DeviceId = selectedValue["device:".Length..]
+            }
+            : new VirtualDeviceLaunchSelection
+            {
+                CatalogKind = profile.DeviceCatalog.Value,
+                TargetPlatform = profile.Platform,
+                ProfileId = selectedValue["profile:".Length..]
+            };
+
+        var resolution = await CoordinatorClient.ResolveMachineVirtualDeviceAsync(_coordinatorUrl!, machineId, selection);
+        if (resolution is null || !resolution.CanLaunch)
+        {
+            throw new InvalidOperationException(resolution?.Message ?? "The selected device could not be resolved for launch.");
+        }
+
+        return resolution.Selection;
+    }
+
+    private async Task CancelJobAsync(OrchestrationJob job)
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl) || string.IsNullOrWhiteSpace(job.TargetMachineId))
+        {
+            return;
+        }
+
+        _cancellingJobId = job.Id;
+        try
+        {
+            await CoordinatorClient.CancelMachineOrchestrationJobAsync(_coordinatorUrl, job.TargetMachineId, job.Id);
+            Toasts.Show($"Cancellation requested for {job.LaunchProfileName}.", ToastKind.Info);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _cancellingJobId = null;
+        }
+    }
+
+    private IReadOnlyList<DeviceChoice> GetDeviceChoices(ProjectLaunchProfile profile, string? machineId)
+    {
+        if (string.IsNullOrWhiteSpace(machineId) ||
+            !_deviceCatalogsByMachineId.TryGetValue(machineId, out var snapshots) ||
+            profile.DeviceCatalog is null)
+        {
+            return [];
+        }
+
+        var snapshot = snapshots.FirstOrDefault(candidate => candidate.CatalogKind == profile.DeviceCatalog.Value);
+        if (snapshot is null)
+        {
+            return [];
+        }
+
+        return snapshot.Devices
+            .Select(device => new DeviceChoice($"device:{device.Id}", $"{device.DisplayName} ({device.State})"))
+            .Concat(snapshot.Profiles.Select(profileChoice => new DeviceChoice($"profile:{profileChoice.Id}", $"{profileChoice.DisplayName} profile")))
+            .ToArray();
+    }
+
+    private string? GetSelectedDeviceChoice(ProjectLaunchProfile profile, IReadOnlyList<DeviceChoice> choices)
+    {
+        if (_selectedDeviceByProfileId.TryGetValue(profile.Id, out var selectedValue) &&
+            choices.Any(choice => string.Equals(choice.Value, selectedValue, StringComparison.OrdinalIgnoreCase)))
+        {
+            return selectedValue;
+        }
+
+        var defaultValue = choices.FirstOrDefault(choice =>
+            string.Equals(choice.Value, $"profile:{profile.DefaultDeviceProfileId}", StringComparison.OrdinalIgnoreCase))?.Value
+            ?? choices.FirstOrDefault()?.Value;
+        _selectedDeviceByProfileId[profile.Id] = defaultValue;
+        return defaultValue;
+    }
+
+    private async Task OnMachineChanged(string profileId, string? machineId)
+    {
+        _selectedMachineByProfileId[profileId] = string.IsNullOrWhiteSpace(machineId) ? null : machineId;
+        _selectedDeviceByProfileId.Remove(profileId);
+        if (!string.IsNullOrWhiteSpace(machineId) &&
+            !_deviceCatalogsByMachineId.ContainsKey(machineId) &&
+            !string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            _deviceCatalogsByMachineId[machineId] = await CoordinatorClient.GetMachineVirtualDeviceCatalogsAsync(_coordinatorUrl, machineId);
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnDeviceChanged(string profileId, string? deviceValue)
+    {
+        _selectedDeviceByProfileId[profileId] = string.IsNullOrWhiteSpace(deviceValue) ? null : deviceValue;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private bool ProfileNeedsDeviceSelection(ProjectLaunchProfile profile) =>
+        profile.RequiresEmulator || profile.RequiresSimulator;
+
+    private bool CanQueueProfile(ProjectLaunchProfile profile, string? selectedMachineId, int deviceChoiceCount)
+    {
+        if (_queueingProfileId == profile.Id || string.IsNullOrWhiteSpace(selectedMachineId))
+        {
+            return false;
+        }
+
+        return !ProfileNeedsDeviceSelection(profile) || deviceChoiceCount > 0;
+    }
+
+    private string GetQueueButtonLabel(ProjectLaunchProfile profile)
+    {
+        if (_queueingProfileId == profile.Id)
+        {
+            return "Queueing...";
+        }
+
+        return profile.Mode == ProjectLaunchMode.Debug ? "Debug" : "Run";
+    }
+
+    private static string GetLaunchProfileSummary(ProjectLaunchProfile profile)
+    {
+        var machineSummary = profile.RequiresVsCode ? "VS Code-backed" : "direct command";
+        return $"{profile.Mode} • {machineSummary}";
+    }
+
+    private string GetMachineStatusMessage(ProjectLaunchProfile profile, int machineCount) =>
+        machineCount == 0
+            ? $"No ready machine currently advertises {profile.Platform}."
+            : $"{machineCount} ready machine(s) can host this profile.";
+
+    private string GetDeviceStatusMessage(ProjectLaunchProfile profile, string? machineId, int deviceChoiceCount)
+    {
+        if (string.IsNullOrWhiteSpace(machineId))
+        {
+            return "Choose a machine before selecting a device.";
+        }
+
+        return deviceChoiceCount == 0
+            ? $"No {GetDeviceLabel(profile).ToLowerInvariant()} options are currently available on that machine."
+            : $"{deviceChoiceCount} {GetDeviceLabel(profile).ToLowerInvariant()} option(s) discovered on that machine.";
+    }
+
+    private static string GetDeviceLabel(ProjectLaunchProfile profile) =>
+        profile.RequiresSimulator ? "Simulator" : "Emulator";
+
     private string GetControllerSummary(ProjectSessionRecord session) =>
         string.IsNullOrWhiteSpace(session.CompanionId)
             ? "No controller companion recorded"
             : $"Controller {session.CompanionId}";
+
+    private string GetProjectSessionMeta(ProjectSessionRecord session)
+    {
+        var viewerSummary = session.ViewerCompanionIds.Count == 1
+            ? "1 viewer"
+            : $"{session.ViewerCompanionIds.Count} viewers";
+        return $"{viewerSummary} • updated {session.UpdatedAt.ToLocalTime():g}";
+    }
 
     private string GetMachineTargetSummary(CompanionMachineSummary machine)
     {
@@ -235,6 +801,33 @@
             ? "No supported targets advertised yet."
             : $"Ready targets: {string.Join(", ", readyTargets)}";
     }
+
+    private string GetJobSummary(OrchestrationJob job)
+    {
+        var mode = job.Mode == ProjectLaunchMode.Debug ? "Debug" : "Run";
+        return $"{mode} • {job.Platform}";
+    }
+
+    private string GetViewerSummary(RemoteViewerSession viewer)
+    {
+        var label = viewer.Target.Kind switch
+        {
+            RemoteViewerTargetKind.Desktop => "Desktop",
+            RemoteViewerTargetKind.Window => "Window",
+            RemoteViewerTargetKind.VsCode => "VS Code",
+            RemoteViewerTargetKind.Emulator => "Emulator",
+            RemoteViewerTargetKind.Simulator => "Simulator",
+            _ => "Viewer"
+        };
+        return $"{label} • {viewer.Provider}";
+    }
+
+    private static string GetDeviceSelectionLabel(VirtualDeviceLaunchSelection selection) =>
+        selection.DisplayName ?? selection.DeviceId ?? selection.ProfileId ?? "Device selection";
+
+    private bool CanCancelJob(OrchestrationJob job) =>
+        _cancellingJobId != job.Id &&
+        job.Status is OrchestrationJobStatus.Queued or OrchestrationJobStatus.Preparing or OrchestrationJobStatus.Dispatching or OrchestrationJobStatus.Running;
 
     private static string GetPlatformLabel(RunnerHostPlatform platform) => platform switch
     {
@@ -262,4 +855,6 @@
             ? "not configured"
             : definition.Repository.Url!;
     }
+
+    private sealed record DeviceChoice(string Value, string Label);
 }

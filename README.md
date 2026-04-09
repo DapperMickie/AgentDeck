@@ -268,6 +268,8 @@ The coordinator now also exposes a first-pass project-open flow at `/api/project
 
 The coordinator now also keeps a first-pass project-session surface registry at `/api/project-sessions` and `/api/project-sessions/{projectSessionId}/surfaces`. Project sessions are generic containers for the live tabs a project can expose over time, and the current open-project flow now creates a project session plus an initial terminal surface so later VS Code, simulator, emulator, and viewer surfaces can attach to the same shared session model.
 
+Project sessions now also model single-controller plus multi-viewer collaboration. The coordinator tracks attached companions, the active controller, and control-handoff state so only one companion can send terminal control input for a project-backed terminal at a time while other companions stay view-only until they request, force, or yield control through `/api/project-sessions/{projectSessionId}/attachments`, `/detach`, and `/control`.
+
 The runner also now exposes a first-pass orchestration job API, separate from terminal sessions, so coordinator-managed run/debug work can be queued, tracked by lifecycle status, associated with a target machine, and enriched with step/log data before full cross-machine dispatch is implemented.
 
 That orchestration layer now has real local execution paths for both direct-command run jobs and the first VS Code-backed debug jobs. Direct-command jobs build and launch on the runner, stream PTY output into job logs, and let cancellation stop the underlying process.
@@ -281,6 +283,8 @@ The runner now also exposes a remote viewer API with provider capabilities and v
 Window-, emulator-, simulator-, and VS Code-targeted viewer sessions still remain additive modeling layers above the transport. They keep their distinct target metadata, but this slice still only boots a transport for full-desktop sessions; focused capture for those narrower surfaces remains follow-up work on top of the managed helper seam.
 
 The shared model now also includes first-pass virtual device catalogs for Android emulators and Apple simulators, plus launch-selection contracts that can be attached to orchestration jobs. The runner exposes `/api/virtual-devices/catalogs` and `/api/virtual-devices/resolve`, and the catalog endpoint now performs real runner-side discovery where Android emulator or Apple simulator tooling is available. Runner capability snapshots also use those catalogs to advertise Android and iOS as distinct coordinator-visible target-readiness entries, including which device catalog backs later selection flows.
+
+The coordinator now also brokers those orchestration, viewer-session, and virtual-device APIs back out under `/api/machines/{machineId}/...`, and the companion project page now uses that control-plane path to open a project on a runner, choose a ready host for each launch profile, choose emulator/simulator targets when required, queue real run/debug jobs, inspect live job state, and list viewer-session entry points without talking to runner URLs directly.
 
 ### Machine Capabilities
 

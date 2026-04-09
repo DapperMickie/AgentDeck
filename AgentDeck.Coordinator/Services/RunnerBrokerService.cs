@@ -183,6 +183,80 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         return await response.Content.ReadFromJsonAsync<MachineCapabilityInstallResult>(cancellationToken: cancellationToken);
     }
 
+    public async Task<IReadOnlyList<OrchestrationJob>> GetOrchestrationJobsAsync(string machineId, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation("Brokering orchestration job list request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
+        return await entry.HttpClient!.GetFromJsonAsync<IReadOnlyList<OrchestrationJob>>("api/orchestration/jobs", cancellationToken) ?? [];
+    }
+
+    public async Task<OrchestrationJob?> QueueOrchestrationJobAsync(string machineId, CreateOrchestrationJobRequest request, string actorId, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering orchestration queue for project {ProjectId} profile {LaunchProfileId} on machine {MachineName} ({MachineId}) requested by {ActorId}",
+            request.ProjectId,
+            request.LaunchProfileId,
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            actorId);
+        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, "api/orchestration/jobs", actorId)
+            .WithJsonContent(request)
+            .SendAsync(entry.HttpClient!, cancellationToken);
+        await EnsureBrokerSuccessAsync(response, "queue orchestration job", cancellationToken);
+        return await response.Content.ReadFromJsonAsync<OrchestrationJob>(cancellationToken: cancellationToken);
+    }
+
+    public async Task<OrchestrationJob?> CancelOrchestrationJobAsync(string machineId, string jobId, string actorId, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering orchestration cancel for job {JobId} on machine {MachineName} ({MachineId}) requested by {ActorId}",
+            jobId,
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            actorId);
+        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, $"api/orchestration/jobs/{Uri.EscapeDataString(jobId)}/cancel", actorId)
+            .SendAsync(entry.HttpClient!, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await EnsureBrokerSuccessAsync(response, "cancel orchestration job", cancellationToken);
+        return await response.Content.ReadFromJsonAsync<OrchestrationJob>(cancellationToken: cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<RemoteViewerSession>> GetViewerSessionsAsync(string machineId, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation("Brokering viewer session list request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
+        return await entry.HttpClient!.GetFromJsonAsync<IReadOnlyList<RemoteViewerSession>>("api/viewers/sessions", cancellationToken) ?? [];
+    }
+
+    public async Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetVirtualDeviceCatalogsAsync(string machineId, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation("Brokering virtual device catalog request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
+        return await entry.HttpClient!.GetFromJsonAsync<IReadOnlyList<VirtualDeviceCatalogSnapshot>>("api/virtual-devices/catalogs", cancellationToken) ?? [];
+    }
+
+    public async Task<VirtualDeviceLaunchResolution?> ResolveVirtualDeviceAsync(string machineId, VirtualDeviceLaunchSelection selection, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation("Brokering virtual device resolution for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
+        using var response = await new HttpRequestMessage(HttpMethod.Post, "api/virtual-devices/resolve")
+            .WithJsonContent(selection)
+            .SendAsync(entry.HttpClient!, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await EnsureBrokerSuccessAsync(response, "resolve virtual device", cancellationToken);
+        return await response.Content.ReadFromJsonAsync<VirtualDeviceLaunchResolution>(cancellationToken: cancellationToken);
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (var entry in _entries.Values)
@@ -348,6 +422,20 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         request.Headers.TryAddWithoutValidation(AgentDeckHeaderNames.Actor, string.IsNullOrWhiteSpace(actorId) ? "coordinator" : actorId.Trim());
         request.Headers.TryAddWithoutValidation("User-Agent", "AgentDeck.Coordinator");
         return request;
+    }
+
+    private static async Task EnsureBrokerSuccessAsync(HttpResponseMessage response, string operation, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        var message = string.IsNullOrWhiteSpace(responseText)
+            ? $"Runner {operation} request failed with HTTP {(int)response.StatusCode}."
+            : responseText;
+        throw new InvalidOperationException(message);
     }
 }
 

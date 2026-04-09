@@ -20,4 +20,16 @@ public interface ICoordinatorApiClient
     Task<ProjectSessionRecord?> DetachProjectSessionAsync(string coordinatorUrl, string projectSessionId, CancellationToken cancellationToken = default);
 
     Task<ProjectSessionRecord?> UpdateProjectSessionControlAsync(string coordinatorUrl, string projectSessionId, UpdateProjectSessionControlRequest request, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<OrchestrationJob>> GetMachineOrchestrationJobsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default);
+
+    Task<OrchestrationJob?> QueueMachineOrchestrationJobAsync(string coordinatorUrl, string machineId, CreateOrchestrationJobRequest request, CancellationToken cancellationToken = default);
+
+    Task<OrchestrationJob?> CancelMachineOrchestrationJobAsync(string coordinatorUrl, string machineId, string jobId, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<RemoteViewerSession>> GetMachineViewerSessionsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetMachineVirtualDeviceCatalogsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default);
+
+    Task<VirtualDeviceLaunchResolution?> ResolveMachineVirtualDeviceAsync(string coordinatorUrl, string machineId, VirtualDeviceLaunchSelection selection, CancellationToken cancellationToken = default);
 }
