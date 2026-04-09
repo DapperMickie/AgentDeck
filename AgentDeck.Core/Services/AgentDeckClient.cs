@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
+using AgentDeck.Shared;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -13,6 +15,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
     private HubConnection? _connection;
     private HttpClient _http = new();
     private string? _coordinatorUrl;
+    private RegisteredCompanion? _companion;
 
     public HubConnectionState ConnectionState { get; private set; } = HubConnectionState.Disconnected;
 
@@ -44,16 +47,20 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
             await DisconnectAsync();
         }
 
-        var hubUrl = $"{normalizedCoordinatorUrl}/hubs/agent";
+        _companion = await RegisterCompanionAsync(normalizedCoordinatorUrl, cancellationToken);
+        var hubUrl = $"{normalizedCoordinatorUrl}/hubs/agent?{AgentDeckQueryNames.Companion}={Uri.EscapeDataString(_companion.CompanionId)}";
         _logger.LogInformation("Connecting to coordinator hub at {Url}", hubUrl);
         SetState(HubConnectionState.Connecting);
 
         _http.Dispose();
-        _http = new HttpClient { BaseAddress = new Uri($"{normalizedCoordinatorUrl}/", UriKind.Absolute) };
+        _http = CreateCoordinatorClient(normalizedCoordinatorUrl, _companion.CompanionId);
         _coordinatorUrl = normalizedCoordinatorUrl;
 
         _connection = new HubConnectionBuilder()
-            .WithUrl(hubUrl)
+            .WithUrl(hubUrl, options =>
+            {
+                options.Headers[AgentDeckHeaderNames.Actor] = _companion.CompanionId;
+            })
             .WithAutomaticReconnect()
             .Build();
 
@@ -78,7 +85,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         {
             await _connection.StartAsync(cancellationToken);
             SetState(HubConnectionState.Connected);
-            _logger.LogInformation("Connected to coordinator hub");
+            _logger.LogInformation("Connected to coordinator hub as companion {CompanionId}", _companion.CompanionId);
         }
         catch (Exception ex)
         {
@@ -90,13 +97,23 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
 
     public async Task DisconnectAsync()
     {
-        if (_connection is null) return;
-        await _connection.StopAsync();
-        await _connection.DisposeAsync();
-        _connection = null;
+        if (_connection is not null)
+        {
+            await _connection.StopAsync();
+            await _connection.DisposeAsync();
+            _connection = null;
+        }
+
         _coordinatorUrl = null;
+        _companion = null;
         SetState(HubConnectionState.Disconnected);
     }
+
+    public Task AttachMachineAsync(string machineId) =>
+        InvokeAsync(nameof(ICoordinatorAgentHub.AttachMachineAsync), machineId);
+
+    public Task DetachMachineAsync(string machineId) =>
+        InvokeAsync(nameof(ICoordinatorAgentHub.DetachMachineAsync), machineId);
 
     public Task JoinSessionAsync(string sessionId) =>
         InvokeAsync(nameof(IAgentHub.JoinSessionAsync), sessionId);
@@ -221,6 +238,40 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
             _connection = null;
         }
         _http.Dispose();
+    }
+
+    private async Task<RegisteredCompanion> RegisterCompanionAsync(string coordinatorUrl, CancellationToken cancellationToken)
+    {
+        using var httpClient = new HttpClient
+        {
+            BaseAddress = new Uri($"{coordinatorUrl}/", UriKind.Absolute)
+        };
+
+        var request = new RegisterCompanionRequest
+        {
+            DisplayName = Environment.MachineName,
+            Platform = RuntimeInformation.OSDescription,
+            AppVersion = typeof(AgentDeckClient).Assembly.GetName().Version?.ToString()
+        };
+
+        using var response = await httpClient.PostAsJsonAsync("api/companions/register", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var companion = await response.Content.ReadFromJsonAsync<RegisteredCompanion>(cancellationToken: cancellationToken)
+            ?? throw new InvalidOperationException("Coordinator companion registration returned no payload.");
+        _logger.LogInformation("Registered coordinator companion identity {CompanionId}", companion.CompanionId);
+        return companion;
+    }
+
+    private static HttpClient CreateCoordinatorClient(string coordinatorUrl, string companionId)
+    {
+        var client = new HttpClient
+        {
+            BaseAddress = new Uri($"{coordinatorUrl}/", UriKind.Absolute)
+        };
+
+        client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeckHeaderNames.Companion, companionId);
+        client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeckHeaderNames.Actor, companionId);
+        return client;
     }
 
     private void SetState(HubConnectionState state)

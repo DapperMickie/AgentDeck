@@ -5,6 +5,12 @@ namespace AgentDeck.Shared.Hubs;
 /// <summary>Server-side SignalR hub contract for coordinator-brokered runner control.</summary>
 public interface ICoordinatorAgentHub
 {
+    /// <summary>Mark this companion as attached to the given machine through the coordinator.</summary>
+    Task AttachMachineAsync(string machineId);
+
+    /// <summary>Mark this companion as detached from the given machine through the coordinator.</summary>
+    Task DetachMachineAsync(string machineId);
+
     /// <summary>Subscribe this connection to output events from the given session.</summary>
     Task JoinSessionAsync(string sessionId);
 
