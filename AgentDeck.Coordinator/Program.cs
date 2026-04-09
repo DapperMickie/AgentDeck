@@ -1,7 +1,9 @@
 using AgentDeck.Coordinator.Configuration;
 using AgentDeck.Coordinator.Hubs;
 using AgentDeck.Coordinator.Services;
+using System.Runtime.ExceptionServices;
 using AgentDeck.Shared;
+using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,6 +23,7 @@ builder.Services.AddSingleton<IRunnerDefinitionCatalogService, RunnerDefinitionC
 builder.Services.AddSingleton<IWorkerRegistryService, WorkerRegistryService>();
 builder.Services.AddSingleton<ICompanionRegistryService, CompanionRegistryService>();
 builder.Services.AddSingleton<IProjectRegistryService, ProjectRegistryService>();
+builder.Services.AddSingleton<IProjectSessionRegistryService, ProjectSessionRegistryService>();
 builder.Services.AddSingleton<RunnerBrokerService>();
 builder.Services.AddSingleton<IRunnerBrokerService>(static services => services.GetRequiredService<RunnerBrokerService>());
 
@@ -53,10 +56,35 @@ app.MapGet("/api/projects/{projectId}", (string projectId, IProjectRegistryServi
         ? Results.Ok(project)
         : Results.NotFound());
 
-app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectId, string machineId, HttpContext httpContext, ICompanionRegistryService companions, IProjectRegistryService projects, IWorkerRegistryService registry, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapGet("/api/project-sessions", (string? projectId, IProjectSessionRegistryService sessions) =>
+    Results.Ok(sessions.GetSessions(projectId)));
+
+app.MapGet("/api/project-sessions/{projectSessionId}", (string projectSessionId, IProjectSessionRegistryService sessions) =>
+    sessions.GetSession(projectSessionId) is { } session
+        ? Results.Ok(session)
+        : Results.NotFound());
+
+app.MapPost("/api/project-sessions/{projectSessionId}/surfaces", (string projectSessionId, RegisterProjectSessionSurfaceRequest request, IProjectSessionRegistryService sessions) =>
 {
     try
     {
+        return Results.Ok(sessions.RegisterSurface(projectSessionId, request));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.NotFound(new { message = ex.Message });
+    }
+});
+
+app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectId, string machineId, HttpContext httpContext, ICompanionRegistryService companions, IProjectRegistryService projects, IProjectSessionRegistryService projectSessions, IWorkerRegistryService registry, IRunnerBrokerService runners, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var logger = loggerFactory.CreateLogger("ProjectOpenFlow");
         TrackMachineAttachment(httpContext, companions, machineId);
 
         var project = projects.GetProject(projectId);
@@ -103,7 +131,6 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             Name = $"{project.Name} ({machine.MachineName})",
             WorkingDirectory = openedWorkspace.ProjectPath
         }, cancellationToken);
-        var updatedProject = projects.UpsertWorkspace(projectId, workspaceMapping);
 
         var companionId = GetCompanionId(httpContext);
         if (!string.IsNullOrWhiteSpace(companionId))
@@ -111,14 +138,71 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             companions.AttachSession(companionId, session.Id);
         }
 
-        return Results.Ok(new OpenProjectOnMachineResult
+        var projectSession = projectSessions.CreateSession(
+            project.Id,
+            project.Name,
+            machine.MachineId,
+            machine.MachineName,
+            companionId);
+        try
         {
-            Project = updatedProject,
-            Workspace = workspaceMapping,
-            Session = session,
-            WorkspaceCreated = openedWorkspace.WorkspaceCreated,
-            RepositoryCloned = openedWorkspace.RepositoryCloned
-        });
+            projectSession = projectSessions.RegisterSurface(projectSession.Id, new RegisterProjectSessionSurfaceRequest
+            {
+                Kind = ProjectSessionSurfaceKind.Terminal,
+                DisplayName = session.Name,
+                MachineId = machine.MachineId,
+                MachineName = machine.MachineName,
+                ReferenceId = session.Id,
+                Status = ProjectSessionSurfaceStatus.Ready,
+                StatusMessage = $"Terminal ready in '{openedWorkspace.ProjectPath}'."
+            });
+            var updatedProject = projects.UpsertWorkspace(projectId, workspaceMapping);
+
+            return Results.Ok(new OpenProjectOnMachineResult
+            {
+                Project = updatedProject,
+                ProjectSession = projectSession,
+                Workspace = workspaceMapping,
+                Session = session,
+                WorkspaceCreated = openedWorkspace.WorkspaceCreated,
+                RepositoryCloned = openedWorkspace.RepositoryCloned
+            });
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                projectSessions.RemoveSession(projectSession.Id);
+            }
+            catch (Exception cleanupEx)
+            {
+                logger.LogWarning(cleanupEx, "Failed to remove project session {ProjectSessionId} during open-project cleanup", projectSession.Id);
+            }
+
+            if (!string.IsNullOrWhiteSpace(companionId))
+            {
+                try
+                {
+                    companions.DetachSession(companionId, session.Id);
+                }
+                catch (Exception cleanupEx)
+                {
+                    logger.LogWarning(cleanupEx, "Failed to detach companion {CompanionId} from session {SessionId} during open-project cleanup", companionId, session.Id);
+                }
+            }
+
+            try
+            {
+                await runners.CloseSessionAsync(session.Id, cancellationToken);
+            }
+            catch (Exception cleanupEx)
+            {
+                logger.LogWarning(cleanupEx, "Failed to close terminal session {SessionId} during open-project cleanup", session.Id);
+            }
+
+            ExceptionDispatchInfo.Capture(ex).Throw();
+            throw;
+        }
     }
     catch (ArgumentException ex)
     {
