@@ -11,6 +11,8 @@ public sealed class RegisteredRunnerMachine
     public required string AgentVersion { get; init; }
     public int ProtocolVersion { get; init; } = 1;
     public string? WorkflowCatalogVersion { get; init; }
+    public string? DesiredUpdateManifestId { get; init; }
+    public string? DesiredWorkflowPackId { get; init; }
     public string? RunnerUrl { get; init; }
     public DateTimeOffset RegisteredAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset LastSeenAt { get; init; } = DateTimeOffset.UtcNow;

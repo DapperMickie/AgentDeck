@@ -12,6 +12,7 @@ A lightweight ASP.NET Core service that:
 - Tracks registered runner agents
 - Exposes the coordinator-side machine directory
 - Declares desired runner version and protocol compatibility for connected workers
+- Publishes first-pass update manifests and workflow packs for connected workers
 
 ### Runner (`AgentDeck.Runner`)
 A cross-platform ASP.NET Core service that:
@@ -168,6 +169,12 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
 The runner's `Coordinator` section controls how a worker agent registers outward to the central coordinator API. `TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
 
 The coordinator heartbeat is now version-aware: workers report their agent version, protocol version, and workflow catalog version, and the coordinator responds with desired runner version plus compatibility metadata. This is the first foundation step toward self-updating lightweight agents and coordinator-owned workflow/install logic.
+
+The coordinator now also publishes first-pass runner definition contracts:
+- update manifests at `/api/runner-definitions/update-manifests/{manifestId}`
+- workflow packs at `/api/runner-definitions/workflow-packs/{packId}`
+
+The desired-state heartbeat can point to a specific update manifest and workflow pack so later slices can add real artifact download/apply behavior and workflow-pack execution without changing the protocol shape again.
 
 ---
 

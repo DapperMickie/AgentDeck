@@ -82,20 +82,21 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                     if (desiredState.UpdateAvailable)
                     {
                         _logger.LogInformation(
-                            "Coordinator {CoordinatorUrl} requested runner {MachineName} update from {CurrentVersion} to {DesiredVersion}",
+                            "Coordinator {CoordinatorUrl} requested runner {MachineName} update from {CurrentVersion} to {DesiredVersion} via manifest {ManifestId}",
                             coordinatorUrl,
                             request.MachineName,
                             request.AgentVersion,
-                            desiredState.DesiredRunnerVersion);
+                            desiredState.DesiredRunnerVersion,
+                            desiredState.DesiredUpdateManifest?.DefinitionId);
                     }
 
-                    if (!string.IsNullOrWhiteSpace(desiredState.WorkflowCatalogVersion) &&
-                        !string.Equals(desiredState.WorkflowCatalogVersion, request.WorkflowCatalogVersion, StringComparison.OrdinalIgnoreCase))
+                    if (desiredState.DesiredWorkflowPack is { } desiredWorkflowPack)
                     {
                         _logger.LogInformation(
-                            "Coordinator {CoordinatorUrl} assigned workflow catalog version {WorkflowCatalogVersion} to runner {MachineName}",
+                            "Coordinator {CoordinatorUrl} assigned workflow pack {WorkflowPackId}@{WorkflowPackVersion} to runner {MachineName}",
                             coordinatorUrl,
-                            desiredState.WorkflowCatalogVersion,
+                            desiredWorkflowPack.DefinitionId,
+                            desiredWorkflowPack.Version,
                             request.MachineName);
                     }
                 }
