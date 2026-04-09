@@ -30,13 +30,14 @@
             </div>
         </div>
 
-        <div class="machine-editor machine-editor--settings">
-            <div class="form-field">
-                <label for="coordinator-url">Coordinator URL</label>
-                <input id="coordinator-url" type="text" class="input" @bind="_settings.CoordinatorUrl"
-                       placeholder="http://localhost:5001" />
+            <div class="machine-editor machine-editor--settings">
+                <div class="form-field">
+                    <label for="coordinator-url">Coordinator URL</label>
+                    <input id="coordinator-url" type="text" class="input" @bind="_settings.CoordinatorUrl"
+                       placeholder="@GetCoordinatorUrlPlaceholder()" />
+                </div>
+                <p class="settings-card__description">Use a coordinator host or IP that is reachable from this client. Only use localhost when the API is actually running on this same device.</p>
             </div>
-        </div>
 
         <div class="settings-status-list">
             <div class="settings-status-row">
@@ -172,7 +173,7 @@
                     <div class="form-field">
                         <label for="runner-url">Runner URL</label>
                         <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
-                               placeholder="http://localhost:5000" />
+                               placeholder="@GetRunnerUrlPlaceholder()" />
                     </div>
 
                     <div class="form-field">
@@ -441,7 +442,7 @@
 </div>
 
 @code {
-    private ConnectionSettings _settings = ConnectionSettings.CreateDefault();
+    private ConnectionSettings _settings = new();
     private static readonly RunnerMachineRole[] _machineRoles =
         [RunnerMachineRole.Standalone, RunnerMachineRole.Worker];
     private bool _saving;
@@ -518,7 +519,7 @@
         {
             Name = name,
             Role = RunnerMachineRole.Standalone,
-            RunnerUrl = "http://localhost:5000",
+            RunnerUrl = string.Empty,
             AutoConnect = false
         };
 
@@ -631,7 +632,10 @@
     private static string FormatTargetSummary(MachineTargetSupport target) =>
         $"{target.DisplayName} ({target.Status})";
 
-    private static string GetHubUrl(RunnerMachineSettings machine) => $"{machine.RunnerUrl.TrimEnd('/')}/hubs/agent";
+    private static string GetHubUrl(RunnerMachineSettings machine) =>
+        string.IsNullOrWhiteSpace(machine.RunnerUrl)
+            ? "(runner URL not configured)"
+            : $"{machine.RunnerUrl.TrimEnd('/')}/hubs/agent";
 
     private Task RefreshMachineCapabilitiesIfPossibleAsync()
     {
@@ -651,6 +655,13 @@
 
         try
         {
+            if (string.IsNullOrWhiteSpace(_settings.CoordinatorUrl))
+            {
+                _registeredMachines = [];
+                _registeredMachinesErrorMessage = "Set a coordinator URL before refreshing the directory.";
+                return;
+            }
+
             _coordinatorReachable = await CoordinatorClient.CheckHealthAsync(_settings.CoordinatorUrl);
             if (!_coordinatorReachable)
             {
@@ -673,6 +684,10 @@
             _registeredMachinesBusy = false;
         }
     }
+
+    private static string GetCoordinatorUrlPlaceholder() => "https://coordinator-host:5001";
+
+    private static string GetRunnerUrlPlaceholder() => "https://runner-host:5000";
 
     private void ClearCoordinatorDirectory()
     {

@@ -285,6 +285,11 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
 
     private static string BuildHubUrl(string runnerUrl)
     {
+        if (string.IsNullOrWhiteSpace(runnerUrl))
+        {
+            throw new InvalidOperationException("Runner URL is not configured.");
+        }
+
         return $"{runnerUrl.TrimEnd('/')}/hubs/agent";
     }
 }

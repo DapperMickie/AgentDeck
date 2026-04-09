@@ -50,7 +50,7 @@ public sealed class AppInitializer
     public async Task InitializeAsync()
     {
         var settings = await _settingsService.LoadAsync();
-        foreach (var machine in settings.Machines.Where(machine => machine.AutoConnect))
+        foreach (var machine in settings.Machines.Where(machine => machine.AutoConnect && !string.IsNullOrWhiteSpace(machine.RunnerUrl)))
         {
             try
             {

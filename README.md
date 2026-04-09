@@ -73,6 +73,8 @@ The runner starts on `http://localhost:5000` by default. Use these environment v
 - `AGENTDECK_PORT` sets the HTTP port (defaults to `5000`)
 - `AGENTDECK_DEFAULT_SHELL` sets the default shell command
 
+The companion now starts with empty coordinator and runner URLs plus auto-connect disabled by default. Configure network-reachable endpoints explicitly instead of assuming `localhost`, which is only valid when the coordinator or runner is actually running on the same device as the client.
+
 ### Running the Runner in Docker (Linux)
 
 Build the image from the repository root:

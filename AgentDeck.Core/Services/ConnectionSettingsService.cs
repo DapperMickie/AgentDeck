@@ -56,7 +56,7 @@ public sealed class ConnectionSettingsService : IConnectionSettingsService
 
     private static ConnectionSettings CreateFromLegacy(LegacyConnectionSettings? legacy)
     {
-        var machine = ConnectionSettings.CreateLocalMachine();
+        var machine = ConnectionSettings.CreateMachineTemplate();
 
         if (legacy is not null)
         {

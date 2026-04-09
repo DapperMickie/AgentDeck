@@ -9,16 +9,16 @@ public sealed class RunnerMachineSettings
     public string Id { get; set; } = Guid.NewGuid().ToString("n");
 
     /// <summary>User-facing machine name.</summary>
-    public string Name { get; set; } = "Local machine";
+    public string Name { get; set; } = "Runner machine";
 
     /// <summary>Intended orchestration role for this machine profile.</summary>
     public RunnerMachineRole Role { get; set; } = RunnerMachineRole.Standalone;
 
     /// <summary>Base URL of the runner (e.g. http://192.168.1.5:5000).</summary>
-    public string RunnerUrl { get; set; } = "http://localhost:5000";
+    public string RunnerUrl { get; set; } = string.Empty;
 
     /// <summary>Whether this machine should connect automatically when the app starts.</summary>
-    public bool AutoConnect { get; set; } = true;
+    public bool AutoConnect { get; set; }
 
     public RunnerMachineSettings Clone()
     {
