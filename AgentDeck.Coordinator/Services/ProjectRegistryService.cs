@@ -110,18 +110,24 @@ public sealed class ProjectRegistryService : IProjectRegistryService
             ?? normalizedRouteProjectId;
         var template = ProjectTemplateCatalog.CreateDefault(project.Workload, projectName);
 
+        var normalizedWorkspaces = workspaces
+            .Select(NormalizeWorkspace)
+            .GroupBy(workspace => workspace.MachineId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())
+            .ToArray();
+
+        if (normalizedWorkspaces.Any(workspace => string.IsNullOrWhiteSpace(workspace.MachineId) || string.IsNullOrWhiteSpace(workspace.ProjectPath)))
+        {
+            throw new ArgumentException("Project workspaces must include non-empty machine IDs and project paths.", nameof(project));
+        }
+
         return new ProjectDefinition
         {
             Id = normalizedRouteProjectId,
             Name = projectName,
             Workload = project.Workload,
             Repository = NormalizeRepository(repository, projectName),
-            Workspaces = workspaces
-                .Select(NormalizeWorkspace)
-                .Where(workspace => !string.IsNullOrWhiteSpace(workspace.MachineId) && !string.IsNullOrWhiteSpace(workspace.ProjectPath))
-                .GroupBy(workspace => workspace.MachineId, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.Last())
-                .ToArray(),
+            Workspaces = normalizedWorkspaces,
             Targets = targets.Count > 0 ? NormalizeTargets(targets, project.Workload) : template.Targets,
             LaunchProfiles = launchProfiles.Count > 0 ? NormalizeLaunchProfiles(launchProfiles) : template.LaunchProfiles
         };
