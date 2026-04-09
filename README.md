@@ -135,6 +135,7 @@ Coordinator configuration (`AgentDeck.Coordinator/appsettings.json`):
     "MinimumSupportedProtocolVersion": 1,
     "MaximumSupportedProtocolVersion": 1,
     "WorkflowCatalogVersion": "1",
+    "ApplyStagedUpdate": false,
     "SecurityPolicy": {
       "PolicyVersion": "1",
       "AllowUpdateStaging": true,
@@ -172,6 +173,8 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
     "CoordinatorUrl": "http://localhost:5001",
     "ProtocolVersion": 1,
     "AllowInsecureHttpCoordinatorForLoopback": true,
+    "DownloadUpdatePayload": false,
+    "UpdateApplyProcessExitTimeout": "00:02:00",
     "TrustedManifestSigners": [
       {
         "SignerId": "agentdeck-dev",
@@ -192,7 +195,7 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
 
 The runner's `Coordinator` section controls how a worker agent registers outward to the central coordinator API. `AllowInsecureHttpCoordinatorForLoopback` keeps plain HTTP available for local development only; non-loopback coordinators must use HTTPS. `TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
 
-The coordinator heartbeat is now version-aware: workers report their agent version, protocol version, and workflow catalog version, and the coordinator responds with desired runner version plus compatibility metadata. The desired state now also carries an explicit control-plane security policy so update staging and future workflow execution build on declared trust rules instead of implied behavior.
+The coordinator heartbeat is now version-aware: workers report their agent version, protocol version, and workflow catalog version, and the coordinator responds with desired runner version plus compatibility metadata. The desired state now also carries an explicit control-plane security policy so update staging, trusted manifest verification, and future workflow execution build on declared trust rules instead of implied behavior.
 
 The coordinator now also publishes first-pass runner definition contracts:
 - update manifests at `/api/runner-definitions/update-manifests/{manifestId}`
@@ -200,7 +203,7 @@ The coordinator now also publishes first-pass runner definition contracts:
 
 The desired-state heartbeat can point to a specific update manifest and workflow pack so later slices can add real artifact download/apply behavior and workflow-pack execution without changing the protocol shape again.
 
-Runner update staging is now a separate first-pass flow: workers can persist staged update metadata for an assigned manifest, and optionally download the referenced payload when `Coordinator:DownloadUpdatePayload` is enabled. The runner reports structured staging state back through its coordinator heartbeat so the control plane can distinguish between update-available, staged, and failed states.
+Runner update staging is now a separate first-pass flow: workers can persist staged update metadata for an assigned manifest, and optionally download the referenced payload when `Coordinator:DownloadUpdatePayload` is enabled. When `Coordinator:ApplyStagedUpdate` is also enabled and policy allows apply, the runner launches a detached helper that waits for the current process to exit, extracts the trusted staged zip into a candidate install directory, preserves local `appsettings*.json`, and restarts from that candidate install. The runner reports structured update state back through its coordinator heartbeat so the control plane can distinguish between update-available, staged, applying, applied, and failed states.
 
 ### Control-plane security model
 
@@ -211,6 +214,7 @@ Runner update staging is now a separate first-pass flow: workers can persist sta
 - When `SecurityPolicy.RequireUpdateArtifactChecksum` is enabled, coordinators must publish a `Sha256` value and runners verify it before promoting a downloaded payload from temp storage into the staged artifact path.
 - When `SecurityPolicy.RequireManifestProvenance` is enabled, manifests must also include source repository/revision provenance metadata.
 - When `SecurityPolicy.RequireSignedUpdateManifest` is enabled, manifests must include an RSA-SHA256 detached signature whose signer ID appears in the policy and whose public key is trusted by the runner.
+- `Coordinator:ApplyStagedUpdate` stays off by default. The current apply flow only supports trusted `.zip` payloads and restarts into a candidate install directory rather than replacing the original install in place.
 - The checked-in coordinator manifest values and dev signer are placeholders for development shape only. Before enabling payload downloads in a real environment, replace the example coordinator-hosted artifact URL, checksum, provenance, and signer material with real published artifact metadata.
 
 ---

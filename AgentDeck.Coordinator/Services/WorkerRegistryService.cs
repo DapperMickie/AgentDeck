@@ -189,6 +189,9 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             },
             WorkflowCatalogVersion = workflowCatalogVersion,
             UpdateAvailable = !string.Equals(normalizedAgentVersion, desiredVersion, StringComparison.OrdinalIgnoreCase),
+            ApplyUpdate = (_coordinatorOptions.SecurityPolicy?.AllowUpdateApply ?? false) &&
+                _coordinatorOptions.ApplyStagedUpdate &&
+                !string.Equals(normalizedAgentVersion, desiredVersion, StringComparison.OrdinalIgnoreCase),
             ProtocolCompatible = protocolCompatible,
             StatusMessage = protocolCompatible
                 ? null

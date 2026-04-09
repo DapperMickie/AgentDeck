@@ -11,5 +11,8 @@ public sealed class RunnerUpdateStatus
     public string? StagingDirectory { get; init; }
     public string? StagedArtifactPath { get; init; }
     public DateTimeOffset? StagedAt { get; init; }
+    public string? AppliedInstallDirectory { get; init; }
+    public DateTimeOffset? ApplyStartedAt { get; init; }
+    public DateTimeOffset? AppliedAt { get; init; }
     public string? FailureMessage { get; init; }
 }
