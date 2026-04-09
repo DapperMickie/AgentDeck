@@ -107,58 +107,74 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Project launch templates</h2>
-                        <p>Shared project models that the companion can drive through the coordinator-backed control plane.</p>
+                        <h2>Projects</h2>
+                        <p>Coordinator-managed projects and workspace mappings that the companion can drive through the control plane.</p>
                     </div>
                 </div>
 
-                <div class="project-template-grid">
-                    @foreach (var project in _dashboard.Projects)
-                    {
-                        <article class="project-template-card">
-                            <div class="project-template-card__header">
-                                <div>
-                                    <h3>@project.Definition.Name</h3>
-                                    <p>@project.Definition.Workload</p>
+                @if (_dashboard.Projects.Count == 0)
+                {
+                    <p>No coordinator-managed projects are registered yet.</p>
+                }
+                else
+                {
+                    <div class="project-template-grid">
+                        @foreach (var project in _dashboard.Projects)
+                        {
+                            <article class="project-template-card">
+                                <div class="project-template-card__header">
+                                    <div>
+                                        <h3>@project.Definition.Name</h3>
+                                        <p>@project.Definition.Workload</p>
+                                    </div>
+                                    <span class="machine-badge">@project.Targets.Count targets</span>
                                 </div>
-                                <span class="machine-badge">@project.Targets.Count targets</span>
-                            </div>
-                            <div class="project-template-card__targets">
-                                @foreach (var target in project.Targets)
+                                <p class="project-template-target__note">
+                                    Repo @GetRepositoryLabel(project.Definition)
+                                </p>
+                                @if (project.Definition.Workspaces.Count > 0)
                                 {
-                                    <div class="project-template-target">
-                                        <div class="project-template-target__header">
-                                            <strong>@target.DisplayName</strong>
-                                            <span class="project-template-target__status">
-                                                @GetTargetAvailabilityLabel(target)
-                                            </span>
-                                        </div>
-                                        <div class="project-template-target__profiles">
-                                            @foreach (var profile in target.LaunchProfiles)
-                                            {
-                                                <span class="project-template-profile">
-                                                    @profile.DisplayName
+                                    <p class="project-template-target__note">
+                                        Workspaces on @string.Join(", ", project.Definition.Workspaces.Select(workspace => workspace.MachineName ?? workspace.MachineId))
+                                    </p>
+                                }
+                                <div class="project-template-card__targets">
+                                    @foreach (var target in project.Targets)
+                                    {
+                                        <div class="project-template-target">
+                                            <div class="project-template-target__header">
+                                                <strong>@target.DisplayName</strong>
+                                                <span class="project-template-target__status">
+                                                    @GetTargetAvailabilityLabel(target)
                                                 </span>
+                                            </div>
+                                            <div class="project-template-target__profiles">
+                                                @foreach (var profile in target.LaunchProfiles)
+                                                {
+                                                    <span class="project-template-profile">
+                                                        @profile.DisplayName
+                                                    </span>
+                                                }
+                                            </div>
+                                            @if (target.ReadyMachineNames.Count > 0)
+                                            {
+                                                <p class="project-template-target__note">Ready on @string.Join(", ", target.ReadyMachineNames)</p>
+                                            }
+                                            else if (target.SetupRequiredMachineNames.Count > 0)
+                                            {
+                                                <p class="project-template-target__note">Needs setup on @string.Join(", ", target.SetupRequiredMachineNames)</p>
+                                            }
+                                            else
+                                            {
+                                                <p class="project-template-target__note">No discovered machine is ready for this target yet.</p>
                                             }
                                         </div>
-                                        @if (target.ReadyMachineNames.Count > 0)
-                                        {
-                                            <p class="project-template-target__note">Ready on @string.Join(", ", target.ReadyMachineNames)</p>
-                                        }
-                                        else if (target.SetupRequiredMachineNames.Count > 0)
-                                        {
-                                            <p class="project-template-target__note">Needs setup on @string.Join(", ", target.SetupRequiredMachineNames)</p>
-                                        }
-                                        else
-                                        {
-                                            <p class="project-template-target__note">No discovered machine is ready for this target yet.</p>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        </article>
-                    }
-                </div>
+                                    }
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
             </section>
 
             <section class="dashboard-section-card">
@@ -436,6 +452,16 @@
         }
 
         return target.SetupRequiredMachineNames.Count > 0 ? "Needs setup" : "Unavailable";
+    }
+
+    private static string GetRepositoryLabel(ProjectDefinition project)
+    {
+        var owner = string.IsNullOrWhiteSpace(project.Repository.Owner)
+            ? null
+            : project.Repository.Owner;
+        return owner is null
+            ? $"{project.Repository.Name} ({project.Repository.DefaultBranch})"
+            : $"{owner}/{project.Repository.Name} ({project.Repository.DefaultBranch})";
     }
 
     public async ValueTask DisposeAsync()

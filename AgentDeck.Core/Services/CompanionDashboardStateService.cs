@@ -31,6 +31,7 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
         var coordinatorReachable = false;
         string? coordinatorError = null;
         IReadOnlyList<RegisteredRunnerMachine> registeredMachines = [];
+        IReadOnlyList<ProjectDefinition> projects = [];
 
         if (coordinatorConfigured)
         {
@@ -40,6 +41,7 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                 if (coordinatorReachable)
                 {
                     registeredMachines = await _coordinator.GetMachinesAsync(settings.CoordinatorUrl, cancellationToken);
+                    projects = await _coordinator.GetProjectsAsync(settings.CoordinatorUrl, cancellationToken);
                 }
                 else
                 {
@@ -81,8 +83,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
             })
             .ToArray();
 
-        var projects = CreateProjectSummaries(machines);
-        var viewerSurfaces = CreateViewerSurfaces(projects);
+        var projectSummaries = CreateProjectSummaries(projects, machines);
+        var viewerSurfaces = CreateViewerSurfaces(projectSummaries);
 
         return new CompanionDashboardState
         {
@@ -91,21 +93,18 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
             CoordinatorReachable = coordinatorReachable,
             CoordinatorErrorMessage = coordinatorError,
             Machines = machines,
-            Projects = projects,
+            Projects = projectSummaries,
             ViewerSurfaces = viewerSurfaces,
             ActiveSessions = _sessions.Sessions
         };
     }
 
-    private static IReadOnlyList<CompanionProjectSummary> CreateProjectSummaries(IReadOnlyList<CompanionMachineSummary> machines)
+    private static IReadOnlyList<CompanionProjectSummary> CreateProjectSummaries(
+        IReadOnlyList<ProjectDefinition> definitions,
+        IReadOnlyList<CompanionMachineSummary> machines)
     {
-        var definitions = new[]
-        {
-            ProjectTemplateCatalog.CreateDefault(ProjectWorkloadKind.Maui, "Cross-platform MAUI app"),
-            ProjectTemplateCatalog.CreateDefault(ProjectWorkloadKind.Blazor, "Blazor app")
-        };
-
         return definitions
+            .OrderBy(definition => definition.Name, StringComparer.OrdinalIgnoreCase)
             .Select(definition => new CompanionProjectSummary
             {
                 Definition = definition,

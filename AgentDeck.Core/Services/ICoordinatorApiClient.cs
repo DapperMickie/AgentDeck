@@ -8,4 +8,6 @@ public interface ICoordinatorApiClient
     Task<bool> CheckHealthAsync(string coordinatorUrl, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<RegisteredRunnerMachine>> GetMachinesAsync(string coordinatorUrl, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProjectDefinition>> GetProjectsAsync(string coordinatorUrl, CancellationToken cancellationToken = default);
 }

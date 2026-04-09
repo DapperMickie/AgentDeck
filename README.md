@@ -262,6 +262,8 @@ The companion now treats the coordinator as its only network endpoint for live t
 
 Shared orchestration contracts now also include repository/project metadata, per-machine workspace mappings, supported targets, and default run/debug launch profiles so later coordinator work can build on a stable project model instead of raw terminal sessions alone.
 
+The coordinator now also exposes a first-pass project registry at `/api/projects`, with project records stored independently from terminals and enriched with per-machine workspace mappings. The companion dashboard now reads those coordinator-managed project records instead of inventing generic MAUI/Blazor placeholder projects locally.
+
 The runner also now exposes a first-pass orchestration job API, separate from terminal sessions, so coordinator-managed run/debug work can be queued, tracked by lifecycle status, associated with a target machine, and enriched with step/log data before full cross-machine dispatch is implemented.
 
 That orchestration layer now has real local execution paths for both direct-command run jobs and the first VS Code-backed debug jobs. Direct-command jobs build and launch on the runner, stream PTY output into job logs, and let cancellation stop the underlying process.

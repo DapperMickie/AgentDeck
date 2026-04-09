@@ -20,6 +20,7 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<IRunnerDefinitionCatalogService, RunnerDefinitionCatalogService>();
 builder.Services.AddSingleton<IWorkerRegistryService, WorkerRegistryService>();
 builder.Services.AddSingleton<ICompanionRegistryService, CompanionRegistryService>();
+builder.Services.AddSingleton<IProjectRegistryService, ProjectRegistryService>();
 builder.Services.AddSingleton<RunnerBrokerService>();
 builder.Services.AddSingleton<IRunnerBrokerService>(static services => services.GetRequiredService<RunnerBrokerService>());
 
@@ -43,6 +44,50 @@ app.MapGet("/api/companions/{companionId}", (string companionId, ICompanionRegis
     companions.GetCompanion(companionId) is { } companion
         ? Results.Ok(companion)
         : Results.NotFound());
+
+app.MapGet("/api/projects", (IProjectRegistryService projects) =>
+    Results.Ok(projects.GetProjects()));
+
+app.MapGet("/api/projects/{projectId}", (string projectId, IProjectRegistryService projects) =>
+    projects.GetProject(projectId) is { } project
+        ? Results.Ok(project)
+        : Results.NotFound());
+
+app.MapPut("/api/projects/{projectId}", (string projectId, ProjectDefinition project, IProjectRegistryService projects) =>
+{
+    try
+    {
+        return Results.Ok(projects.UpsertProject(projectId, project));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+});
+
+app.MapPut("/api/projects/{projectId}/workspaces/{machineId}", (string projectId, string machineId, ProjectWorkspaceMapping workspace, IProjectRegistryService projects) =>
+{
+    try
+    {
+        var request = new ProjectWorkspaceMapping
+        {
+            MachineId = string.IsNullOrWhiteSpace(workspace.MachineId) ? machineId : workspace.MachineId,
+            MachineName = workspace.MachineName,
+            ProjectPath = workspace.ProjectPath,
+            IsPrimary = workspace.IsPrimary
+        };
+
+        return Results.Ok(projects.UpsertWorkspace(projectId, request));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.NotFound(new { message = ex.Message });
+    }
+});
 
 app.MapGet("/api/machines", async (IWorkerRegistryService registry, CancellationToken cancellationToken) =>
     Results.Ok(await registry.GetMachinesAsync(cancellationToken)));
