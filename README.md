@@ -276,7 +276,7 @@ The runner now also exposes a remote viewer API with provider capabilities and v
 
 Window-, emulator-, simulator-, and VS Code-targeted viewer sessions still remain additive modeling layers above the transport. They keep their distinct target metadata, but this slice still only boots a transport for full-desktop sessions; focused capture for those narrower surfaces remains follow-up work on top of the managed helper seam.
 
-The shared model now also includes first-pass virtual device catalogs for Android emulators and Apple simulators, plus launch-selection contracts that can be attached to orchestration jobs. The runner exposes `/api/virtual-devices/catalogs` and `/api/virtual-devices/resolve`, and the catalog endpoint now performs real runner-side discovery where Android emulator or Apple simulator tooling is available.
+The shared model now also includes first-pass virtual device catalogs for Android emulators and Apple simulators, plus launch-selection contracts that can be attached to orchestration jobs. The runner exposes `/api/virtual-devices/catalogs` and `/api/virtual-devices/resolve`, and the catalog endpoint now performs real runner-side discovery where Android emulator or Apple simulator tooling is available. Runner capability snapshots also use those catalogs to advertise Android and iOS as distinct coordinator-visible target-readiness entries, including which device catalog backs later selection flows.
 
 ### Machine Capabilities
 
