@@ -14,6 +14,10 @@ public sealed class CoordinatorOptions
 
     public string WorkflowCatalogVersion { get; set; } = "1";
 
+    public CoordinatorUpdateManifestOptions DesiredUpdateManifest { get; set; } = new();
+
+    public CoordinatorWorkflowPackOptions DesiredWorkflowPack { get; set; } = new();
+
     public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 
     public TimeSpan WorkerExpiry { get; set; } = TimeSpan.FromSeconds(45);

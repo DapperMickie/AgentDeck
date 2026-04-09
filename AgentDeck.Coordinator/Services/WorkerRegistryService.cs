@@ -12,14 +12,17 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
 
     private readonly Lock _lock = new();
     private readonly CoordinatorOptions _coordinatorOptions;
+    private readonly IRunnerDefinitionCatalogService _definitions;
     private readonly TimeProvider _timeProvider;
     private readonly ConcurrentDictionary<string, WorkerEntry> _workers = new(StringComparer.OrdinalIgnoreCase);
 
     public WorkerRegistryService(
         IOptions<CoordinatorOptions> coordinatorOptions,
+        IRunnerDefinitionCatalogService definitions,
         TimeProvider timeProvider)
     {
         _coordinatorOptions = coordinatorOptions.Value;
+        _definitions = definitions;
         _timeProvider = timeProvider;
     }
 
@@ -55,6 +58,8 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 AgentVersion = Normalize(request.AgentVersion),
                 ProtocolVersion = request.ProtocolVersion,
                 WorkflowCatalogVersion = NormalizeOptional(request.WorkflowCatalogVersion),
+                DesiredUpdateManifestId = desiredState.DesiredUpdateManifest?.DefinitionId,
+                DesiredWorkflowPackId = desiredState.DesiredWorkflowPack?.DefinitionId,
                 RunnerUrl = string.IsNullOrWhiteSpace(request.RunnerUrl) ? null : request.RunnerUrl.Trim(),
                 RegisteredAt = existing?.RegisteredAt ?? now,
                 LastSeenAt = now,
@@ -109,6 +114,8 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                     AgentVersion = machine.AgentVersion,
                     ProtocolVersion = machine.ProtocolVersion,
                     WorkflowCatalogVersion = machine.WorkflowCatalogVersion,
+                    DesiredUpdateManifestId = machine.DesiredUpdateManifestId,
+                    DesiredWorkflowPackId = machine.DesiredWorkflowPackId,
                     RunnerUrl = machine.RunnerUrl,
                     RegisteredAt = machine.RegisteredAt,
                     LastSeenAt = machine.LastSeenAt,
@@ -136,7 +143,11 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
     private RunnerDesiredState BuildDesiredState(string agentVersion, int protocolVersion)
     {
         var normalizedAgentVersion = Normalize(agentVersion);
-        var desiredVersion = NormalizeOptional(_coordinatorOptions.DesiredRunnerVersion) ?? normalizedAgentVersion;
+        var desiredManifest = _definitions.GetDesiredUpdateManifest();
+        var desiredWorkflowPack = _definitions.GetDesiredWorkflowPack();
+        var desiredVersion = NormalizeOptional(_coordinatorOptions.DesiredRunnerVersion)
+            ?? NormalizeOptional(desiredManifest.Version)
+            ?? normalizedAgentVersion;
         var workflowCatalogVersion = NormalizeOptional(_coordinatorOptions.WorkflowCatalogVersion);
         var protocolCompatible = protocolVersion >= _coordinatorOptions.MinimumSupportedProtocolVersion &&
                                  protocolVersion <= _coordinatorOptions.MaximumSupportedProtocolVersion;
@@ -146,6 +157,16 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             MinimumSupportedProtocolVersion = _coordinatorOptions.MinimumSupportedProtocolVersion,
             MaximumSupportedProtocolVersion = _coordinatorOptions.MaximumSupportedProtocolVersion,
             DesiredRunnerVersion = desiredVersion,
+            DesiredUpdateManifest = new RunnerDefinitionReference
+            {
+                DefinitionId = desiredManifest.ManifestId,
+                Version = desiredManifest.Version
+            },
+            DesiredWorkflowPack = new RunnerDefinitionReference
+            {
+                DefinitionId = desiredWorkflowPack.PackId,
+                Version = desiredWorkflowPack.Version
+            },
             WorkflowCatalogVersion = workflowCatalogVersion,
             UpdateAvailable = !string.Equals(normalizedAgentVersion, desiredVersion, StringComparison.OrdinalIgnoreCase),
             ProtocolCompatible = protocolCompatible,
