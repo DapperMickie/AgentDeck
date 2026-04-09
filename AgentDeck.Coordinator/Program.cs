@@ -80,6 +80,72 @@ app.MapPost("/api/project-sessions/{projectSessionId}/surfaces", (string project
     }
 });
 
+app.MapPost("/api/project-sessions/{projectSessionId}/attachments", (string projectSessionId, HttpContext httpContext, IProjectSessionRegistryService sessions) =>
+{
+    var companionId = GetCompanionId(httpContext);
+    if (string.IsNullOrWhiteSpace(companionId))
+    {
+        return Results.BadRequest(new { message = "Coordinator companion identity is required to attach to a project session." });
+    }
+
+    try
+    {
+        return Results.Ok(sessions.AttachCompanion(projectSessionId, companionId, viewerOnly: true));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.NotFound(new { message = ex.Message });
+    }
+});
+
+app.MapPost("/api/project-sessions/{projectSessionId}/detach", (string projectSessionId, HttpContext httpContext, IProjectSessionRegistryService sessions) =>
+{
+    var companionId = GetCompanionId(httpContext);
+    if (string.IsNullOrWhiteSpace(companionId))
+    {
+        return Results.BadRequest(new { message = "Coordinator companion identity is required to detach from a project session." });
+    }
+
+    try
+    {
+        return Results.Ok(sessions.DetachCompanion(projectSessionId, companionId));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.NotFound(new { message = ex.Message });
+    }
+});
+
+app.MapPost("/api/project-sessions/{projectSessionId}/control", (string projectSessionId, UpdateProjectSessionControlRequest? request, HttpContext httpContext, IProjectSessionRegistryService sessions) =>
+{
+    var companionId = GetCompanionId(httpContext);
+    if (string.IsNullOrWhiteSpace(companionId))
+    {
+        return Results.BadRequest(new { message = "Coordinator companion identity is required to update project session control." });
+    }
+
+    try
+    {
+        return Results.Ok(sessions.UpdateControl(projectSessionId, companionId, (request ?? new UpdateProjectSessionControlRequest()).Mode));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Conflict(new { message = ex.Message });
+    }
+});
+
 app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectId, string machineId, HttpContext httpContext, ICompanionRegistryService companions, IProjectRegistryService projects, IProjectSessionRegistryService projectSessions, IWorkerRegistryService registry, IRunnerBrokerService runners, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
 {
     try

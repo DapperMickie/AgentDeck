@@ -1,9 +1,12 @@
 @page "/project-sessions/{ProjectSessionId}"
 @inject ICompanionDashboardStateService DashboardState
+@inject ICoordinatorApiClient CoordinatorClient
+@inject IConnectionSettingsService SettingsService
 @inject ISessionStateService SessionState
 @inject IActiveSessionService ActiveSession
 @inject IAgentDeckClient AgentClient
-@implements IDisposable
+@inject IToastService Toasts
+@implements IAsyncDisposable
 
 <div class="project-page">
     @if (_loading)
@@ -30,13 +33,18 @@
         <div class="page-header project-page__header">
             <div>
                 <h1>@_projectSession.ProjectName</h1>
-                <p>@GetControllerStateLabel() • @GetLocationLabel()</p>
+                <p>@GetControllerStateLabel() • @GetViewerSummary() • @GetLocationLabel()</p>
             </div>
             <div class="project-page__actions">
                 <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Project</a>
-                @if (!IsController())
+                @if (IsController())
                 {
-                    <button class="btn btn-accent" disabled title="Coordinator control handoff will land with issue #156.">Take control</button>
+                    <button class="btn btn-accent" @onclick="YieldControlAsync">Yield control</button>
+                }
+                else
+                {
+                    <button class="btn btn-accent" @onclick="RequestControlAsync">Request control</button>
+                    <button class="btn btn-danger" @onclick="ForceTakeoverAsync">Force take over</button>
                 }
             </div>
         </div>
@@ -118,6 +126,8 @@
     private TerminalSession? _attachedTerminalSession;
     private string? _activeSurfaceId;
     private bool _loading = true;
+    private string? _coordinatorUrl;
+    private string? _attachedSessionId;
 
     protected override void OnInitialized()
     {
@@ -129,6 +139,20 @@
         _loading = true;
         try
         {
+            var settings = await SettingsService.LoadAsync();
+            _coordinatorUrl = settings.CoordinatorUrl;
+            if (!string.IsNullOrWhiteSpace(_coordinatorUrl) &&
+                !string.Equals(_attachedSessionId, ProjectSessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(_attachedSessionId))
+                {
+                    await CoordinatorClient.DetachProjectSessionAsync(_coordinatorUrl, _attachedSessionId);
+                }
+
+                await CoordinatorClient.AttachProjectSessionAsync(_coordinatorUrl, ProjectSessionId);
+                _attachedSessionId = ProjectSessionId;
+            }
+
             var dashboard = await DashboardState.BuildAsync();
             _projectSession = dashboard.ProjectSessions.FirstOrDefault(session =>
                 string.Equals(session.Id, ProjectSessionId, StringComparison.OrdinalIgnoreCase));
@@ -197,6 +221,18 @@
             : $"View-only while {_projectSession.CompanionId} controls this session";
     }
 
+    private string GetViewerSummary()
+    {
+        if (_projectSession is null)
+        {
+            return "No viewers";
+        }
+
+        return _projectSession.ViewerCompanionIds.Count == 1
+            ? "1 viewer attached"
+            : $"{_projectSession.ViewerCompanionIds.Count} viewers attached";
+    }
+
     private string GetLocationLabel() =>
         string.IsNullOrWhiteSpace(_projectSession?.MachineName)
             ? "Coordinator-managed session"
@@ -228,8 +264,56 @@
         InvokeAsync(StateHasChanged);
     }
 
-    public void Dispose()
+    private async Task RequestControlAsync() =>
+        await UpdateControlAsync(ProjectSessionControlRequestMode.Request);
+
+    private async Task ForceTakeoverAsync() =>
+        await UpdateControlAsync(ProjectSessionControlRequestMode.ForceTakeover);
+
+    private async Task YieldControlAsync() =>
+        await UpdateControlAsync(ProjectSessionControlRequestMode.Yield);
+
+    private async Task UpdateControlAsync(ProjectSessionControlRequestMode mode)
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl) || _projectSession is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await CoordinatorClient.UpdateProjectSessionControlAsync(_coordinatorUrl, _projectSession.Id, new UpdateProjectSessionControlRequest
+            {
+                Mode = mode
+            });
+            var dashboard = await DashboardState.BuildAsync();
+            _projectSession = dashboard.ProjectSessions.FirstOrDefault(session =>
+                string.Equals(session.Id, ProjectSessionId, StringComparison.OrdinalIgnoreCase));
+            SyncActiveSurface();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
     {
         SessionState.SessionsChanged -= OnSessionsChanged;
+        if (!string.IsNullOrWhiteSpace(_attachedSessionId) && !string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            try
+            {
+                await CoordinatorClient.DetachProjectSessionAsync(_coordinatorUrl, _attachedSessionId);
+            }
+            catch
+            {
+                // Best-effort detach; disconnect cleanup also clears attachments.
+            }
+        }
     }
 }
