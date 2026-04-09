@@ -140,6 +140,14 @@ Coordinator configuration (`AgentDeck.Coordinator/appsettings.json`):
       "AllowUpdateStaging": true,
       "RequireCoordinatorOriginForArtifacts": true,
       "RequireUpdateArtifactChecksum": true,
+      "RequireSignedUpdateManifest": true,
+      "RequireManifestProvenance": true,
+      "TrustedManifestSigners": [
+        {
+          "SignerId": "agentdeck-dev",
+          "PublicKeyPem": "-----BEGIN PUBLIC KEY-----\\n...\\n-----END PUBLIC KEY-----"
+        }
+      ],
       "AllowWorkflowPackExecution": false,
       "AllowUpdateApply": false
     },
@@ -164,6 +172,12 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
     "CoordinatorUrl": "http://localhost:5001",
     "ProtocolVersion": 1,
     "AllowInsecureHttpCoordinatorForLoopback": true,
+    "TrustedManifestSigners": [
+      {
+        "SignerId": "agentdeck-dev",
+        "PublicKeyPem": "-----BEGIN PUBLIC KEY-----\\n...\\n-----END PUBLIC KEY-----"
+      }
+    ],
     "AdvertisedRunnerUrl": "http://worker-host:5000",
     "WorkerHeartbeatInterval": "00:00:15"
   },
@@ -191,11 +205,13 @@ Runner update staging is now a separate first-pass flow: workers can persist sta
 ### Control-plane security model
 
 - Runners only accept a non-HTTPS coordinator URL when it targets loopback and `Coordinator:AllowInsecureHttpCoordinatorForLoopback` is enabled for local development.
-- Coordinators now declare a versioned `SecurityPolicy` in runner desired state, covering whether update staging is allowed, whether artifacts must stay on coordinator origin, whether update payloads require checksums, and whether workflow execution or update apply are currently enabled.
+- Coordinators now declare a versioned `SecurityPolicy` in runner desired state, covering whether update staging is allowed, whether artifacts must stay on coordinator origin, whether update payloads require checksums, whether manifest provenance/signatures are required, which signer IDs are trusted, and whether workflow execution or update apply are currently enabled.
 - The default policy keeps workflow execution and self-update apply disabled. Current slices only permit **staging**.
 - When `SecurityPolicy.RequireCoordinatorOriginForArtifacts` is enabled, update manifests must point at the coordinator origin defined by `Coordinator:PublicBaseUrl`, and runners enforce that same-origin rule before downloading payloads.
 - When `SecurityPolicy.RequireUpdateArtifactChecksum` is enabled, coordinators must publish a `Sha256` value and runners verify it before promoting a downloaded payload from temp storage into the staged artifact path.
-- The checked-in coordinator manifest values are placeholders for development shape only. Before enabling payload downloads in a real environment, replace the example coordinator-hosted artifact URL and checksum with a real published artifact.
+- When `SecurityPolicy.RequireManifestProvenance` is enabled, manifests must also include source repository/revision provenance metadata.
+- When `SecurityPolicy.RequireSignedUpdateManifest` is enabled, manifests must include an RSA-SHA256 detached signature whose signer ID appears in the policy and whose public key is trusted by the runner.
+- The checked-in coordinator manifest values and dev signer are placeholders for development shape only. Before enabling payload downloads in a real environment, replace the example coordinator-hosted artifact URL, checksum, provenance, and signer material with real published artifact metadata.
 
 ---
 

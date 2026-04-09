@@ -114,6 +114,45 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
                     }, cancellationToken);
                 }
 
+                if ((desiredState.SecurityPolicy.RequireManifestProvenance || manifest.Provenance is not null) &&
+                    !RunnerUpdateManifestSigning.HasRequiredProvenance(manifest, out var provenanceError))
+                {
+                    throw new InvalidOperationException(provenanceError);
+                }
+
+                if (desiredState.SecurityPolicy.RequireSignedUpdateManifest || manifest.Signature is not null)
+                {
+                    if (manifest.Signature is null)
+                    {
+                        throw new InvalidOperationException("Coordinator update manifest did not include a signature.");
+                    }
+
+                    if (desiredState.SecurityPolicy.TrustedManifestSignerIds.Count == 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not declare any trusted manifest signer ids.");
+                    }
+
+                    if (!desiredState.SecurityPolicy.TrustedManifestSignerIds.Contains(manifest.Signature.SignerId, StringComparer.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException(
+                            $"Coordinator update manifest signer '{manifest.Signature.SignerId}' is not trusted by security policy {desiredState.SecurityPolicy.PolicyVersion}.");
+                    }
+
+                    var signer = _options.TrustedManifestSigners
+                        .FirstOrDefault(candidate => string.Equals(candidate.SignerId, manifest.Signature.SignerId, StringComparison.OrdinalIgnoreCase));
+                    if (signer is null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Runner does not have a trusted public key configured for manifest signer '{manifest.Signature.SignerId}'.");
+                    }
+
+                    if (!RunnerUpdateManifestSigning.VerifySignature(manifest, signer.PublicKeyPem, out var signatureError))
+                    {
+                        throw new InvalidOperationException(signatureError);
+                    }
+                }
+
                 var stagingDirectory = GetStagingDirectory(manifest);
                 Directory.CreateDirectory(stagingDirectory);
 

@@ -1,3 +1,5 @@
+using AgentDeck.Shared.Models;
+
 namespace AgentDeck.Runner.Configuration;
 
 /// <summary>Configuration for registering a runner outward to the central coordinator API.</summary>
@@ -28,6 +30,9 @@ public sealed class WorkerCoordinatorOptions
 
     /// <summary>Allow plain HTTP only when the configured coordinator resolves to a loopback host.</summary>
     public bool AllowInsecureHttpCoordinatorForLoopback { get; set; } = true;
+
+    /// <summary>Trusted public keys used to verify signed update manifests.</summary>
+    public IReadOnlyList<RunnerTrustedManifestSigner> TrustedManifestSigners { get; set; } = [];
 
     /// <summary>Default interval workers use when refreshing coordinator registration.</summary>
     public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
