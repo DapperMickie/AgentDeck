@@ -48,6 +48,20 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         }
     }
 
+    public async Task<IReadOnlyList<ProjectDefinition>> GetProjectsAsync(string coordinatorUrl, CancellationToken cancellationToken = default)
+    {
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            return await httpClient.GetFromJsonAsync<IReadOnlyList<ProjectDefinition>>("api/projects", cancellationToken) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator project lookup failed for {CoordinatorUrl}", coordinatorUrl);
+            throw;
+        }
+    }
+
     private HttpClient CreateClient(string coordinatorUrl)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(coordinatorUrl);
