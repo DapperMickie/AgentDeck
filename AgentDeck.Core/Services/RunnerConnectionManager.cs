@@ -6,20 +6,63 @@ namespace AgentDeck.Core.Services;
 /// <inheritdoc />
 public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDisposable
 {
-    private sealed class MachineEntry
-    {
-        public required RunnerMachineSettings Machine { get; set; }
-        public required IAgentDeckClient Client { get; init; }
-    }
-
     private readonly Lock _lock = new();
-    private readonly IAgentDeckClientFactory _clientFactory;
-    private readonly Dictionary<string, MachineEntry> _machines = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IAgentDeckClient _client;
+    private readonly IConnectionSettingsService _settingsService;
+    private readonly Dictionary<string, RunnerMachineSettings> _machines = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _activeMachineIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _sessionMachineMap = new(StringComparer.OrdinalIgnoreCase);
 
-    public RunnerConnectionManager(IAgentDeckClientFactory clientFactory)
+    public RunnerConnectionManager(
+        IAgentDeckClient client,
+        IConnectionSettingsService settingsService)
     {
-        _clientFactory = clientFactory;
+        _client = client;
+        _settingsService = settingsService;
+        _client.OutputReceived += (_, output) => OutputReceived?.Invoke(this, output);
+        _client.SessionCreated += (_, session) =>
+        {
+            var annotated = AnnotateSession(session);
+            SessionCreated?.Invoke(this, annotated);
+        };
+        _client.SessionUpdated += (_, session) =>
+        {
+            var annotated = AnnotateSession(session);
+            SessionUpdated?.Invoke(this, annotated);
+        };
+        _client.SessionClosed += (_, sessionId) =>
+        {
+            lock (_lock)
+            {
+                _sessionMachineMap.Remove(sessionId);
+            }
+
+            SessionClosed?.Invoke(this, sessionId);
+        };
+        _client.ConnectionStateChanged += (_, state) =>
+        {
+            string[] machineIds;
+            lock (_lock)
+            {
+                machineIds = _activeMachineIds.ToArray();
+            }
+
+            foreach (var machineId in machineIds)
+            {
+                RunnerMachineSettings? machine;
+                lock (_lock)
+                {
+                    _machines.TryGetValue(machineId, out machine);
+                }
+
+                ConnectionStateChanged?.Invoke(this, new RunnerMachineConnectionChangedEventArgs
+                {
+                    MachineId = machineId,
+                    MachineName = machine?.Name ?? machineId,
+                    State = state
+                });
+            }
+        };
     }
 
     public event EventHandler<RunnerMachineConnectionChangedEventArgs>? ConnectionStateChanged;
@@ -34,7 +77,9 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
         {
             lock (_lock)
             {
-                return _machines.Values.Count(entry => entry.Client.ConnectionState == HubConnectionState.Connected);
+                return _client.ConnectionState == HubConnectionState.Connected
+                    ? _activeMachineIds.Count(id => _machines.ContainsKey(id))
+                    : 0;
             }
         }
     }
@@ -43,29 +88,43 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
     {
         lock (_lock)
         {
-            return _machines.TryGetValue(machineId, out var entry)
-                ? entry.Client.ConnectionState
+            return _activeMachineIds.Contains(machineId)
+                ? _client.ConnectionState
                 : HubConnectionState.Disconnected;
         }
     }
 
     public async Task ConnectAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default)
     {
-        var entry = GetOrCreateEntry(machine);
-        await entry.Client.ConnectAsync(BuildHubUrl(machine.RunnerUrl), cancellationToken);
+        var settings = await _settingsService.LoadAsync();
+        if (string.IsNullOrWhiteSpace(settings.CoordinatorUrl))
+        {
+            throw new InvalidOperationException("Coordinator URL is not configured.");
+        }
+
+        await _client.ConnectAsync(settings.CoordinatorUrl, cancellationToken);
+        lock (_lock)
+        {
+            _machines[machine.Id] = machine.Clone();
+            _activeMachineIds.Add(machine.Id);
+        }
+
+        ConnectionStateChanged?.Invoke(this, new RunnerMachineConnectionChangedEventArgs
+        {
+            MachineId = machine.Id,
+            MachineName = machine.Name,
+            State = _client.ConnectionState
+        });
     }
 
     public async Task DisconnectAsync(string machineId)
     {
-        var entry = TryGetEntry(machineId);
-        if (entry is null)
-        {
-            return;
-        }
-
-        await entry.Client.DisconnectAsync();
+        var shouldDisconnectCoordinator = false;
+        RunnerMachineSettings? machine;
         lock (_lock)
         {
+            _machines.TryGetValue(machineId, out machine);
+            _activeMachineIds.Remove(machineId);
             var orphanedSessions = _sessionMachineMap
                 .Where(pair => string.Equals(pair.Value, machineId, StringComparison.OrdinalIgnoreCase))
                 .Select(pair => pair.Key)
@@ -75,199 +134,152 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
             {
                 _sessionMachineMap.Remove(sessionId);
             }
+
+            shouldDisconnectCoordinator = _activeMachineIds.Count == 0;
         }
+
+        if (shouldDisconnectCoordinator)
+        {
+            await _client.DisconnectAsync();
+        }
+
+        ConnectionStateChanged?.Invoke(this, new RunnerMachineConnectionChangedEventArgs
+        {
+            MachineId = machineId,
+            MachineName = machine?.Name ?? machineId,
+            State = HubConnectionState.Disconnected
+        });
     }
 
     public async Task JoinSessionAsync(string sessionId)
     {
-        var entry = RequireSessionEntry(sessionId);
-        await entry.Client.JoinSessionAsync(sessionId);
+        RequireSessionMachineId(sessionId);
+        await _client.JoinSessionAsync(sessionId);
     }
 
     public async Task LeaveSessionAsync(string sessionId)
     {
-        var entry = RequireSessionEntry(sessionId);
-        await entry.Client.LeaveSessionAsync(sessionId);
+        RequireSessionMachineId(sessionId);
+        await _client.LeaveSessionAsync(sessionId);
     }
 
     public async Task SendInputAsync(string sessionId, string data)
     {
-        var entry = RequireSessionEntry(sessionId);
-        await entry.Client.SendInputAsync(sessionId, data);
+        RequireSessionMachineId(sessionId);
+        await _client.SendInputAsync(sessionId, data);
     }
 
     public async Task ResizeTerminalAsync(string sessionId, int cols, int rows)
     {
-        var entry = RequireSessionEntry(sessionId);
-        await entry.Client.ResizeTerminalAsync(sessionId, cols, rows);
+        RequireSessionMachineId(sessionId);
+        await _client.ResizeTerminalAsync(sessionId, cols, rows);
     }
 
     public async Task<TerminalSession?> CreateSessionAsync(RunnerMachineSettings machine, CreateTerminalRequest request, CancellationToken cancellationToken = default)
     {
-        var entry = GetOrCreateEntry(machine);
-        if (entry.Client.ConnectionState != HubConnectionState.Connected)
-        {
-            await entry.Client.ConnectAsync(BuildHubUrl(machine.RunnerUrl), cancellationToken);
-        }
-
-        var session = await entry.Client.CreateSessionAsync(request);
+        await EnsureMachineConnectedAsync(machine, cancellationToken);
+        var session = await _client.CreateSessionAsync(machine.Id, request);
         if (session is null)
         {
             return null;
         }
 
-        return AnnotateSession(session, entry.Machine);
+        return AnnotateSession(session, machine);
     }
 
     public async Task CloseSessionAsync(string sessionId)
     {
-        var entry = RequireSessionEntry(sessionId);
-        await entry.Client.CloseSessionAsync(sessionId);
+        RequireSessionMachineId(sessionId);
+        await _client.CloseSessionAsync(sessionId);
     }
 
     public async Task<IReadOnlyList<TerminalSession>> GetSessionsAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default)
     {
-        var entry = GetOrCreateEntry(machine);
-        if (entry.Client.ConnectionState != HubConnectionState.Connected)
-        {
-            await entry.Client.ConnectAsync(BuildHubUrl(machine.RunnerUrl), cancellationToken);
-        }
-
-        var sessions = await entry.Client.GetSessionsAsync();
-        return sessions.Select(session => AnnotateSession(session, entry.Machine)).ToArray();
+        await EnsureMachineConnectedAsync(machine, cancellationToken);
+        var sessions = await _client.GetSessionsAsync(machine.Id);
+        return sessions.Select(session => AnnotateSession(session, machine)).ToArray();
     }
 
     public async Task<WorkspaceInfo?> GetWorkspaceAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default)
     {
-        var entry = GetOrCreateEntry(machine);
-        if (entry.Client.ConnectionState != HubConnectionState.Connected)
-        {
-            await entry.Client.ConnectAsync(BuildHubUrl(machine.RunnerUrl), cancellationToken);
-        }
-
-        return await entry.Client.GetWorkspaceAsync(cancellationToken);
+        await EnsureMachineConnectedAsync(machine, cancellationToken);
+        return await _client.GetWorkspaceAsync(machine.Id, cancellationToken);
     }
 
     public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default)
     {
-        var entry = GetOrCreateEntry(machine);
-        if (entry.Client.ConnectionState != HubConnectionState.Connected)
-        {
-            await entry.Client.ConnectAsync(BuildHubUrl(machine.RunnerUrl), cancellationToken);
-        }
-
-        return await entry.Client.GetMachineCapabilitiesAsync(cancellationToken);
+        await EnsureMachineConnectedAsync(machine, cancellationToken);
+        return await _client.GetMachineCapabilitiesAsync(machine.Id, cancellationToken);
     }
 
     public async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(RunnerMachineSettings machine, string capabilityId, string? version = null, CancellationToken cancellationToken = default)
     {
-        var entry = GetOrCreateEntry(machine);
-        if (entry.Client.ConnectionState != HubConnectionState.Connected)
-        {
-            await entry.Client.ConnectAsync(BuildHubUrl(machine.RunnerUrl), cancellationToken);
-        }
-
-        return await entry.Client.InstallMachineCapabilityAsync(capabilityId, version, cancellationToken);
+        await EnsureMachineConnectedAsync(machine, cancellationToken);
+        return await _client.InstallMachineCapabilityAsync(machine.Id, capabilityId, version, cancellationToken);
     }
 
     public async Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(RunnerMachineSettings machine, string capabilityId, CancellationToken cancellationToken = default)
     {
-        var entry = GetOrCreateEntry(machine);
-        if (entry.Client.ConnectionState != HubConnectionState.Connected)
-        {
-            await entry.Client.ConnectAsync(BuildHubUrl(machine.RunnerUrl), cancellationToken);
-        }
-
-        return await entry.Client.UpdateMachineCapabilityAsync(capabilityId, cancellationToken);
+        await EnsureMachineConnectedAsync(machine, cancellationToken);
+        return await _client.UpdateMachineCapabilityAsync(machine.Id, capabilityId, cancellationToken);
     }
 
     public async ValueTask DisposeAsync()
     {
-        IAgentDeckClient[] clients;
         lock (_lock)
         {
-            clients = _machines.Values.Select(entry => entry.Client).ToArray();
             _machines.Clear();
+            _activeMachineIds.Clear();
             _sessionMachineMap.Clear();
         }
 
-        foreach (var client in clients.OfType<IAsyncDisposable>())
+        if (_client is IAsyncDisposable asyncDisposable)
         {
-            await client.DisposeAsync();
+            await asyncDisposable.DisposeAsync();
         }
     }
 
-    private MachineEntry GetOrCreateEntry(RunnerMachineSettings machine)
+    private async Task EnsureMachineConnectedAsync(RunnerMachineSettings machine, CancellationToken cancellationToken)
     {
         lock (_lock)
         {
-            if (_machines.TryGetValue(machine.Id, out var existing))
-            {
-                existing.Machine = machine.Clone();
-                return existing;
-            }
+            _machines[machine.Id] = machine.Clone();
+        }
 
-            var entry = new MachineEntry
-            {
-                Machine = machine.Clone(),
-                Client = _clientFactory.Create()
-            };
-
-            entry.Client.OutputReceived += (_, output) => OutputReceived?.Invoke(this, output);
-            entry.Client.SessionCreated += (_, session) =>
-            {
-                var annotated = AnnotateSession(session, entry.Machine);
-                SessionCreated?.Invoke(this, annotated);
-            };
-            entry.Client.SessionUpdated += (_, session) =>
-            {
-                var annotated = AnnotateSession(session, entry.Machine);
-                SessionUpdated?.Invoke(this, annotated);
-            };
-            entry.Client.SessionClosed += (_, sessionId) =>
-            {
-                lock (_lock)
-                {
-                    _sessionMachineMap.Remove(sessionId);
-                }
-
-                SessionClosed?.Invoke(this, sessionId);
-            };
-            entry.Client.ConnectionStateChanged += (_, state) =>
-            {
-                ConnectionStateChanged?.Invoke(this, new RunnerMachineConnectionChangedEventArgs
-                {
-                    MachineId = entry.Machine.Id,
-                    MachineName = entry.Machine.Name,
-                    State = state
-                });
-            };
-
-            _machines[entry.Machine.Id] = entry;
-            return entry;
+        if (GetConnectionState(machine.Id) != HubConnectionState.Connected)
+        {
+            await ConnectAsync(machine, cancellationToken);
         }
     }
 
-    private MachineEntry? TryGetEntry(string machineId)
+    private string RequireSessionMachineId(string sessionId)
     {
         lock (_lock)
         {
-            return _machines.TryGetValue(machineId, out var entry) ? entry : null;
-        }
-    }
-
-    private MachineEntry RequireSessionEntry(string sessionId)
-    {
-        lock (_lock)
-        {
-            if (_sessionMachineMap.TryGetValue(sessionId, out var machineId) &&
-                _machines.TryGetValue(machineId, out var entry))
+            if (_sessionMachineMap.TryGetValue(sessionId, out var machineId))
             {
-                return entry;
+                return machineId;
             }
         }
 
         throw new InvalidOperationException($"No connected runner machine owns session '{sessionId}'.");
+    }
+
+    private TerminalSession AnnotateSession(TerminalSession session)
+    {
+        if (!string.IsNullOrWhiteSpace(session.MachineId))
+        {
+            lock (_lock)
+            {
+                _sessionMachineMap[session.Id] = session.MachineId;
+                if (_machines.TryGetValue(session.MachineId, out var machine))
+                {
+                    session.MachineName ??= machine.Name;
+                }
+            }
+        }
+
+        return session;
     }
 
     private TerminalSession AnnotateSession(TerminalSession session, RunnerMachineSettings machine)
@@ -281,15 +293,5 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
         }
 
         return session;
-    }
-
-    private static string BuildHubUrl(string runnerUrl)
-    {
-        if (string.IsNullOrWhiteSpace(runnerUrl))
-        {
-            throw new InvalidOperationException("Runner URL is not configured.");
-        }
-
-        return $"{runnerUrl.TrimEnd('/')}/hubs/agent";
     }
 }

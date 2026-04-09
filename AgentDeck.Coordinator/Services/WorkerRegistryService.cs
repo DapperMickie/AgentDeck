@@ -37,6 +37,21 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
         }
     }
 
+    public Task<RegisteredRunnerMachine?> GetMachineAsync(string machineId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineId);
+
+        lock (_lock)
+        {
+            RefreshWorkerStates();
+            var normalizedMachineId = Normalize(machineId);
+            var machine = _workers.TryGetValue(normalizedMachineId, out var worker)
+                ? worker.Machine
+                : null;
+            return Task.FromResult(machine);
+        }
+    }
+
     public RegisterRunnerMachineResponse RegisterOrUpdateWorker(RegisterRunnerMachineRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);

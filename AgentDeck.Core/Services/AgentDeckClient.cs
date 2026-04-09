@@ -12,6 +12,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
     private readonly ILogger<AgentDeckClient> _logger;
     private HubConnection? _connection;
     private HttpClient _http = new();
+    private string? _coordinatorUrl;
 
     public HubConnectionState ConnectionState { get; private set; } = HubConnectionState.Disconnected;
 
@@ -26,19 +27,30 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         _logger = logger;
     }
 
-    public async Task ConnectAsync(string hubUrl, CancellationToken cancellationToken = default)
+    public async Task ConnectAsync(string coordinatorUrl, CancellationToken cancellationToken = default)
     {
-        if (_connection is not null)
-            await DisconnectAsync();
+        ArgumentException.ThrowIfNullOrWhiteSpace(coordinatorUrl);
+        var normalizedCoordinatorUrl = coordinatorUrl.Trim().TrimEnd('/');
 
-        _logger.LogInformation("Connecting to runner hub at {Url}", hubUrl);
+        if (_connection is not null &&
+            string.Equals(_coordinatorUrl, normalizedCoordinatorUrl, StringComparison.OrdinalIgnoreCase) &&
+            ConnectionState is HubConnectionState.Connected or HubConnectionState.Connecting or HubConnectionState.Reconnecting)
+        {
+            return;
+        }
+
+        if (_connection is not null)
+        {
+            await DisconnectAsync();
+        }
+
+        var hubUrl = $"{normalizedCoordinatorUrl}/hubs/agent";
+        _logger.LogInformation("Connecting to coordinator hub at {Url}", hubUrl);
         SetState(HubConnectionState.Connecting);
 
-        // Derive the REST base URL from the hub URL and refresh the HttpClient
-        var hubUri = new Uri(hubUrl);
-        var baseUri = new Uri($"{hubUri.Scheme}://{hubUri.Host}:{hubUri.Port}/");
         _http.Dispose();
-        _http = new HttpClient { BaseAddress = baseUri };
+        _http = new HttpClient { BaseAddress = new Uri($"{normalizedCoordinatorUrl}/", UriKind.Absolute) };
+        _coordinatorUrl = normalizedCoordinatorUrl;
 
         _connection = new HubConnectionBuilder()
             .WithUrl(hubUrl)
@@ -66,11 +78,11 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         {
             await _connection.StartAsync(cancellationToken);
             SetState(HubConnectionState.Connected);
-            _logger.LogInformation("Connected to runner hub");
+            _logger.LogInformation("Connected to coordinator hub");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to connect to runner hub at {Url}", hubUrl);
+            _logger.LogError(ex, "Failed to connect to coordinator hub at {Url}", hubUrl);
             SetState(HubConnectionState.Disconnected);
             throw;
         }
@@ -82,6 +94,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         await _connection.StopAsync();
         await _connection.DisposeAsync();
         _connection = null;
+        _coordinatorUrl = null;
         SetState(HubConnectionState.Disconnected);
     }
 
@@ -97,14 +110,14 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
     public Task ResizeTerminalAsync(string sessionId, int cols, int rows) =>
         InvokeAsync(nameof(IAgentHub.ResizeTerminalAsync), sessionId, cols, rows);
 
-    public async Task<TerminalSession?> CreateSessionAsync(CreateTerminalRequest request)
+    public async Task<TerminalSession?> CreateSessionAsync(string machineId, CreateTerminalRequest request)
     {
         if (_connection is null || _connection.State != Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected)
             return null;
 
         try
         {
-            return await _connection.InvokeAsync<TerminalSession>(nameof(IAgentHub.CreateSessionAsync), request);
+            return await _connection.InvokeAsync<TerminalSession>(nameof(ICoordinatorAgentHub.CreateSessionAsync), machineId, request);
         }
         catch (Exception ex)
         {
@@ -120,14 +133,14 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         catch (Exception ex) { _logger.LogError(ex, "CloseSessionAsync failed for {SessionId}", sessionId); }
     }
 
-    public async Task<IReadOnlyList<TerminalSession>> GetSessionsAsync()
+    public async Task<IReadOnlyList<TerminalSession>> GetSessionsAsync(string machineId)
     {
         if (_connection is null || _connection.State != Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected)
             return [];
 
         try
         {
-            return await _connection.InvokeAsync<IReadOnlyList<TerminalSession>>(nameof(IAgentHub.GetSessionsAsync));
+            return await _connection.InvokeAsync<IReadOnlyList<TerminalSession>>(nameof(ICoordinatorAgentHub.GetSessionsAsync), machineId);
         }
         catch (Exception ex)
         {
@@ -136,12 +149,12 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         }
     }
 
-    public async Task<WorkspaceInfo?> GetWorkspaceAsync(CancellationToken ct = default)
+    public async Task<WorkspaceInfo?> GetWorkspaceAsync(string machineId, CancellationToken ct = default)
     {
         if (_http.BaseAddress is null) return null;
         try
         {
-            return await _http.GetFromJsonAsync<WorkspaceInfo>("/api/workspace", ct);
+            return await _http.GetFromJsonAsync<WorkspaceInfo>($"/api/machines/{Uri.EscapeDataString(machineId)}/workspace", ct);
         }
         catch (Exception ex)
         {
@@ -150,12 +163,12 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         }
     }
 
-    public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(CancellationToken ct = default)
+    public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken ct = default)
     {
         if (_http.BaseAddress is null) return null;
         try
         {
-            return await _http.GetFromJsonAsync<MachineCapabilitiesSnapshot>("/api/capabilities", ct);
+            return await _http.GetFromJsonAsync<MachineCapabilitiesSnapshot>($"/api/machines/{Uri.EscapeDataString(machineId)}/capabilities", ct);
         }
         catch (Exception ex)
         {
@@ -164,7 +177,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         }
     }
 
-    public async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string capabilityId, string? version = null, CancellationToken ct = default)
+    public async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string machineId, string capabilityId, string? version = null, CancellationToken ct = default)
     {
         if (_http.BaseAddress is null) return null;
         try
@@ -173,7 +186,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
             {
                 Version = string.IsNullOrWhiteSpace(version) ? null : version.Trim()
             };
-            using var response = await _http.PostAsJsonAsync($"/api/capabilities/{Uri.EscapeDataString(capabilityId)}/install", request, ct);
+            using var response = await _http.PostAsJsonAsync($"/api/machines/{Uri.EscapeDataString(machineId)}/capabilities/{Uri.EscapeDataString(capabilityId)}/install", request, ct);
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadFromJsonAsync<MachineCapabilityInstallResult>(cancellationToken: ct);
         }
@@ -184,12 +197,12 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         }
     }
 
-    public async Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string capabilityId, CancellationToken ct = default)
+    public async Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string machineId, string capabilityId, CancellationToken ct = default)
     {
         if (_http.BaseAddress is null) return null;
         try
         {
-            using var response = await _http.PostAsync($"/api/capabilities/{Uri.EscapeDataString(capabilityId)}/update", null, ct);
+            using var response = await _http.PostAsync($"/api/machines/{Uri.EscapeDataString(machineId)}/capabilities/{Uri.EscapeDataString(capabilityId)}/update", null, ct);
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadFromJsonAsync<MachineCapabilityInstallResult>(cancellationToken: ct);
         }

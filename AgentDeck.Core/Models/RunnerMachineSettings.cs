@@ -14,7 +14,7 @@ public sealed class RunnerMachineSettings
     /// <summary>Intended orchestration role for this machine profile.</summary>
     public RunnerMachineRole Role { get; set; } = RunnerMachineRole.Standalone;
 
-    /// <summary>Base URL of the runner (e.g. http://192.168.1.5:5000).</summary>
+    /// <summary>Advertised base URL of the runner, used by the coordinator when brokering requests.</summary>
     public string RunnerUrl { get; set; } = string.Empty;
 
     /// <summary>Whether this machine should connect automatically when the app starts.</summary>
