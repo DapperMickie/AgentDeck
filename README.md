@@ -266,6 +266,8 @@ The coordinator now also exposes a first-pass project registry at `/api/projects
 
 The coordinator now also exposes a first-pass project-open flow at `/api/projects/{projectId}/open/{machineId}`. That brokered path asks the selected runner to resolve or bootstrap the project workspace under its workspace root, clones the configured repository when needed, updates the project's workspace mapping, and opens a project-rooted terminal session so the companion can attach to a real machine/project combination instead of a generic ad-hoc shell.
 
+The coordinator now also keeps a first-pass project-session surface registry at `/api/project-sessions` and `/api/project-sessions/{projectSessionId}/surfaces`. Project sessions are generic containers for the live tabs a project can expose over time, and the current open-project flow now creates a project session plus an initial terminal surface so later VS Code, simulator, emulator, and viewer surfaces can attach to the same shared session model.
+
 The runner also now exposes a first-pass orchestration job API, separate from terminal sessions, so coordinator-managed run/debug work can be queued, tracked by lifecycle status, associated with a target machine, and enriched with step/log data before full cross-machine dispatch is implemented.
 
 That orchestration layer now has real local execution paths for both direct-command run jobs and the first VS Code-backed debug jobs. Direct-command jobs build and launch on the runner, stream PTY output into job logs, and let cancellation stop the underlying process.
