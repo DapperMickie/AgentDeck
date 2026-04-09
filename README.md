@@ -11,6 +11,7 @@ A lightweight ASP.NET Core service that:
 - Acts as the single public entry point for companion apps
 - Tracks registered runner agents
 - Exposes the coordinator-side machine directory
+- Declares desired runner version and protocol compatibility for connected workers
 
 ### Runner (`AgentDeck.Runner`)
 A cross-platform ASP.NET Core service that:
@@ -20,6 +21,7 @@ A cross-platform ASP.NET Core service that:
 - Exposes a REST API for session management
 - Scopes project creation to a configurable workspace root directory
 - Can register outward to the coordinator API
+- Reports its agent/protocol version in its coordinator heartbeat
 
 **Supported platforms:** Windows, Linux (macOS planned)
 
@@ -127,6 +129,10 @@ Coordinator configuration (`AgentDeck.Coordinator/appsettings.json`):
 {
   "Coordinator": {
     "Port": 5001,
+    "DesiredRunnerVersion": "0.1.0-dev",
+    "MinimumSupportedProtocolVersion": 1,
+    "MaximumSupportedProtocolVersion": 1,
+    "WorkflowCatalogVersion": "1",
     "WorkerHeartbeatInterval": "00:00:15",
     "WorkerExpiry": "00:00:45"
   }
@@ -146,6 +152,7 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
     "MachineId": "worker-1",
     "MachineName": "Worker 1",
     "CoordinatorUrl": "http://localhost:5001",
+    "ProtocolVersion": 1,
     "AdvertisedRunnerUrl": "http://worker-host:5000",
     "WorkerHeartbeatInterval": "00:00:15"
   },
@@ -159,6 +166,8 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
 ```
 
 The runner's `Coordinator` section controls how a worker agent registers outward to the central coordinator API. `TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
+
+The coordinator heartbeat is now version-aware: workers report their agent version, protocol version, and workflow catalog version, and the coordinator responds with desired runner version plus compatibility metadata. This is the first foundation step toward self-updating lightweight agents and coordinator-owned workflow/install logic.
 
 ---
 

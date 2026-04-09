@@ -39,22 +39,29 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.MachineId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.MachineName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.AgentVersion);
 
         lock (_lock)
         {
             var now = _timeProvider.GetUtcNow();
             var machineId = Normalize(request.MachineId);
             var existing = _workers.TryGetValue(machineId, out var current) ? current.Machine : null;
+            var desiredState = BuildDesiredState(request.AgentVersion, request.ProtocolVersion);
             var machine = new RegisteredRunnerMachine
             {
                 MachineId = machineId,
                 MachineName = Normalize(request.MachineName),
                 Role = RunnerMachineRole.Worker,
+                AgentVersion = Normalize(request.AgentVersion),
+                ProtocolVersion = request.ProtocolVersion,
+                WorkflowCatalogVersion = NormalizeOptional(request.WorkflowCatalogVersion),
                 RunnerUrl = string.IsNullOrWhiteSpace(request.RunnerUrl) ? null : request.RunnerUrl.Trim(),
                 RegisteredAt = existing?.RegisteredAt ?? now,
                 LastSeenAt = now,
                 IsOnline = true,
                 IsCoordinator = false,
+                UpdateAvailable = desiredState.UpdateAvailable,
+                ProtocolCompatible = desiredState.ProtocolCompatible,
                 Platform = request.Platform,
                 SupportedTargets = request.SupportedTargets
                     .Where(target => !string.IsNullOrWhiteSpace(target.DisplayName))
@@ -65,6 +72,7 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             return new RegisterRunnerMachineResponse
             {
                 Machine = machine,
+                DesiredState = desiredState,
                 HeartbeatInterval = _coordinatorOptions.WorkerHeartbeatInterval
             };
         }
@@ -98,11 +106,16 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                     MachineId = machine.MachineId,
                     MachineName = machine.MachineName,
                     Role = machine.Role,
+                    AgentVersion = machine.AgentVersion,
+                    ProtocolVersion = machine.ProtocolVersion,
+                    WorkflowCatalogVersion = machine.WorkflowCatalogVersion,
                     RunnerUrl = machine.RunnerUrl,
                     RegisteredAt = machine.RegisteredAt,
                     LastSeenAt = machine.LastSeenAt,
                     IsOnline = isOnline,
                     IsCoordinator = machine.IsCoordinator,
+                    UpdateAvailable = machine.UpdateAvailable,
+                    ProtocolCompatible = machine.ProtocolCompatible,
                     Platform = machine.Platform,
                     SupportedTargets = machine.SupportedTargets
                 };
@@ -116,4 +129,29 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
     }
 
     private static string Normalize(string value) => value.Trim();
+
+    private static string? NormalizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private RunnerDesiredState BuildDesiredState(string agentVersion, int protocolVersion)
+    {
+        var normalizedAgentVersion = Normalize(agentVersion);
+        var desiredVersion = NormalizeOptional(_coordinatorOptions.DesiredRunnerVersion) ?? normalizedAgentVersion;
+        var workflowCatalogVersion = NormalizeOptional(_coordinatorOptions.WorkflowCatalogVersion);
+        var protocolCompatible = protocolVersion >= _coordinatorOptions.MinimumSupportedProtocolVersion &&
+                                 protocolVersion <= _coordinatorOptions.MaximumSupportedProtocolVersion;
+
+        return new RunnerDesiredState
+        {
+            MinimumSupportedProtocolVersion = _coordinatorOptions.MinimumSupportedProtocolVersion,
+            MaximumSupportedProtocolVersion = _coordinatorOptions.MaximumSupportedProtocolVersion,
+            DesiredRunnerVersion = desiredVersion,
+            WorkflowCatalogVersion = workflowCatalogVersion,
+            UpdateAvailable = !string.Equals(normalizedAgentVersion, desiredVersion, StringComparison.OrdinalIgnoreCase),
+            ProtocolCompatible = protocolCompatible,
+            StatusMessage = protocolCompatible
+                ? null
+                : $"Runner protocol {protocolVersion} is outside the coordinator supported range {_coordinatorOptions.MinimumSupportedProtocolVersion}-{_coordinatorOptions.MaximumSupportedProtocolVersion}."
+        };
+    }
 }
