@@ -18,6 +18,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
     private RegisteredCompanion? _companion;
 
     public HubConnectionState ConnectionState { get; private set; } = HubConnectionState.Disconnected;
+    public string? CompanionId => _companion?.CompanionId;
 
     public event EventHandler<HubConnectionState>? ConnectionStateChanged;
     public event EventHandler<TerminalOutput>? OutputReceived;

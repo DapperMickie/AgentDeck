@@ -11,6 +11,7 @@ public sealed class CompanionDashboardState
     public string? CoordinatorErrorMessage { get; init; }
     public IReadOnlyList<CompanionMachineSummary> Machines { get; init; } = [];
     public IReadOnlyList<CompanionProjectSummary> Projects { get; init; } = [];
+    public IReadOnlyList<ProjectSessionRecord> ProjectSessions { get; init; } = [];
     public IReadOnlyList<CompanionViewerSurfaceSummary> ViewerSurfaces { get; init; } = [];
     public IReadOnlyList<TerminalSession> ActiveSessions { get; init; } = [];
 }

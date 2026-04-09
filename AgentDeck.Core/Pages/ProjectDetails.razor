@@ -1,0 +1,265 @@
+@page "/projects/{ProjectId}"
+@inject ICompanionDashboardStateService DashboardState
+@inject ICoordinatorApiClient CoordinatorClient
+@inject IConnectionSettingsService SettingsService
+@inject ISessionStateService SessionState
+@inject IActiveSessionService ActiveSession
+@inject IToastService Toasts
+@inject NavigationManager Nav
+
+<div class="project-page">
+    @if (_loading)
+    {
+        <div class="project-page__content">
+            <div class="empty-state">
+                <div class="empty-icon">◌</div>
+                <h2>Loading project</h2>
+            </div>
+        </div>
+    }
+    else if (_project is null)
+    {
+        <div class="project-page__content">
+            <div class="empty-state">
+                <div class="empty-icon">⌂</div>
+                <h2>Project not found</h2>
+                <p>Return to the <a href="/">dashboard</a> to pick a coordinator-managed project.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="page-header project-page__header">
+            <div>
+                <h1>@_project.Definition.Name</h1>
+                <p>@_project.Definition.Workload • Repo @GetRepositoryLabel(_project.Definition)</p>
+            </div>
+            <div class="project-page__actions">
+                <a class="btn btn-accent" href="/">Dashboard</a>
+            </div>
+        </div>
+
+        <div class="project-page__content">
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Open on machine</h2>
+                        <p>Project opening initializes a coordinator-managed workspace and creates the first terminal-backed project session on that worker.</p>
+                    </div>
+                </div>
+
+                <div class="project-machine-grid">
+                    @foreach (var machine in _dashboard.Machines.OrderByDescending(machine => machine.IsOnline).ThenBy(machine => machine.MachineName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <article class="project-machine-card">
+                            <div class="project-machine-card__header">
+                                <div>
+                                    <h3>@machine.MachineName</h3>
+                                    <p>@GetPlatformLabel(machine.HostPlatform)</p>
+                                </div>
+                                <span class="machine-state machine-state--@(machine.IsOnline ? "connected" : "disconnected")">
+                                    @(machine.IsOnline ? "Online" : "Offline")
+                                </span>
+                            </div>
+                            <p class="project-machine-card__meta">@GetMachineTargetSummary(machine)</p>
+                            <div class="project-machine-card__targets">
+                                @foreach (var target in machine.SupportedTargets.OrderBy(target => target.DisplayName))
+                                {
+                                    <span class="project-target-chip project-target-chip--@GetTargetChipClass(target.Status)">
+                                        @target.DisplayName
+                                    </span>
+                                }
+                            </div>
+                            <div class="project-machine-card__actions">
+                                <button class="btn btn-primary"
+                                        disabled="@(!machine.IsOnline || _openingMachineId == machine.MachineId)"
+                                        @onclick="() => OpenProjectAsync(machine.MachineId)">
+                                    @(_openingMachineId == machine.MachineId ? "Opening..." : "Open project")
+                                </button>
+                            </div>
+                        </article>
+                    }
+                </div>
+            </section>
+
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Workspaces</h2>
+                        <p>Coordinator-known workspace mappings for this project.</p>
+                    </div>
+                </div>
+
+                @if (_project.Definition.Workspaces.Count == 0)
+                {
+                    <p>No machine workspaces have been registered yet.</p>
+                }
+                else
+                {
+                    <div class="project-list">
+                        @foreach (var workspace in _project.Definition.Workspaces.OrderBy(workspace => workspace.MachineName ?? workspace.MachineId, StringComparer.OrdinalIgnoreCase))
+                        {
+                            <article class="project-list-card">
+                                <div>
+                                    <h3>@(workspace.MachineName ?? workspace.MachineId)</h3>
+                                    <p><code>@workspace.ProjectPath</code></p>
+                                </div>
+                                @if (workspace.IsPrimary)
+                                {
+                                    <span class="machine-badge">Primary</span>
+                                }
+                            </article>
+                        }
+                    </div>
+                }
+            </section>
+
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Live sessions</h2>
+                        <p>Each project session becomes a tab container for terminals and future VS Code, simulator, emulator, and viewer surfaces.</p>
+                    </div>
+                </div>
+
+                @if (_projectSessions.Count == 0)
+                {
+                    <p>No live sessions are registered for this project yet.</p>
+                }
+                else
+                {
+                    <div class="project-session-grid">
+                        @foreach (var session in _projectSessions.OrderByDescending(session => session.UpdatedAt))
+                        {
+                            <a class="project-session-card project-session-card--link" href="/project-sessions/@Uri.EscapeDataString(session.Id)">
+                                <div class="project-session-card__header">
+                                    <div>
+                                        <h3>@session.MachineName</h3>
+                                        <p>@GetControllerSummary(session)</p>
+                                    </div>
+                                    <span class="machine-badge">@session.Surfaces.Count tabs</span>
+                                </div>
+                                <p class="project-session-card__meta">Updated @session.UpdatedAt.ToLocalTime().ToString("g")</p>
+                            </a>
+                        }
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ProjectId { get; set; } = string.Empty;
+
+    private CompanionDashboardState _dashboard = new();
+    private CompanionProjectSummary? _project;
+    private IReadOnlyList<ProjectSessionRecord> _projectSessions = [];
+    private bool _loading = true;
+    private string? _openingMachineId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _dashboard = await DashboardState.BuildAsync();
+            _project = _dashboard.Projects.FirstOrDefault(project =>
+                string.Equals(project.Definition.Id, ProjectId, StringComparison.OrdinalIgnoreCase));
+            _projectSessions = _dashboard.ProjectSessions
+                .Where(session => string.Equals(session.ProjectId, ProjectId, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OpenProjectAsync(string machineId)
+    {
+        if (_project is null)
+        {
+            return;
+        }
+
+        var settings = await SettingsService.LoadAsync();
+        if (string.IsNullOrWhiteSpace(settings.CoordinatorUrl))
+        {
+            Toasts.Show("Configure a coordinator URL before opening projects.", ToastKind.Warning);
+            return;
+        }
+
+        _openingMachineId = machineId;
+        try
+        {
+            var result = await CoordinatorClient.OpenProjectOnMachineAsync(settings.CoordinatorUrl, _project.Definition.Id, machineId);
+            if (result is null)
+            {
+                Toasts.Show("The coordinator could not open that project on the selected machine.", ToastKind.Error);
+                return;
+            }
+
+            SessionState.AddOrUpdate(result.Session);
+            ActiveSession.SetActiveSession(result.Session.Id);
+            Toasts.Show($"Opened {result.Project.Name} on {result.Workspace.MachineName ?? result.Workspace.MachineId}.", ToastKind.Success);
+            Nav.NavigateTo($"/project-sessions/{Uri.EscapeDataString(result.ProjectSession.Id)}");
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _openingMachineId = null;
+        }
+    }
+
+    private string GetControllerSummary(ProjectSessionRecord session) =>
+        string.IsNullOrWhiteSpace(session.CompanionId)
+            ? "No controller companion recorded"
+            : $"Controller {session.CompanionId}";
+
+    private string GetMachineTargetSummary(CompanionMachineSummary machine)
+    {
+        var readyTargets = machine.SupportedTargets
+            .Where(target => target.Status == MachineTargetSupportStatus.Supported)
+            .Select(target => target.DisplayName)
+            .ToArray();
+        return readyTargets.Length == 0
+            ? "No supported targets advertised yet."
+            : $"Ready targets: {string.Join(", ", readyTargets)}";
+    }
+
+    private static string GetPlatformLabel(RunnerHostPlatform platform) => platform switch
+    {
+        RunnerHostPlatform.Windows => "Windows worker",
+        RunnerHostPlatform.Linux => "Linux worker",
+        RunnerHostPlatform.MacOS => "macOS worker",
+        _ => "Unknown platform"
+    };
+
+    private static string GetTargetChipClass(MachineTargetSupportStatus status) => status switch
+    {
+        MachineTargetSupportStatus.Supported => "supported",
+        MachineTargetSupportStatus.RequiresSetup => "setup",
+        _ => "unsupported"
+    };
+
+    private static string GetRepositoryLabel(ProjectDefinition definition)
+    {
+        if (!string.IsNullOrWhiteSpace(definition.Repository?.Name))
+        {
+            return definition.Repository.Name;
+        }
+
+        return string.IsNullOrWhiteSpace(definition.Repository?.Url)
+            ? "not configured"
+            : definition.Repository.Url!;
+    }
+}

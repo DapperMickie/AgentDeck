@@ -9,13 +9,16 @@ namespace AgentDeck.Core.Services;
 public sealed class CoordinatorApiClient : ICoordinatorApiClient
 {
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IAgentDeckClient _agentDeckClient;
     private readonly ILogger<CoordinatorApiClient> _logger;
 
     public CoordinatorApiClient(
         IHttpClientFactory httpClientFactory,
+        IAgentDeckClient agentDeckClient,
         ILogger<CoordinatorApiClient> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _agentDeckClient = agentDeckClient;
         _logger = logger;
     }
 
@@ -62,11 +65,58 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         }
     }
 
+    public async Task<IReadOnlyList<ProjectSessionRecord>> GetProjectSessionsAsync(string coordinatorUrl, string? projectId = null, CancellationToken cancellationToken = default)
+    {
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            var requestUri = string.IsNullOrWhiteSpace(projectId)
+                ? "api/project-sessions"
+                : $"api/project-sessions?projectId={Uri.EscapeDataString(projectId)}";
+            return await httpClient.GetFromJsonAsync<IReadOnlyList<ProjectSessionRecord>>(requestUri, cancellationToken) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator project session lookup failed for {CoordinatorUrl}", coordinatorUrl);
+            throw;
+        }
+    }
+
+    public async Task<OpenProjectOnMachineResult?> OpenProjectOnMachineAsync(string coordinatorUrl, string projectId, string machineId, CancellationToken cancellationToken = default)
+    {
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsync(
+                $"api/projects/{Uri.EscapeDataString(projectId)}/open/{Uri.EscapeDataString(machineId)}",
+                content: null,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<OpenProjectOnMachineResult>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator project open failed for {ProjectId} on {MachineId}", projectId, machineId);
+            throw;
+        }
+    }
+
     private HttpClient CreateClient(string coordinatorUrl)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(coordinatorUrl);
         var client = _httpClientFactory.CreateClient();
         client.BaseAddress = new Uri(AppendTrailingSlash(coordinatorUrl.Trim()), UriKind.Absolute);
+        if (!string.IsNullOrWhiteSpace(_agentDeckClient.CompanionId))
+        {
+            client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeck.Shared.AgentDeckHeaderNames.Companion, _agentDeckClient.CompanionId);
+            client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeck.Shared.AgentDeckHeaderNames.Actor, _agentDeckClient.CompanionId);
+        }
+
         return client;
     }
 

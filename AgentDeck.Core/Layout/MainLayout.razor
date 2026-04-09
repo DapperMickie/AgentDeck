@@ -130,12 +130,12 @@
     private void SelectSession(string id)
     {
         ActiveSession.SetActiveSession(id);
-        Nav.NavigateTo("/");
+        Nav.NavigateTo($"/terminals/{Uri.EscapeDataString(id)}");
     }
 
     private void OpenNewTerminal()
     {
-        Nav.NavigateTo("/");
+        Nav.NavigateTo("/terminals");
         ActiveSession.OpenDialog();
     }
 

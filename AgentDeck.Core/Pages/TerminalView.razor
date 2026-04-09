@@ -1,0 +1,128 @@
+@page "/terminals/{SessionId}"
+@inject ISessionStateService SessionState
+@inject IActiveSessionService ActiveSession
+@inject IRunnerConnectionManager Connections
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="terminal-page">
+    <div class="page-header terminal-page__header">
+        <div>
+            <h1>@(_session?.Name ?? "Terminal")</h1>
+            <p>@GetSubtitle()</p>
+        </div>
+        <div class="terminal-page__actions">
+            <a class="btn btn-accent" href="/terminals">All terminals</a>
+            @if (_session is not null)
+            {
+                <button class="btn btn-danger" @onclick="CloseSessionAsync">Close terminal</button>
+            }
+        </div>
+    </div>
+
+    @if (_session is null)
+    {
+        <div class="terminal-page__content">
+            <div class="empty-state">
+                <div class="empty-icon">▣</div>
+                <h2>Terminal not found</h2>
+                <p>This session is no longer available. Return to <a href="/terminals">the terminal list</a>.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="terminal-page__content">
+            <div class="command-bar">
+                <input class="command-bar__input"
+                       placeholder="Send command to terminal..."
+                       @bind="_quickCommand"
+                       @bind:event="oninput"
+                       @onkeydown="OnQuickCommandKey" />
+                <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot")'>copilot</button>
+                <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot --yolo")'>copilot --yolo</button>
+                <button class="command-bar__pill" @onclick='() => SendQuickCommand("clear")'>clear</button>
+                <button class="command-bar__pill" @onclick='() => SendQuickCommand("exit")'>exit</button>
+            </div>
+
+            <div class="terminal-area terminal-area--single">
+                <TerminalPanel Session="_session!" IsActive="true" />
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string SessionId { get; set; } = string.Empty;
+
+    private TerminalSession? _session;
+    private string _quickCommand = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        SessionState.SessionsChanged += OnSessionsChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        _session = SessionState.Sessions.FirstOrDefault(session =>
+            string.Equals(session.Id, SessionId, StringComparison.OrdinalIgnoreCase));
+        if (_session is not null)
+        {
+            ActiveSession.SetActiveSession(_session.Id);
+        }
+    }
+
+    private string GetSubtitle()
+    {
+        if (_session is null)
+        {
+            return "Dedicated terminal view";
+        }
+
+        var machineLabel = string.IsNullOrWhiteSpace(_session.MachineName) ? "runner" : _session.MachineName;
+        return $"Connected to {machineLabel} • {_session.Status}";
+    }
+
+    private async Task CloseSessionAsync()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        await Connections.CloseSessionAsync(_session.Id);
+        Nav.NavigateTo("/terminals");
+    }
+
+    private async Task OnQuickCommandKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_quickCommand) && _session is not null)
+        {
+            await Connections.SendInputAsync(_session.Id, _quickCommand + "\n");
+            _quickCommand = string.Empty;
+        }
+    }
+
+    private async Task SendQuickCommand(string command)
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        await Connections.SendInputAsync(_session.Id, command + "\n");
+    }
+
+    private void OnSessionsChanged(object? sender, EventArgs e)
+    {
+        _session = SessionState.Sessions.FirstOrDefault(session =>
+            string.Equals(session.Id, SessionId, StringComparison.OrdinalIgnoreCase));
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        SessionState.SessionsChanged -= OnSessionsChanged;
+    }
+}

@@ -17,6 +17,9 @@ public interface IAgentDeckClient
     /// <summary>Current connection state.</summary>
     HubConnectionState ConnectionState { get; }
 
+    /// <summary>Current coordinator-issued companion identity, when connected.</summary>
+    string? CompanionId { get; }
+
     /// <summary>Fired whenever the connection state changes.</summary>
     event EventHandler<HubConnectionState>? ConnectionStateChanged;
 

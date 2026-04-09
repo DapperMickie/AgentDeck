@@ -1,0 +1,235 @@
+@page "/project-sessions/{ProjectSessionId}"
+@inject ICompanionDashboardStateService DashboardState
+@inject ISessionStateService SessionState
+@inject IActiveSessionService ActiveSession
+@inject IAgentDeckClient AgentClient
+@implements IDisposable
+
+<div class="project-page">
+    @if (_loading)
+    {
+        <div class="project-page__content">
+            <div class="empty-state">
+                <div class="empty-icon">◌</div>
+                <h2>Loading project session</h2>
+            </div>
+        </div>
+    }
+    else if (_projectSession is null)
+    {
+        <div class="project-page__content">
+            <div class="empty-state">
+                <div class="empty-icon">⌂</div>
+                <h2>Project session not found</h2>
+                <p>Return to the <a href="/">dashboard</a> to choose another session.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="page-header project-page__header">
+            <div>
+                <h1>@_projectSession.ProjectName</h1>
+                <p>@GetControllerStateLabel() • @GetLocationLabel()</p>
+            </div>
+            <div class="project-page__actions">
+                <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Project</a>
+                @if (!IsController())
+                {
+                    <button class="btn btn-accent" disabled title="Coordinator control handoff will land with issue #156.">Take control</button>
+                }
+            </div>
+        </div>
+
+        <div class="project-page__content">
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Surface tabs</h2>
+                        <p>Each tab represents a coordinator-registered live surface for this project session.</p>
+                    </div>
+                </div>
+
+                <div class="surface-tabs">
+                    @foreach (var surface in _projectSession.Surfaces.OrderBy(GetSurfaceSortKey).ThenBy(surface => surface.DisplayName, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <button class="surface-tab @(surface.Id == _activeSurfaceId ? "surface-tab--active" : "")"
+                                @onclick="() => SelectSurface(surface)">
+                            <span>@surface.DisplayName</span>
+                            <span class="surface-tab__kind">@surface.Kind</span>
+                        </button>
+                    }
+                </div>
+
+                @if (_activeSurface is null)
+                {
+                    <p>Select a surface to inspect it.</p>
+                }
+                else if (_activeSurface.Kind == ProjectSessionSurfaceKind.Terminal && _attachedTerminalSession is not null)
+                {
+                    <div class="terminal-area terminal-area--single project-session-terminal">
+                        <TerminalPanel Session="_attachedTerminalSession!" IsActive="true" />
+                    </div>
+                }
+                else
+                {
+                    <div class="surface-details-card">
+                        <div class="surface-details-card__header">
+                            <div>
+                                <h3>@_activeSurface.DisplayName</h3>
+                                <p>@GetSurfaceDescription(_activeSurface)</p>
+                            </div>
+                            <span class="machine-badge">@_activeSurface.Status</span>
+                        </div>
+                        <dl class="surface-details-list">
+                            <div>
+                                <dt>Kind</dt>
+                                <dd>@_activeSurface.Kind</dd>
+                            </div>
+                            <div>
+                                <dt>Machine</dt>
+                                <dd>@(_activeSurface.MachineName ?? _activeSurface.MachineId ?? "Not recorded")</dd>
+                            </div>
+                            <div>
+                                <dt>Reference</dt>
+                                <dd>@(_activeSurface.ReferenceId ?? "Not recorded")</dd>
+                            </div>
+                            <div>
+                                <dt>Status</dt>
+                                <dd>@(_activeSurface.StatusMessage ?? _activeSurface.Status.ToString())</dd>
+                            </div>
+                        </dl>
+                        @if (_activeSurface.Kind == ProjectSessionSurfaceKind.Terminal && _attachedTerminalSession is null)
+                        {
+                            <p class="surface-details-card__note">This terminal is registered with the coordinator, but this companion is not currently attached to its live terminal stream.</p>
+                        }
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ProjectSessionId { get; set; } = string.Empty;
+
+    private ProjectSessionRecord? _projectSession;
+    private ProjectSessionSurface? _activeSurface;
+    private TerminalSession? _attachedTerminalSession;
+    private string? _activeSurfaceId;
+    private bool _loading = true;
+
+    protected override void OnInitialized()
+    {
+        SessionState.SessionsChanged += OnSessionsChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        try
+        {
+            var dashboard = await DashboardState.BuildAsync();
+            _projectSession = dashboard.ProjectSessions.FirstOrDefault(session =>
+                string.Equals(session.Id, ProjectSessionId, StringComparison.OrdinalIgnoreCase));
+
+            if (_projectSession is null)
+            {
+                _activeSurface = null;
+                _attachedTerminalSession = null;
+                _activeSurfaceId = null;
+                return;
+            }
+
+            _activeSurfaceId = _projectSession.Surfaces.Any(surface => surface.Id == _activeSurfaceId)
+                ? _activeSurfaceId
+                : _projectSession.Surfaces.OrderBy(GetSurfaceSortKey).Select(surface => surface.Id).FirstOrDefault();
+            SyncActiveSurface();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void SelectSurface(ProjectSessionSurface surface)
+    {
+        _activeSurfaceId = surface.Id;
+        SyncActiveSurface();
+    }
+
+    private void SyncActiveSurface()
+    {
+        _activeSurface = _projectSession?.Surfaces.FirstOrDefault(surface =>
+            string.Equals(surface.Id, _activeSurfaceId, StringComparison.OrdinalIgnoreCase));
+        _attachedTerminalSession = null;
+
+        if (_activeSurface?.Kind == ProjectSessionSurfaceKind.Terminal &&
+            !string.IsNullOrWhiteSpace(_activeSurface.ReferenceId))
+        {
+            _attachedTerminalSession = SessionState.Sessions.FirstOrDefault(session =>
+                string.Equals(session.Id, _activeSurface.ReferenceId, StringComparison.OrdinalIgnoreCase));
+            if (_attachedTerminalSession is not null)
+            {
+                ActiveSession.SetActiveSession(_attachedTerminalSession.Id);
+            }
+        }
+    }
+
+    private bool IsController() =>
+        !string.IsNullOrWhiteSpace(_projectSession?.CompanionId) &&
+        string.Equals(_projectSession.CompanionId, AgentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
+
+    private string GetControllerStateLabel()
+    {
+        if (_projectSession is null)
+        {
+            return "No controller state";
+        }
+
+        if (string.IsNullOrWhiteSpace(_projectSession.CompanionId))
+        {
+            return "No controller companion recorded";
+        }
+
+        return IsController()
+            ? "You control this project session"
+            : $"View-only while {_projectSession.CompanionId} controls this session";
+    }
+
+    private string GetLocationLabel() =>
+        string.IsNullOrWhiteSpace(_projectSession?.MachineName)
+            ? "Coordinator-managed session"
+            : $"Hosted on {_projectSession.MachineName}";
+
+    private static int GetSurfaceSortKey(ProjectSessionSurface surface) => surface.Kind switch
+    {
+        ProjectSessionSurfaceKind.Terminal => 0,
+        ProjectSessionSurfaceKind.VsCode => 1,
+        ProjectSessionSurfaceKind.Simulator => 2,
+        ProjectSessionSurfaceKind.Emulator => 3,
+        ProjectSessionSurfaceKind.Viewer => 4,
+        _ => 5
+    };
+
+    private static string GetSurfaceDescription(ProjectSessionSurface surface) => surface.Kind switch
+    {
+        ProjectSessionSurfaceKind.Terminal => "Terminal tabs stay dedicated to shell output and input.",
+        ProjectSessionSurfaceKind.VsCode => "VS Code surfaces will host debug sessions and editor workflows.",
+        ProjectSessionSurfaceKind.Simulator => "Simulator surfaces model iOS or desktop simulation targets.",
+        ProjectSessionSurfaceKind.Emulator => "Emulator surfaces model Android device-backed runs.",
+        ProjectSessionSurfaceKind.Viewer => "Viewer surfaces will carry desktop or window remoting targets.",
+        _ => "Coordinator-registered project surface."
+    };
+
+    private void OnSessionsChanged(object? sender, EventArgs e)
+    {
+        SyncActiveSurface();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        SessionState.SessionsChanged -= OnSessionsChanged;
+    }
+}
