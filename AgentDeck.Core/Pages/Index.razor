@@ -259,6 +259,7 @@
     private bool _shortcutsRegistered;
     private CompanionDashboardState _dashboard = new();
     private CancellationTokenSource? _refreshCts;
+    private bool _disposed;
 
     protected override async Task OnInitializedAsync()
     {
@@ -266,7 +267,8 @@
         SessionState.SessionsChanged += OnSessionsChanged;
         ActiveSession.StateChanged += OnActiveSessionChanged;
         SettingsService.SettingsChanged += OnSettingsChanged;
-        _dashboard = await DashboardState.BuildAsync();
+        _refreshCts = new CancellationTokenSource();
+        _dashboard = await DashboardState.BuildAsync(_refreshCts.Token);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -362,6 +364,11 @@
 
     private async Task RefreshDashboardAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _refreshCts?.Cancel();
         _refreshCts?.Dispose();
         _refreshCts = new CancellationTokenSource();
@@ -432,6 +439,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         Connections.ConnectionStateChanged -= OnStateChanged;
         SessionState.SessionsChanged -= OnSessionsChanged;
         ActiveSession.StateChanged -= OnActiveSessionChanged;
