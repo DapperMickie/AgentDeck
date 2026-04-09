@@ -20,6 +20,12 @@ public sealed class WorkerCoordinatorOptions
     /// <summary>Protocol version this runner uses when talking to the coordinator.</summary>
     public int ProtocolVersion { get; set; } = 1;
 
+    /// <summary>When true, download the payload referenced by the desired update manifest into the staging directory.</summary>
+    public bool DownloadUpdatePayload { get; set; }
+
+    /// <summary>Optional local root for staged update manifests and payloads.</summary>
+    public string? UpdateStagingRoot { get; set; }
+
     /// <summary>Default interval workers use when refreshing coordinator registration.</summary>
     public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 }

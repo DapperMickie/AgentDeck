@@ -11,6 +11,7 @@ public sealed class RegisterRunnerMachineRequest
     public required string AgentVersion { get; init; }
     public int ProtocolVersion { get; init; } = 1;
     public string? WorkflowCatalogVersion { get; init; }
+    public RunnerUpdateStatus? UpdateStatus { get; init; }
     public string? RunnerUrl { get; init; }
     public MachinePlatformProfile? Platform { get; init; }
     public IReadOnlyList<MachineTargetSupport> SupportedTargets { get; init; } = [];

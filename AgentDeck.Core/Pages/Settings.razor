@@ -93,6 +93,10 @@
                             {
                                 <span> • manifest @machine.DesiredUpdateManifestId</span>
                             }
+                            @if (machine.UpdateStatus is not null)
+                            {
+                                <span> • update @machine.UpdateStatus.State</span>
+                            }
                             @if (machine.UpdateAvailable)
                             {
                                 <span> • update available</span>
