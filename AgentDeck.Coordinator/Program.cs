@@ -159,6 +159,12 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
         catch
         {
             projectSessions.RemoveSession(projectSession.Id);
+            if (!string.IsNullOrWhiteSpace(companionId))
+            {
+                companions.DetachSession(companionId, session.Id);
+            }
+
+            await runners.CloseSessionAsync(session.Id, cancellationToken);
             throw;
         }
 
