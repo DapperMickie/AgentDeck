@@ -90,6 +90,7 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
         var parentDirectory = Path.GetDirectoryName(projectPath)
             ?? throw new InvalidOperationException($"Could not determine a parent directory for '{projectPath}'.");
         Directory.CreateDirectory(parentDirectory);
+        var deleteProjectPathOnCancellation = !Directory.Exists(projectPath);
 
         var arguments = new List<string> { "clone" };
         if (!string.IsNullOrWhiteSpace(repository.DefaultBranch))
@@ -138,6 +139,11 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
             if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
+            }
+
+            if (deleteProjectPathOnCancellation)
+            {
+                TryDeleteDirectory(projectPath);
             }
 
             throw;
@@ -194,4 +200,21 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+    private void TryDeleteDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(path, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clean up partially bootstrapped workspace at {ProjectPath}", path);
+        }
+    }
 }

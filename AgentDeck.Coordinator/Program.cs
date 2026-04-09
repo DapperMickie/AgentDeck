@@ -95,7 +95,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             MachineId = machine.MachineId,
             MachineName = machine.MachineName,
             ProjectPath = openedWorkspace.ProjectPath,
-            IsPrimary = existingWorkspace?.IsPrimary ?? project.Workspaces.Count == 0
+            IsPrimary = existingWorkspace?.IsPrimary ?? false
         };
 
         var session = await runners.CreateSessionAsync(machineId, new CreateTerminalRequest
