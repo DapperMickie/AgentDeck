@@ -156,6 +156,12 @@ app.MapPost("/api/orchestration/jobs/{id}/cancel", async (string id, HttpContext
 app.MapGet("/api/viewers/providers", (IRemoteViewerSessionService viewers) =>
     Results.Ok(viewers.GetAvailableProviders()));
 
+app.MapGet("/api/debug/vscode/sessions", (IVsCodeDebugSessionService debugSessions) =>
+    Results.Ok(debugSessions.GetAll()));
+
+app.MapGet("/api/debug/vscode/sessions/{id}", (string id, IVsCodeDebugSessionService debugSessions) =>
+    debugSessions.Get(id) is { } session ? Results.Ok(session) : Results.NotFound());
+
 app.MapGet("/api/viewers/sessions", (IRemoteViewerSessionService viewers) =>
     Results.Ok(viewers.GetAll()));
 
