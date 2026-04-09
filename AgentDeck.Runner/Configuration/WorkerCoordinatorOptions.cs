@@ -17,6 +17,9 @@ public sealed class WorkerCoordinatorOptions
     /// <summary>Optional runner URL the worker advertises back to the coordinator for future dispatch.</summary>
     public string? AdvertisedRunnerUrl { get; set; }
 
+    /// <summary>Protocol version this runner uses when talking to the coordinator.</summary>
+    public int ProtocolVersion { get; set; } = 1;
+
     /// <summary>Default interval workers use when refreshing coordinator registration.</summary>
     public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 }

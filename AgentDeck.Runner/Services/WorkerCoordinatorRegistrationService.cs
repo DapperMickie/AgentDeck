@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Net.Http.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
@@ -33,6 +34,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         }
 
         var coordinatorUrl = AppendTrailingSlash(_coordinatorOptions.CoordinatorUrl);
+        var agentVersion = GetAgentVersion();
         var delay = _coordinatorOptions.WorkerHeartbeatInterval;
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -47,6 +49,9 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                     MachineId = _coordinatorOptions.MachineId.Trim(),
                     MachineName = _coordinatorOptions.MachineName.Trim(),
                     Role = RunnerMachineRole.Worker,
+                    AgentVersion = agentVersion,
+                    ProtocolVersion = _coordinatorOptions.ProtocolVersion,
+                    WorkflowCatalogVersion = "1",
                     RunnerUrl = string.IsNullOrWhiteSpace(_coordinatorOptions.AdvertisedRunnerUrl)
                         ? null
                         : _coordinatorOptions.AdvertisedRunnerUrl.Trim(),
@@ -61,9 +66,45 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                     ? registration.HeartbeatInterval
                     : _coordinatorOptions.WorkerHeartbeatInterval;
 
+                if (registration?.DesiredState is { } desiredState)
+                {
+                    if (!desiredState.ProtocolCompatible)
+                    {
+                        _logger.LogWarning(
+                            "Coordinator {CoordinatorUrl} reported unsupported protocol for runner {MachineName}: local protocol {ProtocolVersion}, supported range {MinimumSupportedProtocolVersion}-{MaximumSupportedProtocolVersion}",
+                            coordinatorUrl,
+                            request.MachineName,
+                            request.ProtocolVersion,
+                            desiredState.MinimumSupportedProtocolVersion,
+                            desiredState.MaximumSupportedProtocolVersion);
+                    }
+
+                    if (desiredState.UpdateAvailable)
+                    {
+                        _logger.LogInformation(
+                            "Coordinator {CoordinatorUrl} requested runner {MachineName} update from {CurrentVersion} to {DesiredVersion}",
+                            coordinatorUrl,
+                            request.MachineName,
+                            request.AgentVersion,
+                            desiredState.DesiredRunnerVersion);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(desiredState.WorkflowCatalogVersion) &&
+                        !string.Equals(desiredState.WorkflowCatalogVersion, request.WorkflowCatalogVersion, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogInformation(
+                            "Coordinator {CoordinatorUrl} assigned workflow catalog version {WorkflowCatalogVersion} to runner {MachineName}",
+                            coordinatorUrl,
+                            desiredState.WorkflowCatalogVersion,
+                            request.MachineName);
+                    }
+                }
+
                 _logger.LogInformation(
-                    "Registered worker runner {MachineName} with coordinator {CoordinatorUrl}",
+                    "Registered worker runner {MachineName} v{AgentVersion} (protocol {ProtocolVersion}) with coordinator {CoordinatorUrl}",
                     request.MachineName,
+                    request.AgentVersion,
+                    request.ProtocolVersion,
                     coordinatorUrl);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -89,4 +130,16 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
 
     private static string AppendTrailingSlash(string baseUrl) =>
         baseUrl.EndsWith("/", StringComparison.Ordinal) ? baseUrl : $"{baseUrl}/";
+
+    private static string GetAgentVersion()
+    {
+        var assembly = typeof(WorkerCoordinatorRegistrationService).Assembly;
+        var informationalVersion = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informationalVersion))
+        {
+            return informationalVersion.Trim();
+        }
+
+        return assembly.GetName().Version?.ToString() ?? "0.0.0-dev";
+    }
 }

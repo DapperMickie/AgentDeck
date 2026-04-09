@@ -4,5 +4,6 @@ namespace AgentDeck.Shared.Models;
 public sealed class RegisterRunnerMachineResponse
 {
     public required RegisteredRunnerMachine Machine { get; init; }
+    public required RunnerDesiredState DesiredState { get; init; }
     public TimeSpan HeartbeatInterval { get; init; } = TimeSpan.FromSeconds(15);
 }

@@ -79,6 +79,20 @@
                         </span>
                         <span class="settings-card__description">
                             Last seen @machine.LastSeenAt.ToLocalTime().ToString("g")
+                            <span> • agent @machine.AgentVersion</span>
+                            <span> • protocol @machine.ProtocolVersion</span>
+                            @if (!string.IsNullOrWhiteSpace(machine.WorkflowCatalogVersion))
+                            {
+                                <span> • workflow @machine.WorkflowCatalogVersion</span>
+                            }
+                            @if (machine.UpdateAvailable)
+                            {
+                                <span> • update available</span>
+                            }
+                            @if (!machine.ProtocolCompatible)
+                            {
+                                <span> • protocol mismatch</span>
+                            }
                             @if (machine.Platform is not null)
                             {
                                 <span> • @GetHostPlatformLabel(machine.Platform.HostPlatform)</span>
