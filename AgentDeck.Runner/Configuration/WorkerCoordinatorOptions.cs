@@ -34,6 +34,12 @@ public sealed class WorkerCoordinatorOptions
     /// <summary>Trusted public keys used to verify signed update manifests.</summary>
     public IReadOnlyList<RunnerTrustedManifestSigner> TrustedManifestSigners { get; set; } = [];
 
+    /// <summary>Optional local root for extracted candidate installs created by the apply flow.</summary>
+    public string? UpdateApplyRoot { get; set; }
+
+    /// <summary>How long the detached apply helper waits for the current runner process to exit before failing.</summary>
+    public TimeSpan UpdateApplyProcessExitTimeout { get; set; } = TimeSpan.FromMinutes(2);
+
     /// <summary>Default interval workers use when refreshing coordinator registration.</summary>
     public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 }

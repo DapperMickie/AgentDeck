@@ -1,9 +1,11 @@
 using System.Net.Http.Json;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace AgentDeck.Runner.Services;
@@ -16,13 +18,19 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);
     private readonly WorkerCoordinatorOptions _options;
     private readonly ILogger<RunnerUpdateStagingService> _logger;
+    private readonly IHostApplicationLifetime _hostApplicationLifetime;
+    private readonly IRunnerAuditService _audit;
     private RunnerUpdateStatus? _currentStatus;
 
     public RunnerUpdateStagingService(
         IOptions<WorkerCoordinatorOptions> options,
+        IHostApplicationLifetime hostApplicationLifetime,
+        IRunnerAuditService audit,
         ILogger<RunnerUpdateStagingService> logger)
     {
         _options = options.Value;
+        _hostApplicationLifetime = hostApplicationLifetime;
+        _audit = audit;
         _logger = logger;
         _currentStatus = LoadPersistedStatus();
     }
@@ -68,11 +76,26 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
             var desiredManifestVersion = desiredState.DesiredUpdateManifest.Version;
             var currentStatus = GetCurrentStatusSnapshot();
             if (currentStatus?.ManifestId == desiredManifestId &&
-                currentStatus.ManifestVersion == desiredManifestVersion &&
-                (currentStatus.State == RunnerUpdateStageState.PayloadStaged ||
-                 (currentStatus.State == RunnerUpdateStageState.ManifestStaged && !_options.DownloadUpdatePayload)))
+                currentStatus.ManifestVersion == desiredManifestVersion)
             {
-                return currentStatus;
+                if (currentStatus.State is RunnerUpdateStageState.Applying or RunnerUpdateStageState.Applied)
+                {
+                    return currentStatus;
+                }
+
+                if (desiredState.ApplyUpdate &&
+                    (currentStatus.State == RunnerUpdateStageState.PayloadStaged ||
+                     (currentStatus.State == RunnerUpdateStageState.ManifestStaged && !_options.DownloadUpdatePayload)))
+                {
+                    return await BeginApplyAsync(currentStatus, desiredState, cancellationToken);
+                }
+
+                if (!desiredState.ApplyUpdate &&
+                    (currentStatus.State == RunnerUpdateStageState.PayloadStaged ||
+                     (currentStatus.State == RunnerUpdateStageState.ManifestStaged && !_options.DownloadUpdatePayload)))
+                {
+                    return currentStatus;
+                }
             }
 
             try
@@ -225,6 +248,11 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
                     status.ManifestVersion,
                     status.StagingDirectory);
 
+                if (desiredState.ApplyUpdate)
+                {
+                    return await BeginApplyAsync(status, desiredState, cancellationToken);
+                }
+
                 return await UpdateStatusAsync(status, cancellationToken);
             }
             catch (Exception ex)
@@ -299,6 +327,16 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
     }
 
     private string GetStatusPath() => Path.Combine(GetStagingRoot(), "current-update-status.json");
+
+    private string GetApplyRoot()
+    {
+        if (!string.IsNullOrWhiteSpace(_options.UpdateApplyRoot))
+        {
+            return _options.UpdateApplyRoot.Trim();
+        }
+
+        return Path.Combine(GetStagingRoot(), "candidate-installs");
+    }
 
     private RunnerUpdateStatus? GetCurrentStatusSnapshot()
     {
@@ -430,6 +468,120 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
     public void Dispose()
     {
         _reconcileGate.Dispose();
+    }
+
+    private async Task<RunnerUpdateStatus> BeginApplyAsync(
+        RunnerUpdateStatus stagedStatus,
+        RunnerDesiredState desiredState,
+        CancellationToken cancellationToken)
+    {
+        if (!desiredState.SecurityPolicy.AllowUpdateApply)
+        {
+            throw new InvalidOperationException(
+                $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit runner-side update apply.");
+        }
+
+        if (string.IsNullOrWhiteSpace(stagedStatus.StagedArtifactPath) || !File.Exists(stagedStatus.StagedArtifactPath))
+        {
+            throw new InvalidOperationException("Runner update apply requires a downloaded staged artifact. Enable Coordinator:DownloadUpdatePayload before requesting apply.");
+        }
+
+        if (!string.Equals(Path.GetExtension(stagedStatus.StagedArtifactPath), ".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Runner update apply currently requires a staged .zip payload.");
+        }
+
+        var manifestId = stagedStatus.ManifestId ?? throw new InvalidOperationException("Runner update apply requires a staged manifest id.");
+        var manifestVersion = stagedStatus.ManifestVersion ?? throw new InvalidOperationException("Runner update apply requires a staged manifest version.");
+        var stagingDirectory = stagedStatus.StagingDirectory ?? throw new InvalidOperationException("Runner update apply requires a staging directory.");
+        var applyStartedAt = DateTimeOffset.UtcNow;
+        var candidateInstallDirectory = Path.Combine(GetApplyRoot(), SanitizePathComponent(manifestId), SanitizePathComponent(manifestVersion));
+        var planPath = Path.Combine(stagingDirectory, "apply-plan.json");
+        var statusPath = GetStatusPath();
+        var applyStatus = new RunnerUpdateStatus
+        {
+            State = RunnerUpdateStageState.Applying,
+            ManifestId = manifestId,
+            ManifestVersion = manifestVersion,
+            StagingDirectory = stagingDirectory,
+            StagedArtifactPath = stagedStatus.StagedArtifactPath,
+            StagedAt = stagedStatus.StagedAt,
+            AppliedInstallDirectory = candidateInstallDirectory,
+            ApplyStartedAt = applyStartedAt
+        };
+
+        await UpdateStatusAsync(applyStatus, cancellationToken);
+        await WriteTextAtomicallyAsync(
+            planPath,
+            JsonSerializer.Serialize(new RunnerUpdateApplyPlan
+            {
+                TargetProcessId = Environment.ProcessId,
+                ManifestId = manifestId,
+                ManifestVersion = manifestVersion,
+                StagingDirectory = stagingDirectory,
+                StatusPath = statusPath,
+                ArtifactPath = stagedStatus.StagedArtifactPath,
+                SourceInstallDirectory = AppContext.BaseDirectory,
+                CandidateInstallDirectory = candidateInstallDirectory,
+                ProcessExitTimeout = _options.UpdateApplyProcessExitTimeout,
+                ApplyStartedAt = applyStartedAt
+            }, JsonOptions),
+            cancellationToken);
+
+        StartApplyWorker(planPath);
+        _audit.Record(CreateSystemDecision("update.apply", manifestId, manifestVersion), RunnerAuditOutcome.Succeeded,
+            $"Scheduled runner update apply for {manifestId}@{manifestVersion} into '{candidateInstallDirectory}'.");
+        _hostApplicationLifetime.StopApplication();
+        return applyStatus;
+    }
+
+    private static RunnerTrustDecision CreateSystemDecision(string action, string? targetId, string? targetDisplayName) =>
+        new()
+        {
+            Allowed = true,
+            Action = action,
+            ActorId = "coordinator",
+            ActorDisplayName = "Coordinator",
+            TargetType = "runner-update",
+            TargetId = targetId,
+            TargetDisplayName = targetDisplayName
+        };
+
+    private void StartApplyWorker(string planPath)
+    {
+        var processPath = Environment.ProcessPath
+            ?? throw new InvalidOperationException("Runner update apply could not determine the current process path.");
+        var startInfo = new ProcessStartInfo
+        {
+            WorkingDirectory = AppContext.BaseDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        if (string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase))
+        {
+            var assemblyPath = typeof(RunnerUpdateStagingService).Assembly.Location;
+            startInfo.FileName = processPath;
+            startInfo.ArgumentList.Add(assemblyPath);
+        }
+        else
+        {
+            startInfo.FileName = processPath;
+        }
+
+        startInfo.ArgumentList.Add(RunnerUpdateApplyWorker.HelperModeSwitch);
+        startInfo.ArgumentList.Add(planPath);
+
+        try
+        {
+            using var helperProcess = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Runner update apply helper did not start a process.");
+        }
+        catch (Exception ex)
+        {
+            _audit.Record(CreateSystemDecision("update.apply", null, null), RunnerAuditOutcome.Failed, ex.Message);
+            throw new InvalidOperationException($"Failed to start the runner update apply helper. {ex.Message}", ex);
+        }
     }
 
     private static string SanitizePathComponent(string value)

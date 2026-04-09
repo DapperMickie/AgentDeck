@@ -6,5 +6,7 @@ public enum RunnerUpdateStageState
     None,
     ManifestStaged,
     PayloadStaged,
+    Applying,
+    Applied,
     Failed
 }

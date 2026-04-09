@@ -4,6 +4,12 @@ using AgentDeck.Runner.Services;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 
+if (args.Length >= 2 && string.Equals(args[0], RunnerUpdateApplyWorker.HelperModeSwitch, StringComparison.OrdinalIgnoreCase))
+{
+    Environment.ExitCode = await RunnerUpdateApplyWorker.RunAsync(args[1]);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 var runnerOptions = builder.Configuration

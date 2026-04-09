@@ -11,6 +11,7 @@ public sealed class RunnerDesiredState
     public RunnerDefinitionReference? DesiredWorkflowPack { get; init; }
     public string? WorkflowCatalogVersion { get; init; }
     public bool UpdateAvailable { get; init; }
+    public bool ApplyUpdate { get; init; }
     public bool ProtocolCompatible { get; init; } = true;
     public string? StatusMessage { get; init; }
 }

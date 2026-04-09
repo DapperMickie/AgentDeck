@@ -99,6 +99,14 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                             request.AgentVersion,
                             desiredState.DesiredRunnerVersion,
                             desiredState.DesiredUpdateManifest?.DefinitionId);
+
+                        if (desiredState.ApplyUpdate)
+                        {
+                            _logger.LogInformation(
+                                "Coordinator {CoordinatorUrl} also requested immediate apply for runner {MachineName}",
+                                coordinatorUrl,
+                                request.MachineName);
+                        }
                     }
 
                     if (desiredState.DesiredWorkflowPack is { } desiredWorkflowPack)
