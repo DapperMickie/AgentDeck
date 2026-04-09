@@ -1,6 +1,7 @@
 using AgentDeck.Coordinator.Configuration;
 using AgentDeck.Coordinator.Hubs;
 using AgentDeck.Coordinator.Services;
+using System.Runtime.ExceptionServices;
 using AgentDeck.Shared;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
@@ -79,10 +80,11 @@ app.MapPost("/api/project-sessions/{projectSessionId}/surfaces", (string project
     }
 });
 
-app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectId, string machineId, HttpContext httpContext, ICompanionRegistryService companions, IProjectRegistryService projects, IProjectSessionRegistryService projectSessions, IWorkerRegistryService registry, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectId, string machineId, HttpContext httpContext, ICompanionRegistryService companions, IProjectRegistryService projects, IProjectSessionRegistryService projectSessions, IWorkerRegistryService registry, IRunnerBrokerService runners, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
 {
     try
     {
+        var logger = loggerFactory.CreateLogger("ProjectOpenFlow");
         TrackMachineAttachment(httpContext, companions, machineId);
 
         var project = projects.GetProject(projectId);
@@ -129,7 +131,6 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             Name = $"{project.Name} ({machine.MachineName})",
             WorkingDirectory = openedWorkspace.ProjectPath
         }, cancellationToken);
-        var updatedProject = projects.UpsertWorkspace(projectId, workspaceMapping);
 
         var companionId = GetCompanionId(httpContext);
         if (!string.IsNullOrWhiteSpace(companionId))
@@ -155,28 +156,53 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
                 Status = ProjectSessionSurfaceStatus.Ready,
                 StatusMessage = $"Terminal ready in '{openedWorkspace.ProjectPath}'."
             });
-        }
-        catch
-        {
-            projectSessions.RemoveSession(projectSession.Id);
-            if (!string.IsNullOrWhiteSpace(companionId))
+            var updatedProject = projects.UpsertWorkspace(projectId, workspaceMapping);
+
+            return Results.Ok(new OpenProjectOnMachineResult
             {
-                companions.DetachSession(companionId, session.Id);
+                Project = updatedProject,
+                ProjectSession = projectSession,
+                Workspace = workspaceMapping,
+                Session = session,
+                WorkspaceCreated = openedWorkspace.WorkspaceCreated,
+                RepositoryCloned = openedWorkspace.RepositoryCloned
+            });
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                projectSessions.RemoveSession(projectSession.Id);
+            }
+            catch (Exception cleanupEx)
+            {
+                logger.LogWarning(cleanupEx, "Failed to remove project session {ProjectSessionId} during open-project cleanup", projectSession.Id);
             }
 
-            await runners.CloseSessionAsync(session.Id, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(companionId))
+            {
+                try
+                {
+                    companions.DetachSession(companionId, session.Id);
+                }
+                catch (Exception cleanupEx)
+                {
+                    logger.LogWarning(cleanupEx, "Failed to detach companion {CompanionId} from session {SessionId} during open-project cleanup", companionId, session.Id);
+                }
+            }
+
+            try
+            {
+                await runners.CloseSessionAsync(session.Id, cancellationToken);
+            }
+            catch (Exception cleanupEx)
+            {
+                logger.LogWarning(cleanupEx, "Failed to close terminal session {SessionId} during open-project cleanup", session.Id);
+            }
+
+            ExceptionDispatchInfo.Capture(ex).Throw();
             throw;
         }
-
-        return Results.Ok(new OpenProjectOnMachineResult
-        {
-            Project = updatedProject,
-            ProjectSession = projectSession,
-            Workspace = workspaceMapping,
-            Session = session,
-            WorkspaceCreated = openedWorkspace.WorkspaceCreated,
-            RepositoryCloned = openedWorkspace.RepositoryCloned
-        });
     }
     catch (ArgumentException ex)
     {
