@@ -629,6 +629,35 @@ main {
     overflow-wrap: anywhere;
 }
 
+.project-runtime-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+    flex: 1;
+}
+
+.project-runtime-card__actions {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+}
+
+.orchestration-form {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+}
+
+.orchestration-form__label {
+    display: block;
+    margin-bottom: 0.3rem;
+    color: var(--color-subtext);
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
 .surface-tabs {
     display: flex;
     flex-wrap: wrap;

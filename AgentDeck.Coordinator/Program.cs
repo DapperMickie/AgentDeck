@@ -347,6 +347,94 @@ app.MapGet("/api/machines/{machineId}/capabilities", async (string machineId, Ht
     }
 });
 
+app.MapGet("/api/machines/{machineId}/orchestration/jobs", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        return Results.Ok(await runners.GetOrchestrationJobsAsync(machineId, cancellationToken));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.NotFound(new { message = ex.Message });
+    }
+});
+
+app.MapPost("/api/machines/{machineId}/orchestration/jobs", async (string machineId, CreateOrchestrationJobRequest request, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        return Results.Ok(await runners.QueueOrchestrationJobAsync(machineId, request, GetActorId(httpContext), cancellationToken));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+});
+
+app.MapPost("/api/machines/{machineId}/orchestration/jobs/{jobId}/cancel", async (string machineId, string jobId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        var job = await runners.CancelOrchestrationJobAsync(machineId, jobId, GetActorId(httpContext), cancellationToken);
+        return job is null ? Results.NotFound() : Results.Ok(job);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+});
+
+app.MapGet("/api/machines/{machineId}/viewers/sessions", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        return Results.Ok(await runners.GetViewerSessionsAsync(machineId, cancellationToken));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.NotFound(new { message = ex.Message });
+    }
+});
+
+app.MapGet("/api/machines/{machineId}/virtual-devices/catalogs", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        return Results.Ok(await runners.GetVirtualDeviceCatalogsAsync(machineId, cancellationToken));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.NotFound(new { message = ex.Message });
+    }
+});
+
+app.MapPost("/api/machines/{machineId}/virtual-devices/resolve", async (string machineId, VirtualDeviceLaunchSelection selection, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        var resolution = await runners.ResolveVirtualDeviceAsync(machineId, selection, cancellationToken);
+        return resolution is null ? Results.NotFound() : Results.Ok(resolution);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+});
+
 app.MapPost("/api/machines/{machineId}/capabilities/{capabilityId}/install", async (string machineId, string capabilityId, MachineCapabilityInstallRequest? request, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try

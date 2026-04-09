@@ -189,6 +189,134 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         }
     }
 
+    public async Task<IReadOnlyList<OrchestrationJob>> GetMachineOrchestrationJobsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            return await httpClient.GetFromJsonAsync<IReadOnlyList<OrchestrationJob>>(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/orchestration/jobs",
+                cancellationToken) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator orchestration lookup failed for machine {MachineId}", machineId);
+            throw;
+        }
+    }
+
+    public async Task<OrchestrationJob?> QueueMachineOrchestrationJobAsync(string coordinatorUrl, string machineId, CreateOrchestrationJobRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/orchestration/jobs",
+                request,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<OrchestrationJob>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator orchestration queue failed for machine {MachineId}", machineId);
+            throw;
+        }
+    }
+
+    public async Task<OrchestrationJob?> CancelMachineOrchestrationJobAsync(string coordinatorUrl, string machineId, string jobId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsync(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/orchestration/jobs/{Uri.EscapeDataString(jobId)}/cancel",
+                content: null,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<OrchestrationJob>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator orchestration cancel failed for machine {MachineId} job {JobId}", machineId, jobId);
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<RemoteViewerSession>> GetMachineViewerSessionsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            return await httpClient.GetFromJsonAsync<IReadOnlyList<RemoteViewerSession>>(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/viewers/sessions",
+                cancellationToken) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator viewer session lookup failed for machine {MachineId}", machineId);
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetMachineVirtualDeviceCatalogsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            return await httpClient.GetFromJsonAsync<IReadOnlyList<VirtualDeviceCatalogSnapshot>>(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/virtual-devices/catalogs",
+                cancellationToken) ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator device catalog lookup failed for machine {MachineId}", machineId);
+            throw;
+        }
+    }
+
+    public async Task<VirtualDeviceLaunchResolution?> ResolveMachineVirtualDeviceAsync(string coordinatorUrl, string machineId, VirtualDeviceLaunchSelection selection, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/virtual-devices/resolve",
+                selection,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<VirtualDeviceLaunchResolution>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator device resolution failed for machine {MachineId}", machineId);
+            throw;
+        }
+    }
+
     private HttpClient CreateClient(string coordinatorUrl)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(coordinatorUrl);
