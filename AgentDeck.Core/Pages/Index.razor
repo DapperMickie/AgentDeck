@@ -372,11 +372,12 @@
         _refreshCts?.Cancel();
         _refreshCts?.Dispose();
         _refreshCts = new CancellationTokenSource();
+        var refreshCts = _refreshCts;
 
         try
         {
-            var dashboard = await DashboardState.BuildAsync(_refreshCts.Token);
-            if (_refreshCts.IsCancellationRequested)
+            var dashboard = await DashboardState.BuildAsync(refreshCts.Token);
+            if (refreshCts.IsCancellationRequested)
             {
                 return;
             }
