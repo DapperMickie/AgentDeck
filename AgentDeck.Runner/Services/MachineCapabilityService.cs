@@ -10,9 +10,13 @@ namespace AgentDeck.Runner.Services;
 public sealed partial class MachineCapabilityService : IMachineCapabilityService
 {
     private readonly ILogger<MachineCapabilityService> _logger;
+    private readonly IVirtualDeviceCatalogService _virtualDevices;
 
-    public MachineCapabilityService(ILogger<MachineCapabilityService> logger)
+    public MachineCapabilityService(
+        IVirtualDeviceCatalogService virtualDevices,
+        ILogger<MachineCapabilityService> logger)
     {
+        _virtualDevices = virtualDevices;
         _logger = logger;
     }
 
@@ -26,12 +30,13 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
             await DetectPythonAsync(cancellationToken),
             await DetectDotNetAsync(cancellationToken)
         };
+        var catalogs = await _virtualDevices.GetCatalogsAsync(cancellationToken);
 
         return new MachineCapabilitiesSnapshot
         {
             CapturedAt = DateTimeOffset.UtcNow,
             Platform = BuildPlatformProfile(),
-            SupportedTargets = BuildSupportedTargets(capabilities),
+            SupportedTargets = BuildSupportedTargets(capabilities, catalogs),
             Capabilities = capabilities
         };
     }
@@ -46,28 +51,47 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
         };
     }
 
-    private static IReadOnlyList<MachineTargetSupport> BuildSupportedTargets(IReadOnlyList<MachineCapability> capabilities)
+    private static IReadOnlyList<MachineTargetSupport> BuildSupportedTargets(
+        IReadOnlyList<MachineCapability> capabilities,
+        IReadOnlyList<VirtualDeviceCatalogSnapshot> catalogs)
     {
         var dotNetInstalled = capabilities.Any(capability =>
             capability.Id.Equals("dotnet", StringComparison.OrdinalIgnoreCase) &&
             capability.Status == MachineCapabilityStatus.Installed);
+        var supportedTargets = new List<MachineTargetSupport>();
 
         if (OperatingSystem.IsLinux())
         {
-            return [CreateTargetSupport(ApplicationTargetPlatform.Linux, dotNetInstalled)];
+            supportedTargets.Add(CreateTargetSupport(ApplicationTargetPlatform.Linux, dotNetInstalled));
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            supportedTargets.Add(CreateTargetSupport(ApplicationTargetPlatform.Windows, dotNetInstalled));
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            supportedTargets.Add(CreateTargetSupport(ApplicationTargetPlatform.MacOS, dotNetInstalled));
         }
 
-        if (OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
-            return [CreateTargetSupport(ApplicationTargetPlatform.Windows, dotNetInstalled)];
+            supportedTargets.Add(CreateDeviceBackedTargetSupport(
+                ApplicationTargetPlatform.Android,
+                dotNetInstalled,
+                catalogs,
+                VirtualDeviceCatalogKind.AndroidEmulator));
         }
 
         if (OperatingSystem.IsMacOS())
         {
-            return [CreateTargetSupport(ApplicationTargetPlatform.MacOS, dotNetInstalled)];
+            supportedTargets.Add(CreateDeviceBackedTargetSupport(
+                ApplicationTargetPlatform.iOS,
+                dotNetInstalled,
+                catalogs,
+                VirtualDeviceCatalogKind.AppleSimulator));
         }
 
-        return [];
+        return supportedTargets;
     }
 
     private static MachineTargetSupport CreateTargetSupport(ApplicationTargetPlatform platform, bool dotNetInstalled)
@@ -100,6 +124,54 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
             Status = dotNetInstalled ? MachineTargetSupportStatus.Supported : MachineTargetSupportStatus.RequiresSetup,
             DisplayName = definition.DisplayName,
             RequiredCapabilities = requiredCapabilities,
+            Notes = notes
+        };
+    }
+
+    private static MachineTargetSupport CreateDeviceBackedTargetSupport(
+        ApplicationTargetPlatform platform,
+        bool dotNetInstalled,
+        IReadOnlyList<VirtualDeviceCatalogSnapshot> catalogs,
+        VirtualDeviceCatalogKind catalogKind)
+    {
+        var definition = ProjectTargetCatalog.GetTargets(ProjectWorkloadKind.Maui)
+            .First(target => target.Platform == platform);
+        var catalog = catalogs.FirstOrDefault(candidate => candidate.CatalogKind == catalogKind);
+        var requiredCapabilities = string.IsNullOrWhiteSpace(definition.CapabilityId)
+            ? []
+            : new[] { definition.CapabilityId };
+        var notes = definition.Notes;
+
+        if (!string.IsNullOrWhiteSpace(catalog?.Message))
+        {
+            notes = string.IsNullOrWhiteSpace(notes)
+                ? catalog.Message
+                : $"{notes} {catalog.Message}";
+        }
+
+        var status = MachineTargetSupportStatus.Supported;
+        if (!dotNetInstalled || catalog is null || !catalog.DiscoverySupported)
+        {
+            status = MachineTargetSupportStatus.RequiresSetup;
+        }
+
+        if (!dotNetInstalled)
+        {
+            notes = string.IsNullOrWhiteSpace(notes)
+                ? "Install the .NET SDK first."
+                : $"Install the .NET SDK first. {notes}";
+        }
+
+        return new MachineTargetSupport
+        {
+            Platform = definition.Platform,
+            Status = status,
+            DisplayName = definition.DisplayName,
+            RequiredCapabilities = requiredCapabilities,
+            DeviceCatalog = catalogKind,
+            RequiresDeviceSelection = true,
+            AvailableDeviceCount = catalog?.Devices.Count ?? 0,
+            AvailableDeviceProfileCount = catalog?.Profiles.Count ?? 0,
             Notes = notes
         };
     }

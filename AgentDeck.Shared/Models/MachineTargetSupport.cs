@@ -9,5 +9,9 @@ public sealed class MachineTargetSupport
     public MachineTargetSupportStatus Status { get; init; } = MachineTargetSupportStatus.Unsupported;
     public string DisplayName { get; init; } = string.Empty;
     public IReadOnlyList<string> RequiredCapabilities { get; init; } = [];
+    public VirtualDeviceCatalogKind? DeviceCatalog { get; init; }
+    public bool RequiresDeviceSelection { get; init; }
+    public int AvailableDeviceCount { get; init; }
+    public int AvailableDeviceProfileCount { get; init; }
     public string? Notes { get; init; }
 }
