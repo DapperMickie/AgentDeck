@@ -13,4 +13,6 @@ public sealed class RunnerUpdateManifest
     public int MaximumProtocolVersion { get; init; } = 1;
     public DateTimeOffset PublishedAt { get; init; } = DateTimeOffset.UtcNow;
     public string? Notes { get; init; }
+    public RunnerUpdateManifestProvenance? Provenance { get; init; }
+    public RunnerUpdateManifestSignature? Signature { get; init; }
 }

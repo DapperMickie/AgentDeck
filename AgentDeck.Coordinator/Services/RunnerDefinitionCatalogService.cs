@@ -26,7 +26,26 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
             ArtifactSizeBytes = desiredUpdateManifest.ArtifactSizeBytes,
             MinimumProtocolVersion = desiredUpdateManifest.MinimumProtocolVersion,
             MaximumProtocolVersion = desiredUpdateManifest.MaximumProtocolVersion,
-            Notes = NormalizeOptional(desiredUpdateManifest.Notes)
+            PublishedAt = desiredUpdateManifest.PublishedAt ?? DateTimeOffset.UtcNow,
+            Notes = NormalizeOptional(desiredUpdateManifest.Notes),
+            Provenance = HasConfiguredProvenance(desiredUpdateManifest)
+                ? new RunnerUpdateManifestProvenance
+                {
+                    SourceRepository = NormalizeRequired(desiredUpdateManifest.SourceRepository, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SourceRepository"),
+                    SourceRevision = NormalizeRequired(desiredUpdateManifest.SourceRevision, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SourceRevision"),
+                    BuildIdentifier = NormalizeOptional(desiredUpdateManifest.BuildIdentifier),
+                    PublishedBy = NormalizeOptional(desiredUpdateManifest.PublishedBy),
+                    ProvenanceUri = NormalizeOptional(desiredUpdateManifest.ProvenanceUri)
+                }
+                : null,
+            Signature = HasConfiguredSignature(desiredUpdateManifest)
+                ? new RunnerUpdateManifestSignature
+                {
+                    Algorithm = NormalizeRequired(desiredUpdateManifest.SignatureAlgorithm, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SignatureAlgorithm"),
+                    SignerId = NormalizeRequired(desiredUpdateManifest.SignerId, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SignerId"),
+                    Value = NormalizeRequired(desiredUpdateManifest.Signature, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:Signature")
+                }
+                : null
         };
         ValidateUpdateManifest(_desiredUpdateManifest, options.PublicBaseUrl, securityPolicy);
 
@@ -81,10 +100,44 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
         string? publicBaseUrl,
         CoordinatorSecurityPolicyOptions securityPolicy)
     {
+        var trustedSigners = BuildTrustedSignerLookup(securityPolicy.TrustedManifestSigners);
+
         if (securityPolicy.RequireUpdateArtifactChecksum && string.IsNullOrWhiteSpace(manifest.Sha256))
         {
             throw new InvalidOperationException(
                 $"Coordinator setting '{CoordinatorOptions.SectionName}:DesiredUpdateManifest:Sha256' is required when update artifact checksums are enforced.");
+        }
+
+        if ((securityPolicy.RequireSignedUpdateManifest || manifest.Signature is not null) && trustedSigners.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Coordinator security policy requires at least one trusted manifest signer when signed manifests are enabled.");
+        }
+
+        if ((securityPolicy.RequireManifestProvenance || manifest.Provenance is not null) &&
+            !RunnerUpdateManifestSigning.HasRequiredProvenance(manifest, out var provenanceError))
+        {
+            throw new InvalidOperationException(provenanceError);
+        }
+
+        if (securityPolicy.RequireSignedUpdateManifest && manifest.Signature is null)
+        {
+            throw new InvalidOperationException(
+                $"Coordinator settings '{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SignerId' and '{CoordinatorOptions.SectionName}:DesiredUpdateManifest:Signature' are required when signed manifests are enforced.");
+        }
+
+        if (manifest.Signature is not null)
+        {
+            if (!trustedSigners.TryGetValue(manifest.Signature.SignerId, out var signer))
+            {
+                throw new InvalidOperationException(
+                    $"Coordinator security policy does not define a trusted manifest signer entry for '{manifest.Signature.SignerId}'.");
+            }
+
+            if (!RunnerUpdateManifestSigning.VerifySignature(manifest, signer.PublicKeyPem, out var signatureError))
+            {
+                throw new InvalidOperationException(signatureError);
+            }
         }
 
         if (!Uri.TryCreate(manifest.ArtifactUrl, UriKind.RelativeOrAbsolute, out var artifactUri))
@@ -130,5 +183,40 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
             throw new InvalidOperationException(
                 $"Coordinator update artifact '{manifest.ArtifactUrl}' must match coordinator origin '{publicBaseUri.GetLeftPart(UriPartial.Authority)}'.");
         }
+    }
+
+    private static bool HasConfiguredProvenance(CoordinatorUpdateManifestOptions manifest) =>
+        !string.IsNullOrWhiteSpace(manifest.SourceRepository) ||
+        !string.IsNullOrWhiteSpace(manifest.SourceRevision) ||
+        !string.IsNullOrWhiteSpace(manifest.BuildIdentifier) ||
+        !string.IsNullOrWhiteSpace(manifest.PublishedBy) ||
+        !string.IsNullOrWhiteSpace(manifest.ProvenanceUri);
+
+    private static bool HasConfiguredSignature(CoordinatorUpdateManifestOptions manifest) =>
+        !string.IsNullOrWhiteSpace(manifest.SignerId) ||
+        !string.IsNullOrWhiteSpace(manifest.Signature);
+
+    private static IReadOnlyDictionary<string, RunnerTrustedManifestSigner> BuildTrustedSignerLookup(IReadOnlyList<RunnerTrustedManifestSigner> signers)
+    {
+        var lookup = new Dictionary<string, RunnerTrustedManifestSigner>(StringComparer.OrdinalIgnoreCase);
+        foreach (var signer in signers)
+        {
+            if (string.IsNullOrWhiteSpace(signer.SignerId))
+            {
+                throw new InvalidOperationException("Coordinator trusted manifest signer entries require a signer id.");
+            }
+
+            if (string.IsNullOrWhiteSpace(signer.PublicKeyPem))
+            {
+                throw new InvalidOperationException($"Coordinator trusted manifest signer '{signer.SignerId}' requires a public key.");
+            }
+
+            if (!lookup.TryAdd(signer.SignerId.Trim(), signer))
+            {
+                throw new InvalidOperationException($"Coordinator trusted manifest signer '{signer.SignerId}' is duplicated.");
+            }
+        }
+
+        return lookup;
     }
 }

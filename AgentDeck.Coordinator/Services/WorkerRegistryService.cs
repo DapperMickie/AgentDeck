@@ -167,6 +167,13 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 AllowUpdateStaging = _coordinatorOptions.SecurityPolicy?.AllowUpdateStaging ?? true,
                 RequireCoordinatorOriginForArtifacts = _coordinatorOptions.SecurityPolicy?.RequireCoordinatorOriginForArtifacts ?? true,
                 RequireUpdateArtifactChecksum = _coordinatorOptions.SecurityPolicy?.RequireUpdateArtifactChecksum ?? true,
+                RequireSignedUpdateManifest = _coordinatorOptions.SecurityPolicy?.RequireSignedUpdateManifest ?? true,
+                RequireManifestProvenance = _coordinatorOptions.SecurityPolicy?.RequireManifestProvenance ?? true,
+                TrustedManifestSignerIds = (_coordinatorOptions.SecurityPolicy?.TrustedManifestSigners ?? [])
+                    .Where(signer => !string.IsNullOrWhiteSpace(signer.SignerId))
+                    .Select(signer => signer.SignerId.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
                 AllowWorkflowPackExecution = _coordinatorOptions.SecurityPolicy?.AllowWorkflowPackExecution ?? false,
                 AllowUpdateApply = _coordinatorOptions.SecurityPolicy?.AllowUpdateApply ?? false
             },

@@ -7,6 +7,9 @@ public sealed class RunnerControlPlaneSecurityPolicy
     public bool AllowUpdateStaging { get; init; } = true;
     public bool RequireCoordinatorOriginForArtifacts { get; init; } = true;
     public bool RequireUpdateArtifactChecksum { get; init; } = true;
+    public bool RequireSignedUpdateManifest { get; init; } = true;
+    public bool RequireManifestProvenance { get; init; } = true;
+    public IReadOnlyList<string> TrustedManifestSignerIds { get; init; } = [];
     public bool AllowWorkflowPackExecution { get; init; }
     public bool AllowUpdateApply { get; init; }
 }
