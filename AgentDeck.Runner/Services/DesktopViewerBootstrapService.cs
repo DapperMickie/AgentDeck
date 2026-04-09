@@ -4,8 +4,10 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
+using Microsoft.Extensions.Options;
 
 namespace AgentDeck.Runner.Services;
 
@@ -22,13 +24,16 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
     private readonly ConcurrentDictionary<string, ActiveDesktopTransport> _activeTransports = new();
     private readonly IRemoteViewerSessionService _viewers;
+    private readonly DesktopViewerTransportOptions _transportOptions;
     private readonly ILogger<DesktopViewerBootstrapService> _logger;
 
     public DesktopViewerBootstrapService(
         IRemoteViewerSessionService viewers,
+        IOptions<DesktopViewerTransportOptions> transportOptions,
         ILogger<DesktopViewerBootstrapService> logger)
     {
         _viewers = viewers;
+        _transportOptions = transportOptions.Value;
         _logger = logger;
     }
 
@@ -114,6 +119,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
     {
         return session.Provider switch
         {
+            RemoteViewerProviderKind.Managed => await BootstrapManagedAsync(session.Id, connectionHost, cancellationToken),
             RemoteViewerProviderKind.Rdp => BootstrapRdp(connectionHost),
             RemoteViewerProviderKind.ScreenSharing => BootstrapScreenSharing(connectionHost),
             RemoteViewerProviderKind.Vnc => await BootstrapVncAsync(session.Id, connectionHost, cancellationToken),
@@ -121,6 +127,99 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
             RemoteViewerProviderKind.Wayland => throw new InvalidOperationException("Wayland capture bootstrap is not part of the first desktop bootstrap slice."),
             _ => throw new InvalidOperationException($"Viewer provider '{session.Provider}' is not supported for desktop bootstrap.")
         };
+    }
+
+    private async Task<BootstrapOutcome> BootstrapManagedAsync(
+        string sessionId,
+        string connectionHost,
+        CancellationToken cancellationToken)
+    {
+        var options = _transportOptions.Managed;
+        if (!options.IsConfigured)
+        {
+            throw new InvalidOperationException(
+                "AgentDeck-managed desktop transport is not configured on this runner. Set DesktopViewerTransport:Managed options before requesting the managed provider.");
+        }
+
+        var port = ReserveTcpPort();
+        var accessToken = options.IssueAccessToken
+            ? Convert.ToHexString(RandomNumberGenerator.GetBytes(Math.Max(1, options.AccessTokenBytes))).ToLowerInvariant()
+            : null;
+        var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["sessionId"] = sessionId,
+            ["port"] = port.ToString(),
+            ["token"] = accessToken ?? string.Empty,
+            ["host"] = connectionHost,
+            ["machineName"] = Environment.MachineName,
+            ["targetKind"] = RemoteViewerTargetKind.Desktop.ToString()
+        };
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = options.Command!,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        if (!string.IsNullOrWhiteSpace(options.WorkingDirectory))
+        {
+            startInfo.WorkingDirectory = options.WorkingDirectory;
+        }
+
+        foreach (var argument in options.Arguments)
+        {
+            startInfo.ArgumentList.Add(ApplyTemplate(argument, replacements));
+        }
+
+        foreach (var (key, value) in options.EnvironmentVariables)
+        {
+            startInfo.Environment[key] = ApplyTemplate(value, replacements);
+        }
+
+        var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Managed desktop transport helper did not start.");
+
+        if (!await WaitForPortOrExitAsync(process, port, options.StartupTimeout, cancellationToken))
+        {
+            var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+            var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+            TryKillProcess(process);
+
+            var detail = FirstMeaningfulLine(error, output);
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+                ? "Managed desktop transport exited before it became ready."
+                : detail);
+        }
+
+        process.EnableRaisingEvents = true;
+        process.Exited += (_, _) =>
+        {
+            if (_activeTransports.TryRemove(sessionId, out _))
+            {
+                _viewers.Update(sessionId, new UpdateRemoteViewerSessionRequest
+                {
+                    Status = RemoteViewerSessionStatus.Failed,
+                    Message = "Managed desktop transport exited unexpectedly."
+                });
+            }
+
+            process.Dispose();
+        };
+
+        if (process.HasExited)
+        {
+            process.Dispose();
+            throw new InvalidOperationException("Managed desktop transport exited before it could be retained.");
+        }
+
+        return new BootstrapOutcome(
+            ConnectionUri: ApplyTemplate(options.ConnectionUriTemplate!, replacements),
+            AccessToken: accessToken,
+            Message: $"Desktop viewer is ready via AgentDeck-managed transport at {connectionHost}:{port}.",
+            Process: process);
     }
 
     private static BootstrapOutcome BootstrapRdp(string connectionHost)
@@ -217,7 +316,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("x11vnc did not start a desktop transport process.");
 
-        if (!await WaitForPortOrExitAsync(process, port, cancellationToken))
+        if (!await WaitForPortOrExitAsync(process, port, TimeSpan.FromSeconds(10), cancellationToken))
         {
             var error = await process.StandardError.ReadToEndAsync(cancellationToken);
             var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -290,10 +389,10 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
     }
 
-    private static async Task<bool> WaitForPortOrExitAsync(Process process, int port, CancellationToken cancellationToken)
+    private static async Task<bool> WaitForPortOrExitAsync(Process process, int port, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var startedAt = DateTimeOffset.UtcNow;
-        while (DateTimeOffset.UtcNow - startedAt < TimeSpan.FromSeconds(10))
+        while (DateTimeOffset.UtcNow - startedAt < timeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -311,6 +410,17 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
 
         return IsTcpPortListening(port);
+    }
+
+    private static string ApplyTemplate(string template, IReadOnlyDictionary<string, string> replacements)
+    {
+        var value = template;
+        foreach (var (key, replacement) in replacements)
+        {
+            value = value.Replace($"{{{key}}}", replacement, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return value;
     }
 
     private static string ResolveConnectionHost(string? preferredHost)
@@ -359,6 +469,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
     private static string BuildPreparingMessage(RemoteViewerProviderKind provider) => provider switch
     {
+        RemoteViewerProviderKind.Managed => "Preparing AgentDeck-managed desktop transport.",
         RemoteViewerProviderKind.Rdp => "Preparing Remote Desktop transport.",
         RemoteViewerProviderKind.ScreenSharing => "Preparing Screen Sharing transport.",
         RemoteViewerProviderKind.Vnc => "Preparing VNC desktop transport.",

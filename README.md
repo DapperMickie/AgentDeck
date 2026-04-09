@@ -167,6 +167,16 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
     "Port": 5000,
     "AllowedOrigins": ["*"]
   },
+  "DesktopViewerTransport": {
+    "Managed": {
+      "Enabled": false,
+      "Command": "",
+      "Arguments": [],
+      "ConnectionUriTemplate": "vnc://{host}:{port}",
+      "StartupTimeout": "00:00:10",
+      "IssueAccessToken": true
+    }
+  },
   "Coordinator": {
     "MachineId": "worker-1",
     "MachineName": "Worker 1",
@@ -193,7 +203,7 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
 }
 ```
 
-The runner's `Coordinator` section controls how a worker agent registers outward to the central coordinator API. `AllowInsecureHttpCoordinatorForLoopback` keeps plain HTTP available for local development only; non-loopback coordinators must use HTTPS. `TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
+The runner's `Coordinator` section controls how a worker agent registers outward to the central coordinator API. `AllowInsecureHttpCoordinatorForLoopback` keeps plain HTTP available for local development only; non-loopback coordinators must use HTTPS. `DesktopViewerTransport` configures the first AgentDeck-managed remote-view helper path: when `Managed.Enabled` is true and a helper `Command` plus `ConnectionUriTemplate` are configured, the runner prefers that provider for desktop viewer sessions and launches it with `{sessionId}`, `{port}`, `{token}`, `{host}`, `{machineName}`, and `{targetKind}` template values available in arguments and environment variables. `TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
 
 The coordinator heartbeat is now version-aware: workers report their agent version, protocol version, and workflow catalog version, and the coordinator responds with desired runner version plus compatibility metadata. The desired state now also carries an explicit control-plane security policy so update staging, trusted manifest verification, and future workflow execution build on declared trust rules instead of implied behavior.
 
@@ -256,9 +266,9 @@ VS Code-backed debug jobs now build first, materialize `.vscode` debug assets pl
 
 Privileged orchestration, viewer, and machine setup actions now also run through a first-pass trust-policy hook and emit bounded audit records at `/api/audit/events`. Audit entries include the action, actor, remote address, target, and success/denied/failed outcome so later authorization work has a stable trail to build on.
 
-The runner now also exposes a remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. Full-desktop viewer requests now attempt real transport bootstrap on the local runner: Windows desktops resolve against live RDP endpoints, macOS desktops resolve against Screen Sharing when port `5900` is listening, and Linux desktops can launch `x11vnc` when `DISPLAY` and `x11vnc` are available. When a real desktop transport is not available, the session now fails explicitly with a transport-specific message instead of staying as a placeholder record.
+The runner now also exposes a remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. Full-desktop viewer requests now first prefer an AgentDeck-managed helper transport when `DesktopViewerTransport:Managed` is configured; otherwise Windows desktops resolve against live RDP endpoints, macOS desktops resolve against Screen Sharing when port `5900` is listening, and Linux desktops can launch `x11vnc` when `DISPLAY` and `x11vnc` are available. The managed helper path gives the runner a stable launch/teardown seam it can own directly while later work replaces the transitional platform-native fallbacks. When a real desktop transport is not available, the session now fails explicitly with a transport-specific message instead of staying as a placeholder record.
 
-Window-, emulator-, simulator-, and VS Code-targeted viewer sessions still remain additive modeling layers above the transport. They keep their distinct target metadata, but this slice does not yet provide transport-backed focused capture for those narrower surfaces.
+Window-, emulator-, simulator-, and VS Code-targeted viewer sessions still remain additive modeling layers above the transport. They keep their distinct target metadata, but this slice still only boots a transport for full-desktop sessions; focused capture for those narrower surfaces remains follow-up work on top of the managed helper seam.
 
 The shared model now also includes first-pass virtual device catalogs for Android emulators and Apple simulators, plus launch-selection contracts that can be attached to orchestration jobs. The runner exposes `/api/virtual-devices/catalogs` and `/api/virtual-devices/resolve`, and the catalog endpoint now performs real runner-side discovery where Android emulator or Apple simulator tooling is available.
 

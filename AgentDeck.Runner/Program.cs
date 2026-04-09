@@ -21,6 +21,8 @@ RunnerOptions.ApplyEnvironmentOverrides(runnerOptions);
 builder.Services.AddOptions<RunnerOptions>()
     .Bind(builder.Configuration.GetSection(RunnerOptions.SectionName))
     .Configure(RunnerOptions.ApplyEnvironmentOverrides);
+builder.Services.AddOptions<DesktopViewerTransportOptions>()
+    .Bind(builder.Configuration.GetSection(DesktopViewerTransportOptions.SectionName));
 builder.Services.AddOptions<WorkerCoordinatorOptions>()
     .Bind(builder.Configuration.GetSection(WorkerCoordinatorOptions.SectionName));
 builder.Services.AddOptions<TrustPolicyOptions>()
