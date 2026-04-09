@@ -70,10 +70,6 @@ public sealed class ConnectionSettings
             machine.RunnerUrl = string.IsNullOrWhiteSpace(machine.RunnerUrl)
                 ? string.Empty
                 : machine.RunnerUrl.Trim();
-            if (string.IsNullOrWhiteSpace(machine.RunnerUrl))
-            {
-                machine.AutoConnect = false;
-            }
             if (machine.Role == RunnerMachineRole.Coordinator)
             {
                 machine.Role = RunnerMachineRole.Standalone;

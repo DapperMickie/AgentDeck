@@ -10,7 +10,7 @@
     <div class="page-header settings-page__header">
         <div>
             <h1>Settings</h1>
-            <p>Manage the coordinator API, runner machines, connectivity, and machine setup from one place.</p>
+            <p>Manage the coordinator API, coordinator-brokered runner access, and machine setup from one place.</p>
         </div>
     </div>
 
@@ -18,7 +18,7 @@
         <div class="settings-card__header settings-page__section-header">
             <div>
                 <h2>Coordinator API</h2>
-                <p class="settings-card__description">Use one coordinator as the single entry point for machine discovery and future orchestration.</p>
+                <p class="settings-card__description">Use one coordinator as the only client-facing endpoint. The companion now routes terminal and machine-control traffic through the coordinator instead of connecting to runners directly.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
                 <button class="btn btn-accent" @onclick="RefreshCoordinatorDirectoryAsync" disabled="@_registeredMachinesBusy">
@@ -36,7 +36,7 @@
                     <input id="coordinator-url" type="text" class="input" @bind="_settings.CoordinatorUrl"
                        placeholder="@GetCoordinatorUrlPlaceholder()" />
                 </div>
-                <p class="settings-card__description">Use a coordinator host or IP that is reachable from this client. Only use localhost when the API is actually running on this same device.</p>
+                <p class="settings-card__description">Use a coordinator host or IP that is reachable from this client. Only use localhost when the coordinator is actually running on this same device.</p>
             </div>
 
         <div class="settings-status-list">
@@ -125,7 +125,7 @@
         <div class="settings-card__header settings-page__section-header">
             <div>
                 <h2>Runner Machines</h2>
-                <p class="settings-card__description">Choose a runner machine, update its connection details, and control how new terminals are created.</p>
+                <p class="settings-card__description">Choose coordinator-discovered runner machines, keep local preferences like auto-connect/default terminal, and control how new terminals are created through the coordinator.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
                 <button class="btn btn-accent" @onclick="AddMachine">Add Machine</button>
@@ -171,9 +171,10 @@
                     </div>
 
                     <div class="form-field">
-                        <label for="runner-url">Runner URL</label>
+                        <label for="runner-url">Advertised Runner URL</label>
                         <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
                                placeholder="@GetRunnerUrlPlaceholder()" />
+                        <p class="settings-card__description">Informational only. The companion does not connect directly to this URL.</p>
                     </div>
 
                     <div class="form-field">
@@ -241,7 +242,7 @@
                         <strong class="settings-status-row__value">@GetMachineRoleLabel(SelectedMachine.Role)</strong>
                     </div>
                     <div class="settings-status-row">
-                        <span class="settings-status-row__label">Hub URL</span>
+                        <span class="settings-status-row__label">Coordinator hub</span>
                         <code class="settings-status-row__value">@GetHubUrl(SelectedMachine)</code>
                     </div>
                         @if (_machineCapabilities?.Platform is not null)
@@ -577,6 +578,7 @@
 
         try
         {
+            await SettingsService.SaveAsync(_settings);
             await Connections.ConnectAsync(machine);
             await RefreshMachineCapabilitiesAsync();
         }
@@ -632,10 +634,10 @@
     private static string FormatTargetSummary(MachineTargetSupport target) =>
         $"{target.DisplayName} ({target.Status})";
 
-    private static string GetHubUrl(RunnerMachineSettings machine) =>
-        string.IsNullOrWhiteSpace(machine.RunnerUrl)
-            ? "(runner URL not configured)"
-            : $"{machine.RunnerUrl.TrimEnd('/')}/hubs/agent";
+    private string GetHubUrl(RunnerMachineSettings machine) =>
+        string.IsNullOrWhiteSpace(_settings.CoordinatorUrl)
+            ? "(coordinator URL not configured)"
+            : $"{_settings.CoordinatorUrl.TrimEnd('/')}/hubs/agent";
 
     private Task RefreshMachineCapabilitiesIfPossibleAsync()
     {
@@ -671,6 +673,7 @@
             }
 
             _registeredMachines = await CoordinatorClient.GetMachinesAsync(_settings.CoordinatorUrl);
+            await SyncMachinesFromCoordinatorDirectoryAsync(_registeredMachines);
         }
         catch (Exception ex)
         {
@@ -687,13 +690,49 @@
 
     private static string GetCoordinatorUrlPlaceholder() => "https://coordinator-host:5001";
 
-    private static string GetRunnerUrlPlaceholder() => "https://runner-host:5000";
+    private static string GetRunnerUrlPlaceholder() => "https://runner-host:5000 (informational)";
 
     private void ClearCoordinatorDirectory()
     {
         _registeredMachines = [];
         _registeredMachinesErrorMessage = null;
         _coordinatorReachable = false;
+    }
+
+    private async Task SyncMachinesFromCoordinatorDirectoryAsync(IReadOnlyList<RegisteredRunnerMachine> registeredMachines)
+    {
+        var workers = registeredMachines
+            .Where(machine => !machine.IsCoordinator)
+            .OrderBy(machine => machine.MachineName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (workers.Length == 0)
+        {
+            return;
+        }
+
+        var existingMachines = _settings.Machines.ToArray();
+        var syncedMachines = new List<RunnerMachineSettings>(workers.Length);
+
+        foreach (var worker in workers)
+        {
+            var existing = existingMachines.FirstOrDefault(machine =>
+                string.Equals(machine.Id, worker.MachineId, StringComparison.OrdinalIgnoreCase));
+
+            syncedMachines.Add(new RunnerMachineSettings
+            {
+                Id = worker.MachineId,
+                Name = worker.MachineName,
+                Role = worker.Role == RunnerMachineRole.Coordinator ? RunnerMachineRole.Standalone : worker.Role,
+                RunnerUrl = worker.RunnerUrl ?? existing?.RunnerUrl ?? string.Empty,
+                AutoConnect = existing?.AutoConnect ?? false
+            });
+        }
+
+        _settings.Machines = syncedMachines;
+        _settings.Normalize();
+        _selectedMachineId = _settings.FindMachine(_selectedMachineId)?.Id ?? _settings.PreferredMachineId;
+        await SettingsService.SaveAsync(_settings);
     }
 
     private Task RefreshMachineCapabilitiesAsync() =>

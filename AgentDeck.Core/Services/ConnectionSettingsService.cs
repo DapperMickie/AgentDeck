@@ -20,6 +20,8 @@ public sealed class ConnectionSettingsService : IConnectionSettingsService
         _filePath = System.IO.Path.Combine(appData.Path, "connection-settings.json");
     }
 
+    public event EventHandler<ConnectionSettings>? SettingsChanged;
+
     public async Task<ConnectionSettings> LoadAsync()
     {
         if (!File.Exists(_filePath))
@@ -52,6 +54,7 @@ public sealed class ConnectionSettingsService : IConnectionSettingsService
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_filePath)!);
         await using var stream = File.Create(_filePath);
         await JsonSerializer.SerializeAsync(stream, settings, _json);
+        SettingsChanged?.Invoke(this, settings);
     }
 
     private static ConnectionSettings CreateFromLegacy(LegacyConnectionSettings? legacy)

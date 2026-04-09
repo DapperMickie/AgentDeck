@@ -50,7 +50,7 @@ public sealed class AppInitializer
     public async Task InitializeAsync()
     {
         var settings = await _settingsService.LoadAsync();
-        foreach (var machine in settings.Machines.Where(machine => machine.AutoConnect && !string.IsNullOrWhiteSpace(machine.RunnerUrl)))
+        foreach (var machine in settings.Machines.Where(machine => machine.AutoConnect))
         {
             try
             {
@@ -58,7 +58,7 @@ public sealed class AppInitializer
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Auto-connect to {RunnerUrl} failed — will retry on Settings page", machine.RunnerUrl);
+                _logger.LogWarning(ex, "Auto-connect to machine {MachineName} failed — will retry on Settings page", machine.Name);
             }
         }
     }

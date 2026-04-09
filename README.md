@@ -28,7 +28,8 @@ A cross-platform ASP.NET Core service that:
 
 ### Companion App (`AgentDeck`)
 A .NET MAUI + Blazor WebView app that:
-- Connects to the Runner via SignalR
+- Connects to the Coordinator via SignalR and HTTP
+- Lets the coordinator broker terminal and machine-control traffic to runners
 - Shows each terminal session in its own panel with a full xterm.js terminal emulator
 - Allows creating new sessions, picking directories, and selecting CLI presets
 - Provides a clean dark-theme UI
@@ -73,7 +74,7 @@ The runner starts on `http://localhost:5000` by default. Use these environment v
 - `AGENTDECK_PORT` sets the HTTP port (defaults to `5000`)
 - `AGENTDECK_DEFAULT_SHELL` sets the default shell command
 
-The companion now starts with empty coordinator and runner URLs plus auto-connect disabled by default. Configure network-reachable endpoints explicitly instead of assuming `localhost`, which is only valid when the coordinator or runner is actually running on the same device as the client.
+The companion now starts with an empty coordinator URL plus auto-connect disabled by default. Configure a network-reachable coordinator explicitly instead of assuming `localhost`, which is only valid when the coordinator is actually running on the same device as the client.
 
 ### Running the Runner in Docker (Linux)
 
@@ -97,7 +98,7 @@ The image exposes port `5000`, defaults the workspace to `/workspace`, and falls
 
 The checked-in runner image now uses a Debian-based self-contained final stage instead of the stock minimal ASP.NET runtime image, includes the native ICU dependency that .NET needs at runtime, and runs as a non-root `agentdeck` user with passwordless `sudo` for machine-setup actions.
 
-If you run the runner inside a container, AgentDeck treats that container as just another machine. Connect the companion app to the runner URL, then use **Settings -> Machine Setup** to inspect which supported tools are installed and install missing ones inside that machine.
+If you run the runner inside a container, AgentDeck treats that container as just another machine. Register the runner with the coordinator, then use the companion app through that coordinator to inspect which supported tools are installed and install missing ones inside that machine.
 
 If you override the container user, Linux setup actions still need either `root` or a passwd-backed user with passwordless `sudo`. Arbitrary numeric UIDs that are not present in `/etc/passwd` can run the runner, but they cannot perform privileged package installs through the setup flow.
 
@@ -240,23 +241,23 @@ A machine can be:
 - a remote runner on another host
 - a Linux Docker container running `AgentDeck.Runner`
 
-The companion app treats all of them the same way: connect to the runner, inspect the environment, and install missing tools in place.
+The companion app treats all of them the same way: connect to the coordinator, choose the target machine, inspect the environment, and install missing tools in place.
 
 ### Managing Multiple Machines
 
 The companion app supports multiple named runner machines.
 
 In **Settings** you can:
-- set the coordinator API URL used for machine discovery
-- add and name machines
+- set the coordinator API URL used for machine discovery and control brokering
+- sync machines from the coordinator directory
 - assign each machine a role (`Standalone` or `Worker`)
 - set a default machine for new terminals
 - connect and disconnect each machine independently
-- inspect the connection status and hub URL for the selected machine
+- inspect the coordinator-mediated connection status and hub URL for the selected machine
 
 When you create a new terminal, you choose which machine it should run on.
 
-The current orchestration foundation is additive: the companion app now has a separate coordinator URL for machine discovery, while direct runner connections still back existing terminal and setup flows until the rest of orchestration is routed through the coordinator.
+The companion now treats the coordinator as its only network endpoint for live terminal and machine-setup flows. Runners still register outward with advertised URLs, but only the coordinator uses those runner URLs when brokering requests.
 
 Shared orchestration contracts now also include repository/project metadata, per-machine workspace mappings, supported targets, and default run/debug launch profiles so later coordinator work can build on a stable project model instead of raw terminal sessions alone.
 
@@ -308,7 +309,7 @@ You do **not** need to decide a workload ahead of time to run a runner in Docker
 Recommended flow:
 1. Build and run the base `AgentDeck.Runner` image.
 2. Mount a workspace into the container.
-3. Register that runner in the companion app as a machine.
+3. Register that runner with the coordinator so it appears in the companion app machine directory.
 4. Use **Machine Setup** to detect and install the tools that machine needs.
 
 This keeps Docker containers, VMs, and local hosts on the same setup path.

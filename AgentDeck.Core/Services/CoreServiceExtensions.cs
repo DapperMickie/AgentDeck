@@ -9,7 +9,7 @@ public static class CoreServiceExtensions
     {
         services.AddHttpClient();
         services.AddSingleton<ICoordinatorApiClient, CoordinatorApiClient>();
-        services.AddSingleton<IAgentDeckClientFactory, AgentDeckClientFactory>();
+        services.AddSingleton<IAgentDeckClient, AgentDeckClient>();
         services.AddSingleton<IRunnerConnectionManager, RunnerConnectionManager>();
         services.AddSingleton<ISessionStateService, SessionStateService>();
         services.AddSingleton<IConnectionSettingsService, ConnectionSettingsService>();

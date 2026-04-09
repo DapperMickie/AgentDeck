@@ -119,6 +119,7 @@
         Connections.ConnectionStateChanged += OnConnectionStateChanged;
         SessionState.SessionsChanged += OnSessionsChanged;
         ActiveSession.StateChanged += OnActiveSessionChanged;
+        SettingsService.SettingsChanged += OnSettingsChanged;
     }
 
     private void SelectSession(string id)
@@ -195,5 +196,12 @@
         Connections.ConnectionStateChanged -= OnConnectionStateChanged;
         SessionState.SessionsChanged -= OnSessionsChanged;
         ActiveSession.StateChanged -= OnActiveSessionChanged;
+        SettingsService.SettingsChanged -= OnSettingsChanged;
+    }
+
+    private void OnSettingsChanged(object? sender, ConnectionSettings settings)
+    {
+        _settings = settings;
+        InvokeAsync(StateHasChanged);
     }
 }

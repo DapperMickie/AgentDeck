@@ -11,7 +11,7 @@ public enum HubConnectionState
     Reconnecting
 }
 
-/// <summary>Client-side SignalR connection to the AgentDeck runner.</summary>
+/// <summary>Client-side SignalR connection to the AgentDeck coordinator broker.</summary>
 public interface IAgentDeckClient
 {
     /// <summary>Current connection state.</summary>
@@ -32,8 +32,8 @@ public interface IAgentDeckClient
     /// <summary>Fired when a session has been closed.</summary>
     event EventHandler<string>? SessionClosed;
 
-    /// <summary>Connect to the runner at the given hub URL.</summary>
-    Task ConnectAsync(string hubUrl, CancellationToken cancellationToken = default);
+    /// <summary>Connect to the coordinator at the given base URL.</summary>
+    Task ConnectAsync(string coordinatorUrl, CancellationToken cancellationToken = default);
 
     /// <summary>Disconnect from the runner.</summary>
     Task DisconnectAsync();
@@ -50,24 +50,24 @@ public interface IAgentDeckClient
     /// <summary>Notify the runner the terminal has been resized.</summary>
     Task ResizeTerminalAsync(string sessionId, int cols, int rows);
 
-    /// <summary>Create a new terminal session on the runner.</summary>
-    Task<TerminalSession?> CreateSessionAsync(CreateTerminalRequest request);
+    /// <summary>Create a new terminal session on the selected runner machine through the coordinator.</summary>
+    Task<TerminalSession?> CreateSessionAsync(string machineId, CreateTerminalRequest request);
 
     /// <summary>Close a terminal session on the runner.</summary>
     Task CloseSessionAsync(string sessionId);
 
-    /// <summary>Get all active sessions from the runner.</summary>
-    Task<IReadOnlyList<TerminalSession>> GetSessionsAsync();
+    /// <summary>Get all active sessions from the selected runner machine through the coordinator.</summary>
+    Task<IReadOnlyList<TerminalSession>> GetSessionsAsync(string machineId);
 
-    /// <summary>Get workspace information from the runner via REST.</summary>
-    Task<WorkspaceInfo?> GetWorkspaceAsync(CancellationToken ct = default);
+    /// <summary>Get workspace information for the selected runner machine via the coordinator.</summary>
+    Task<WorkspaceInfo?> GetWorkspaceAsync(string machineId, CancellationToken ct = default);
 
-    /// <summary>Get supported CLI/SDK detection results from the runner via REST.</summary>
-    Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(CancellationToken ct = default);
+    /// <summary>Get supported CLI/SDK detection results for the selected runner machine via the coordinator.</summary>
+    Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken ct = default);
 
-    /// <summary>Install a supported CLI or SDK on the runner machine via REST.</summary>
-    Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string capabilityId, string? version = null, CancellationToken ct = default);
+    /// <summary>Install a supported CLI or SDK on the selected runner machine via the coordinator.</summary>
+    Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string machineId, string capabilityId, string? version = null, CancellationToken ct = default);
 
-    /// <summary>Update a supported CLI on the runner machine via REST.</summary>
-    Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string capabilityId, CancellationToken ct = default);
+    /// <summary>Update a supported CLI on the selected runner machine via the coordinator.</summary>
+    Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string machineId, string capabilityId, CancellationToken ct = default);
 }
