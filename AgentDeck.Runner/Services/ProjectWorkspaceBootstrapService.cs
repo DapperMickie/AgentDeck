@@ -63,12 +63,24 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
             return _workspace.ResolvePath(request.ExistingWorkspacePath);
         }
 
-        var folderName = SanitizePathComponent(
-            request.Repository.Name,
-            request.ProjectName,
-            request.ProjectId);
+        var folderName = BuildWorkspaceFolderName(request);
 
         return _workspace.ResolveDirectory(folderName);
+    }
+
+    private static string BuildWorkspaceFolderName(OpenProjectOnRunnerRequest request)
+    {
+        var projectId = SanitizePathComponent(request.ProjectId);
+        var displayName = FirstNonEmpty(request.Repository.Name, request.ProjectName);
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            return projectId;
+        }
+
+        var readableName = SanitizePathComponent(displayName);
+        return string.Equals(readableName, projectId, StringComparison.OrdinalIgnoreCase)
+            ? projectId
+            : $"{readableName}-{projectId}";
     }
 
     private async Task CloneRepositoryAsync(ProjectRepositoryReference repository, string projectPath, CancellationToken cancellationToken)
@@ -167,4 +179,7 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
 
         return null;
     }
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 }
