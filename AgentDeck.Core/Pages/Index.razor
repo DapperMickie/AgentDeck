@@ -1,50 +1,235 @@
 @page "/"
 @inject IRunnerConnectionManager Connections
+@inject ICompanionDashboardStateService DashboardState
 @inject ISessionStateService SessionState
 @inject IActiveSessionService ActiveSession
+@inject IConnectionSettingsService SettingsService
 @inject TerminalInterop TerminalJs
 @implements IAsyncDisposable
 
-<div class="dashboard">
-    <div class="command-bar">
-        <input class="command-bar__input"
-               placeholder="Send command to active terminal…"
-               @bind="_quickCommand"
-               @bind:event="oninput"
-               @onkeydown="OnQuickCommandKey" />
-        <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot")'>copilot</button>
-        <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot --yolo")'>copilot --yolo</button>
-        <button class="command-bar__pill" @onclick='() => SendQuickCommand("clear")'>clear</button>
-        <button class="command-bar__pill" @onclick='() => SendQuickCommand("exit")'>exit</button>
+<div class="workspace-dashboard">
+    <div class="page-header workspace-dashboard__header">
+        <div>
+            <h1>Projects</h1>
+            <p>Track runner readiness, launch targets, and future viewer surfaces from one coordinator-backed dashboard.</p>
+        </div>
     </div>
 
-    @if (SessionState.Sessions.Count == 0)
-    {
-        <div class="empty-state">
-            <div class="empty-icon">⬡</div>
-            <h2>No active terminals</h2>
-            <p>
-                @if (Connections.ConnectedMachineCount == 0)
+    <div class="workspace-dashboard__content">
+        <section class="dashboard-summary-grid">
+            <article class="dashboard-summary-card">
+                <span class="dashboard-summary-card__label">Coordinator</span>
+                <strong>@GetCoordinatorSummary()</strong>
+                <span class="dashboard-summary-card__subtext">@GetCoordinatorSubtext()</span>
+            </article>
+            <article class="dashboard-summary-card">
+                <span class="dashboard-summary-card__label">Machines</span>
+                <strong>@_dashboard.Machines.Count</strong>
+                <span class="dashboard-summary-card__subtext">@GetMachineSummary()</span>
+            </article>
+            <article class="dashboard-summary-card">
+                <span class="dashboard-summary-card__label">Viewer surfaces</span>
+                <strong>@_dashboard.ViewerSurfaces.Count</strong>
+                <span class="dashboard-summary-card__subtext">Modeled separately from terminals</span>
+            </article>
+            <article class="dashboard-summary-card">
+                <span class="dashboard-summary-card__label">Active terminals</span>
+                <strong>@SessionState.Sessions.Count</strong>
+                <span class="dashboard-summary-card__subtext">Current live sessions across connected machines</span>
+            </article>
+        </section>
+
+        @if (!_dashboard.CoordinatorConfigured)
+        {
+            <section class="dashboard-section-card">
+                <h2>Coordinator required</h2>
+                <p>Set a coordinator URL in <a href="/settings">Settings</a> to load machine readiness and project target status.</p>
+            </section>
+        }
+        else if (!_dashboard.CoordinatorReachable)
+        {
+            <section class="dashboard-section-card">
+                <h2>Coordinator unavailable</h2>
+                <p>@(_dashboard.CoordinatorErrorMessage ?? "The companion could not reach the configured coordinator.")</p>
+            </section>
+        }
+        else
+        {
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Machine readiness</h2>
+                        <p>Coordinator-discovered runners and the targets they can currently host.</p>
+                    </div>
+                </div>
+
+                @if (_dashboard.Machines.Count == 0)
                 {
-                    <span>Connect to a runner in <a href="/settings">Settings</a> to get started.</span>
+                    <p>No worker machines are currently visible through the coordinator.</p>
                 }
                 else
                 {
-                    <span>Use <strong>＋ New Terminal</strong> in the sidebar to get started.</span>
+                    <div class="project-machine-grid">
+                        @foreach (var machine in _dashboard.Machines)
+                        {
+                            <article class="project-machine-card">
+                                <div class="project-machine-card__header">
+                                    <div>
+                                        <h3>@machine.MachineName</h3>
+                                        <p>@GetPlatformLabel(machine.HostPlatform)</p>
+                                    </div>
+                                    <span class="machine-state machine-state--@(machine.IsOnline ? "connected" : "disconnected")">
+                                        @(machine.IsOnline ? "Online" : "Offline")
+                                    </span>
+                                </div>
+                                <p class="project-machine-card__meta">
+                                    Agent @machine.AgentVersion
+                                    <span>• last seen @machine.LastSeenAt.ToLocalTime().ToString("g")</span>
+                                    @if (machine.IsConnected)
+                                    {
+                                        <span>• companion connected</span>
+                                    }
+                                </p>
+                                <div class="project-machine-card__targets">
+                                    @foreach (var target in machine.SupportedTargets.OrderBy(target => target.DisplayName))
+                                    {
+                                        <span class="project-target-chip project-target-chip--@GetTargetChipClass(target.Status)">
+                                            @target.DisplayName
+                                        </span>
+                                    }
+                                </div>
+                            </article>
+                        }
+                    </div>
                 }
-            </p>
-        </div>
-    }
-    else
-    {
-        <div class="terminal-area">
-            @foreach (var session in SessionState.Sessions)
-            {
-                <TerminalPanel Session="session" IsActive="IsActiveSession(session.Id)" />
-            }
-        </div>
-    }
+            </section>
 
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Project launch templates</h2>
+                        <p>Shared project models that the companion can drive through the coordinator-backed control plane.</p>
+                    </div>
+                </div>
+
+                <div class="project-template-grid">
+                    @foreach (var project in _dashboard.Projects)
+                    {
+                        <article class="project-template-card">
+                            <div class="project-template-card__header">
+                                <div>
+                                    <h3>@project.Definition.Name</h3>
+                                    <p>@project.Definition.Workload</p>
+                                </div>
+                                <span class="machine-badge">@project.Targets.Count targets</span>
+                            </div>
+                            <div class="project-template-card__targets">
+                                @foreach (var target in project.Targets)
+                                {
+                                    <div class="project-template-target">
+                                        <div class="project-template-target__header">
+                                            <strong>@target.DisplayName</strong>
+                                            <span class="project-template-target__status">
+                                                @GetTargetAvailabilityLabel(target)
+                                            </span>
+                                        </div>
+                                        <div class="project-template-target__profiles">
+                                            @foreach (var profile in target.LaunchProfiles)
+                                            {
+                                                <span class="project-template-profile">
+                                                    @profile.DisplayName
+                                                </span>
+                                            }
+                                        </div>
+                                        @if (target.ReadyMachineNames.Count > 0)
+                                        {
+                                            <p class="project-template-target__note">Ready on @string.Join(", ", target.ReadyMachineNames)</p>
+                                        }
+                                        else if (target.SetupRequiredMachineNames.Count > 0)
+                                        {
+                                            <p class="project-template-target__note">Needs setup on @string.Join(", ", target.SetupRequiredMachineNames)</p>
+                                        }
+                                        else
+                                        {
+                                            <p class="project-template-target__note">No discovered machine is ready for this target yet.</p>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </article>
+                    }
+                </div>
+            </section>
+
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Viewer surfaces</h2>
+                        <p>Viewer experiences are modeled separately from terminals so remote windows, emulators, simulators, and VS Code can surface independently.</p>
+                    </div>
+                </div>
+
+                <div class="viewer-surface-grid">
+                    @foreach (var viewerSurface in _dashboard.ViewerSurfaces)
+                    {
+                        <article class="viewer-surface-card">
+                            <h3>@viewerSurface.Title</h3>
+                            <p>@viewerSurface.Description</p>
+                            <span class="viewer-surface-card__availability">@viewerSurface.Availability</span>
+                        </article>
+                    }
+                </div>
+            </section>
+        }
+
+        <section class="dashboard-section-card">
+            <div class="dashboard-section-card__header">
+                <div>
+                    <h2>Live terminals</h2>
+                    <p>Terminals still work in parallel while the companion grows project-oriented orchestration UX.</p>
+                </div>
+            </div>
+
+            @if (SessionState.Sessions.Count == 0)
+            {
+                <div class="empty-state">
+                    <div class="empty-icon">⬡</div>
+                    <h2>No active terminals</h2>
+                    <p>
+                        @if (Connections.ConnectedMachineCount == 0)
+                        {
+                            <span>Connect to a runner in <a href="/settings">Settings</a> to get started.</span>
+                        }
+                        else
+                        {
+                            <span>Use <strong>＋ New Terminal</strong> in the sidebar to get started.</span>
+                        }
+                    </p>
+                </div>
+            }
+            else
+            {
+                <div class="command-bar">
+                    <input class="command-bar__input"
+                           placeholder="Send command to active terminal…"
+                           @bind="_quickCommand"
+                           @bind:event="oninput"
+                           @onkeydown="OnQuickCommandKey" />
+                    <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot")'>copilot</button>
+                    <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot --yolo")'>copilot --yolo</button>
+                    <button class="command-bar__pill" @onclick='() => SendQuickCommand("clear")'>clear</button>
+                    <button class="command-bar__pill" @onclick='() => SendQuickCommand("exit")'>exit</button>
+                </div>
+
+                <div class="terminal-area">
+                    @foreach (var session in SessionState.Sessions)
+                    {
+                        <TerminalPanel Session="session" IsActive="IsActiveSession(session.Id)" />
+                    }
+                </div>
+            }
+        </section>
+    </div>
 </div>
 
 @if (_showShortcuts)
@@ -72,12 +257,16 @@
     private string _quickCommand = string.Empty;
     private DotNetObjectReference<Index>? _dotnetRef;
     private bool _shortcutsRegistered;
-    protected override Task OnInitializedAsync()
+    private CompanionDashboardState _dashboard = new();
+    private CancellationTokenSource? _refreshCts;
+
+    protected override async Task OnInitializedAsync()
     {
         Connections.ConnectionStateChanged += OnStateChanged;
         SessionState.SessionsChanged += OnSessionsChanged;
         ActiveSession.StateChanged += OnActiveSessionChanged;
-        return Task.CompletedTask;
+        SettingsService.SettingsChanged += OnSettingsChanged;
+        _dashboard = await DashboardState.BuildAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -157,25 +346,110 @@
     }
 
     private void OnStateChanged(object? sender, RunnerMachineConnectionChangedEventArgs _) =>
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(RefreshDashboardAsync);
 
     private void OnSessionsChanged(object? sender, EventArgs _)
     {
         EnsureActiveSession();
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(RefreshDashboardAsync);
     }
 
     private void OnActiveSessionChanged(object? sender, EventArgs _) =>
         InvokeAsync(StateHasChanged);
+
+    private void OnSettingsChanged(object? sender, ConnectionSettings _) =>
+        InvokeAsync(RefreshDashboardAsync);
+
+    private async Task RefreshDashboardAsync()
+    {
+        _refreshCts?.Cancel();
+        _refreshCts?.Dispose();
+        _refreshCts = new CancellationTokenSource();
+
+        try
+        {
+            var dashboard = await DashboardState.BuildAsync(_refreshCts.Token);
+            if (_refreshCts.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _dashboard = dashboard;
+            StateHasChanged();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private string GetCoordinatorSummary() =>
+        !_dashboard.CoordinatorConfigured
+            ? "Not configured"
+            : _dashboard.CoordinatorReachable ? "Reachable" : "Unavailable";
+
+    private string GetCoordinatorSubtext() =>
+        !_dashboard.CoordinatorConfigured
+            ? "Set the coordinator URL in Settings."
+            : string.IsNullOrWhiteSpace(_dashboard.CoordinatorErrorMessage)
+                ? _dashboard.CoordinatorUrl
+                : _dashboard.CoordinatorErrorMessage;
+
+    private string GetMachineSummary()
+    {
+        if (_dashboard.Machines.Count == 0)
+        {
+            return "No worker machines discovered";
+        }
+
+        var online = _dashboard.Machines.Count(machine => machine.IsOnline);
+        return $"{online} online, {Connections.ConnectedMachineCount} connected to the companion";
+    }
+
+    private static string GetPlatformLabel(RunnerHostPlatform platform) => platform switch
+    {
+        RunnerHostPlatform.Linux => "Linux",
+        RunnerHostPlatform.Windows => "Windows",
+        RunnerHostPlatform.MacOS => "macOS",
+        _ => "Unknown host"
+    };
+
+    private static string GetTargetChipClass(MachineTargetSupportStatus status) => status switch
+    {
+        MachineTargetSupportStatus.Supported => "supported",
+        MachineTargetSupportStatus.RequiresSetup => "setup",
+        _ => "unsupported"
+    };
+
+    private static string GetTargetAvailabilityLabel(CompanionProjectTargetSummary target)
+    {
+        if (target.ReadyMachineNames.Count > 0)
+        {
+            return "Ready";
+        }
+
+        return target.SetupRequiredMachineNames.Count > 0 ? "Needs setup" : "Unavailable";
+    }
 
     public async ValueTask DisposeAsync()
     {
         Connections.ConnectionStateChanged -= OnStateChanged;
         SessionState.SessionsChanged -= OnSessionsChanged;
         ActiveSession.StateChanged -= OnActiveSessionChanged;
+        SettingsService.SettingsChanged -= OnSettingsChanged;
+        _refreshCts?.Cancel();
+        _refreshCts?.Dispose();
         if (_shortcutsRegistered)
         {
-            try { await TerminalJs.UnregisterShortcutsAsync(); } catch { /* interop may be unavailable */ }
+            try
+            {
+                await TerminalJs.UnregisterShortcutsAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
         }
         _dotnetRef?.Dispose();
     }

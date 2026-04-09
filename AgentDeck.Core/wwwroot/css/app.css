@@ -354,6 +354,197 @@ main {
     color: var(--color-text);
 }
 
+.page-header p {
+    margin: 0.35rem 0 0;
+    color: var(--color-subtext);
+    font-size: 0.9rem;
+    max-width: 48rem;
+}
+
+.workspace-dashboard {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+
+.workspace-dashboard__content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem 1.5rem 1.5rem;
+}
+
+.workspace-dashboard__header {
+    padding-bottom: 1rem;
+}
+
+.dashboard-summary-grid,
+.project-machine-grid,
+.project-template-grid,
+.viewer-surface-grid {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.dashboard-summary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.project-machine-grid,
+.viewer-surface-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.project-template-grid {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.dashboard-summary-card,
+.dashboard-section-card,
+.project-machine-card,
+.project-template-card,
+.viewer-surface-card {
+    background: var(--color-surface);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+}
+
+.dashboard-summary-card {
+    padding: 1rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.dashboard-summary-card strong {
+    font-size: 1.2rem;
+}
+
+.dashboard-summary-card__label {
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-subtext);
+}
+
+.dashboard-summary-card__subtext {
+    color: var(--color-subtext);
+    font-size: 0.82rem;
+    word-break: break-word;
+}
+
+.dashboard-section-card {
+    padding: 1.1rem 1.2rem;
+}
+
+.dashboard-section-card__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.dashboard-section-card__header h2,
+.project-machine-card h3,
+.project-template-card h3,
+.viewer-surface-card h3 {
+    margin: 0;
+}
+
+.dashboard-section-card__header p,
+.project-machine-card p,
+.project-template-card p,
+.viewer-surface-card p {
+    margin: 0.3rem 0 0;
+    color: var(--color-subtext);
+    font-size: 0.84rem;
+}
+
+.project-machine-card,
+.project-template-card,
+.viewer-surface-card {
+    padding: 1rem 1.05rem;
+}
+
+.project-machine-card__header,
+.project-template-card__header,
+.project-template-target__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+.project-machine-card__meta {
+    color: var(--color-subtext);
+    font-size: 0.78rem;
+}
+
+.project-machine-card__targets,
+.project-template-card__targets,
+.project-template-target__profiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.project-machine-card__targets {
+    margin-top: 0.85rem;
+}
+
+.project-target-chip,
+.project-template-profile,
+.project-template-target__status,
+.viewer-surface-card__availability {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.project-target-chip--supported,
+.project-template-target__status {
+    background: rgba(166,227,161,0.15);
+    color: var(--color-green);
+}
+
+.project-target-chip--setup {
+    background: rgba(249,226,175,0.15);
+    color: var(--color-yellow);
+}
+
+.project-target-chip--unsupported,
+.viewer-surface-card__availability {
+    background: rgba(166,173,200,0.15);
+    color: var(--color-subtext);
+}
+
+.project-template-profile {
+    background: rgba(137,180,250,0.16);
+    color: var(--color-accent);
+}
+
+.project-template-target {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.85rem 0;
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.project-template-target:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+
+.project-template-target__note {
+    color: var(--color-subtext);
+    font-size: 0.8rem;
+}
+
 /* ========== Empty State ========== */
 .empty-state {
     display: flex;
