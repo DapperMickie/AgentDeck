@@ -11,7 +11,9 @@ namespace AgentDeck.Runner.Services;
 public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
 {
     private const string CSharpExtensionId = "ms-dotnettools.csharp";
+    private const string CSharpExtensionDisplayName = "C# Dev Kit / C#";
     private const string VsCodeWindowTitle = "Visual Studio Code";
+    private const string AgentDeckBuildTaskName = "AgentDeck Build";
 
     private sealed record ActiveDebugSession(
         Process Process,
@@ -26,6 +28,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
     };
 
     private readonly ConcurrentDictionary<string, ActiveDebugSession> _sessions = new();
+    private readonly ConcurrentDictionary<string, VsCodeDebugSession> _sessionRecords = new();
     private readonly IRemoteViewerSessionService _viewers;
     private readonly ILogger<VsCodeDebugSessionService> _logger;
 
@@ -36,6 +39,12 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         _viewers = viewers;
         _logger = logger;
     }
+
+    public IReadOnlyList<VsCodeDebugSession> GetAll() =>
+        [.. _sessionRecords.Values.OrderByDescending(session => session.CreatedAt)];
+
+    public VsCodeDebugSession? Get(string orchestrationSessionId) =>
+        _sessionRecords.TryGetValue(orchestrationSessionId, out var session) ? session : null;
 
     public async Task<VsCodeDebugLaunchResult> LaunchAsync(
         string orchestrationSessionId,
@@ -65,6 +74,44 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             }
         });
 
+        var debugSessionId = Guid.NewGuid().ToString("N");
+        var createdAt = DateTimeOffset.UtcNow;
+        _sessionRecords[orchestrationSessionId] = new VsCodeDebugSession
+        {
+            Id = debugSessionId,
+            OrchestrationSessionId = orchestrationSessionId,
+            JobId = job.Id,
+            ProjectName = job.ProjectName,
+            Platform = job.Platform,
+            MachineId = job.TargetMachineId,
+            MachineName = job.TargetMachineName,
+            WorkspaceDirectory = workspaceDirectory,
+            StartupProjectPath = startupProjectPath,
+            DebugConfigurationName = debugConfigurationName,
+            ViewerSessionId = viewer.Id,
+            TargetDisplayName = job.DeviceSelection?.DisplayName ?? job.DeviceSelection?.DeviceId ?? job.DeviceSelection?.ProfileId,
+            Status = VsCodeDebugSessionStatus.Requested,
+            DebuggerVisibility = VsCodeDebuggerVisibilityState.Background,
+            StatusMessage = "VS Code debug session requested.",
+            RequiredExtensions =
+            [
+                new VsCodeDebugExtensionRequirement
+                {
+                    ExtensionId = CSharpExtensionId,
+                    DisplayName = CSharpExtensionDisplayName,
+                    IsInstalled = false
+                }
+            ],
+            WorkspaceAssets = new VsCodeDebugWorkspaceAssets
+            {
+                LaunchConfigurationName = debugConfigurationName,
+                PreLaunchTaskName = AgentDeckBuildTaskName,
+                LaunchSettingsProfileName = debugConfigurationName
+            },
+            CreatedAt = createdAt,
+            UpdatedAt = createdAt
+        };
+
         try
         {
             _viewers.Update(viewer.Id, new UpdateRemoteViewerSessionRequest
@@ -72,11 +119,28 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                 Status = RemoteViewerSessionStatus.Preparing,
                 Message = "Preparing VS Code debug workspace."
             });
+            UpdateSession(orchestrationSessionId, session => WithStatus(
+                session,
+                VsCodeDebugSessionStatus.PreparingWorkspace,
+                "Preparing VS Code debug workspace.",
+                VsCodeDebuggerVisibilityState.Background));
 
             await MaterializeWorkspaceAssetsAsync(job, workspaceDirectory, startupProjectPath, debugConfigurationName, cancellationToken);
 
             var codeExecutable = ResolveVsCodeExecutable();
+            UpdateSession(orchestrationSessionId, session => WithStatus(
+                session,
+                VsCodeDebugSessionStatus.EnsuringExtensions,
+                "Ensuring required VS Code extensions are installed.",
+                VsCodeDebuggerVisibilityState.Background));
             await EnsureCSharpExtensionAsync(codeExecutable, cancellationToken);
+            UpdateSession(orchestrationSessionId, session => WithExtensions(
+                WithStatus(
+                    session,
+                    VsCodeDebugSessionStatus.LaunchingHost,
+                    "Launching VS Code.",
+                    VsCodeDebuggerVisibilityState.Background),
+                true));
 
             var process = StartVsCodeProcess(codeExecutable, workspaceDirectory);
             var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -86,6 +150,11 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             {
                 completion.TrySetResult(process.ExitCode);
                 CloseViewer(viewer.Id, "VS Code session closed.");
+                UpdateSession(orchestrationSessionId, session => WithStatus(
+                    session,
+                    VsCodeDebugSessionStatus.Closed,
+                    "VS Code session closed.",
+                    VsCodeDebuggerVisibilityState.Closed));
                 process.Dispose();
             };
 
@@ -93,6 +162,11 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             {
                 completion.TrySetResult(process.ExitCode);
                 CloseViewer(viewer.Id, "VS Code session closed.");
+                UpdateSession(orchestrationSessionId, session => WithStatus(
+                    session,
+                    VsCodeDebugSessionStatus.Closed,
+                    "VS Code session closed.",
+                    VsCodeDebuggerVisibilityState.Closed));
                 process.Dispose();
             }
 
@@ -106,6 +180,11 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
 
             try
             {
+                UpdateSession(orchestrationSessionId, session => WithStatus(
+                    session,
+                    VsCodeDebugSessionStatus.StartingDebugger,
+                    "Starting the VS Code debugger.",
+                    VsCodeDebuggerVisibilityState.Background));
                 await TriggerDebugStartAsync(process, job.ProjectName, cancellationToken);
             }
             catch
@@ -120,9 +199,15 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                 Status = RemoteViewerSessionStatus.Ready,
                 Message = $"VS Code is ready for '{debugConfigurationName}'."
             });
+            UpdateSession(orchestrationSessionId, session => WithStatus(
+                session,
+                VsCodeDebugSessionStatus.Running,
+                $"VS Code is ready for '{debugConfigurationName}'.",
+                VsCodeDebuggerVisibilityState.Visible));
 
             return new VsCodeDebugLaunchResult
             {
+                DebugSessionId = debugSessionId,
                 ViewerSessionId = viewer.Id,
                 WorkspaceDirectory = workspaceDirectory,
                 StartupProjectPath = startupProjectPath
@@ -136,6 +221,11 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                 Status = RemoteViewerSessionStatus.Failed,
                 Message = ex.Message
             });
+            UpdateSession(orchestrationSessionId, session => WithStatus(
+                session,
+                VsCodeDebugSessionStatus.Failed,
+                ex.Message,
+                VsCodeDebuggerVisibilityState.Background));
             throw;
         }
     }
@@ -165,6 +255,11 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             CloseViewer(session.ViewerSessionId, "VS Code session cancelled.");
             session.Completion.TrySetResult(-1);
             TryKillProcess(session.Process);
+            UpdateSession(orchestrationSessionId, existing => WithStatus(
+                existing,
+                VsCodeDebugSessionStatus.Closed,
+                "VS Code session cancelled.",
+                VsCodeDebuggerVisibilityState.Closed));
         }
 
         return Task.CompletedTask;
@@ -244,7 +339,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             ["type"] = "dotnet",
             ["request"] = "launch",
             ["launchSettingsProfile"] = debugConfigurationName,
-            ["preLaunchTask"] = "AgentDeck Build"
+            ["preLaunchTask"] = AgentDeckBuildTaskName
         });
 
         await WriteJsonAsync(path, root, cancellationToken);
@@ -271,9 +366,9 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             root["tasks"] = tasks;
         }
 
-        UpsertNamedObject(tasks, "AgentDeck Build", new JsonObject
+        UpsertNamedObject(tasks, AgentDeckBuildTaskName, new JsonObject
         {
-            ["label"] = "AgentDeck Build",
+            ["label"] = AgentDeckBuildTaskName,
             ["type"] = "shell",
             ["command"] = buildCommand,
             ["problemMatcher"] = "$msCompile",
@@ -559,13 +654,13 @@ error "Could not focus the VS Code window to start debugging."
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
 
-        return new[]
-        {
+        return
+        [
             Path.Combine(localAppData, "Programs", "Microsoft VS Code", "Code.exe"),
             Path.Combine(localAppData, "Programs", "Microsoft VS Code Insiders", "Code - Insiders.exe"),
             Path.Combine(programFiles, "Microsoft VS Code", "Code.exe"),
             Path.Combine(programFilesX86, "Microsoft VS Code", "Code.exe")
-        };
+        ];
     }
 
     private static string? ResolveExecutableOnPath(string commandName)
@@ -688,5 +783,77 @@ error "Could not focus the VS Code window to start debugging."
     private void CloseViewer(string viewerSessionId, string message)
     {
         _viewers.Close(viewerSessionId, message);
+    }
+
+    private void UpdateSession(string orchestrationSessionId, Func<VsCodeDebugSession, VsCodeDebugSession> update)
+    {
+        _sessionRecords.AddOrUpdate(
+            orchestrationSessionId,
+            _ => throw new InvalidOperationException($"No VS Code debug session exists for orchestration session '{orchestrationSessionId}'."),
+            (_, existing) => update(existing));
+    }
+
+    private static VsCodeDebugSession WithStatus(
+        VsCodeDebugSession session,
+        VsCodeDebugSessionStatus status,
+        string message,
+        VsCodeDebuggerVisibilityState visibility)
+    {
+        return new VsCodeDebugSession
+        {
+            Id = session.Id,
+            OrchestrationSessionId = session.OrchestrationSessionId,
+            JobId = session.JobId,
+            ProjectName = session.ProjectName,
+            Platform = session.Platform,
+            MachineId = session.MachineId,
+            MachineName = session.MachineName,
+            WorkspaceDirectory = session.WorkspaceDirectory,
+            StartupProjectPath = session.StartupProjectPath,
+            DebugConfigurationName = session.DebugConfigurationName,
+            ViewerSessionId = session.ViewerSessionId,
+            TargetDisplayName = session.TargetDisplayName,
+            RequiredExtensions = session.RequiredExtensions,
+            WorkspaceAssets = session.WorkspaceAssets,
+            CreatedAt = session.CreatedAt,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Status = status,
+            DebuggerVisibility = visibility,
+            StatusMessage = message
+        };
+    }
+
+    private static VsCodeDebugSession WithExtensions(VsCodeDebugSession session, bool isInstalled)
+    {
+        return new VsCodeDebugSession
+        {
+            Id = session.Id,
+            OrchestrationSessionId = session.OrchestrationSessionId,
+            JobId = session.JobId,
+            ProjectName = session.ProjectName,
+            Platform = session.Platform,
+            MachineId = session.MachineId,
+            MachineName = session.MachineName,
+            WorkspaceDirectory = session.WorkspaceDirectory,
+            StartupProjectPath = session.StartupProjectPath,
+            DebugConfigurationName = session.DebugConfigurationName,
+            ViewerSessionId = session.ViewerSessionId,
+            TargetDisplayName = session.TargetDisplayName,
+            WorkspaceAssets = session.WorkspaceAssets,
+            CreatedAt = session.CreatedAt,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Status = session.Status,
+            DebuggerVisibility = session.DebuggerVisibility,
+            StatusMessage = session.StatusMessage,
+            RequiredExtensions =
+            [
+                new VsCodeDebugExtensionRequirement
+                {
+                    ExtensionId = CSharpExtensionId,
+                    DisplayName = CSharpExtensionDisplayName,
+                    IsInstalled = isInstalled
+                }
+            ]
+        };
     }
 }
