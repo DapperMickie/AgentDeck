@@ -53,6 +53,83 @@ app.MapGet("/api/projects/{projectId}", (string projectId, IProjectRegistryServi
         ? Results.Ok(project)
         : Results.NotFound());
 
+app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectId, string machineId, HttpContext httpContext, ICompanionRegistryService companions, IProjectRegistryService projects, IWorkerRegistryService registry, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+
+        var project = projects.GetProject(projectId);
+        if (project is null)
+        {
+            return Results.NotFound(new { message = $"Coordinator does not know project '{projectId}'." });
+        }
+
+        var machine = await registry.GetMachineAsync(machineId, cancellationToken);
+        if (machine is null)
+        {
+            return Results.NotFound(new { message = $"Coordinator does not know runner machine '{machineId}'." });
+        }
+
+        var existingWorkspace = project.Workspaces.FirstOrDefault(workspace =>
+            string.Equals(workspace.MachineId, machineId, StringComparison.OrdinalIgnoreCase));
+        var openedWorkspace = await runners.OpenProjectAsync(
+            machineId,
+            new OpenProjectOnRunnerRequest
+            {
+                ProjectId = project.Id,
+                ProjectName = project.Name,
+                Repository = project.Repository,
+                ExistingWorkspacePath = existingWorkspace?.ProjectPath
+            },
+            GetActorId(httpContext),
+            cancellationToken);
+
+        if (openedWorkspace is null)
+        {
+            return Results.NotFound();
+        }
+
+        var workspaceMapping = new ProjectWorkspaceMapping
+        {
+            MachineId = machine.MachineId,
+            MachineName = machine.MachineName,
+            ProjectPath = openedWorkspace.ProjectPath,
+            IsPrimary = existingWorkspace?.IsPrimary ?? project.Workspaces.Count == 0
+        };
+
+        var updatedProject = projects.UpsertWorkspace(projectId, workspaceMapping);
+        var session = await runners.CreateSessionAsync(machineId, new CreateTerminalRequest
+        {
+            Name = $"{project.Name} ({machine.MachineName})",
+            WorkingDirectory = openedWorkspace.ProjectPath
+        }, cancellationToken);
+
+        var companionId = GetCompanionId(httpContext);
+        if (!string.IsNullOrWhiteSpace(companionId))
+        {
+            companions.AttachSession(companionId, session.Id);
+        }
+
+        return Results.Ok(new OpenProjectOnMachineResult
+        {
+            Project = updatedProject,
+            Workspace = workspaceMapping,
+            Session = session,
+            WorkspaceCreated = openedWorkspace.WorkspaceCreated,
+            RepositoryCloned = openedWorkspace.RepositoryCloned
+        });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+});
+
 app.MapPut("/api/projects/{projectId}", (string projectId, ProjectDefinition project, IProjectRegistryService projects) =>
 {
     try

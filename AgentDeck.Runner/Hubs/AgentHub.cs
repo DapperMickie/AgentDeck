@@ -133,10 +133,7 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
 
     private string ResolveWorkingDirectory(string workingDirectory)
     {
-        if (Path.IsPathRooted(workingDirectory))
-            return workingDirectory;
-
-        return _workspaceService.ResolveDirectory(workingDirectory);
+        return _workspaceService.ResolvePath(workingDirectory);
     }
 
     private string ResolveCommand(string? command)
