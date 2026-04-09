@@ -119,16 +119,28 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start git clone for project bootstrap.");
 
-        var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-
-        var standardOutput = await standardOutputTask;
-        var standardError = await standardErrorTask;
-        if (process.ExitCode != 0)
+        try
         {
-            var failureMessage = FirstMeaningfulLine(standardError, standardOutput) ?? "git clone failed.";
-            throw new InvalidOperationException($"Failed to clone repository '{repository.Url}'. {failureMessage}");
+            var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+
+            var standardOutput = await standardOutputTask;
+            var standardError = await standardErrorTask;
+            if (process.ExitCode != 0)
+            {
+                var failureMessage = FirstMeaningfulLine(standardError, standardOutput) ?? "git clone failed.";
+                throw new InvalidOperationException($"Failed to clone repository '{repository.Url}'. {failureMessage}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            throw;
         }
     }
 

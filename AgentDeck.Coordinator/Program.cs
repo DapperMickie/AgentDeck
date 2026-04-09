@@ -98,12 +98,12 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             IsPrimary = existingWorkspace?.IsPrimary ?? project.Workspaces.Count == 0
         };
 
-        var updatedProject = projects.UpsertWorkspace(projectId, workspaceMapping);
         var session = await runners.CreateSessionAsync(machineId, new CreateTerminalRequest
         {
             Name = $"{project.Name} ({machine.MachineName})",
             WorkingDirectory = openedWorkspace.ProjectPath
         }, cancellationToken);
+        var updatedProject = projects.UpsertWorkspace(projectId, workspaceMapping);
 
         var companionId = GetCompanionId(httpContext);
         if (!string.IsNullOrWhiteSpace(companionId))
