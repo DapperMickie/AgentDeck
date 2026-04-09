@@ -19,6 +19,7 @@ builder.Services.AddOptions<CoordinatorOptions>()
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient();
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<ICoordinatorArtifactService, CoordinatorArtifactService>();
 builder.Services.AddSingleton<IRunnerDefinitionCatalogService, RunnerDefinitionCatalogService>();
 builder.Services.AddSingleton<IWorkerRegistryService, WorkerRegistryService>();
 builder.Services.AddSingleton<ICompanionRegistryService, CompanionRegistryService>();
@@ -36,6 +37,14 @@ app.Logger.LogInformation(
     coordinatorOptions.WorkerExpiry);
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }));
+
+app.MapGet("/artifacts/{**artifactPath}", (string artifactPath, ICoordinatorArtifactService artifacts) =>
+{
+    var physicalPath = artifacts.TryResolveArtifactPath(artifactPath);
+    return physicalPath is null
+        ? Results.NotFound()
+        : Results.File(physicalPath, "application/octet-stream", enableRangeProcessing: true);
+});
 
 app.MapPost("/api/companions/register", (RegisterCompanionRequest? request, ICompanionRegistryService companions) =>
     Results.Ok(companions.RegisterCompanion(request ?? new RegisterCompanionRequest())));

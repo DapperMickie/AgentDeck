@@ -8,6 +8,8 @@ public sealed class CoordinatorOptions
 
     public string? PublicBaseUrl { get; set; }
 
+    public string ArtifactRoot { get; set; } = "artifacts";
+
     public string DesiredRunnerVersion { get; set; } = "0.1.0-dev";
 
     public int MinimumSupportedProtocolVersion { get; set; } = 1;

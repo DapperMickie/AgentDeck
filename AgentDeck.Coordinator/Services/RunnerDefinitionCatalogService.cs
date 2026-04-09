@@ -9,21 +9,24 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
     private readonly RunnerUpdateManifest _desiredUpdateManifest;
     private readonly RunnerWorkflowPack _desiredWorkflowPack;
 
-    public RunnerDefinitionCatalogService(IOptions<CoordinatorOptions> coordinatorOptions)
+    public RunnerDefinitionCatalogService(
+        IOptions<CoordinatorOptions> coordinatorOptions,
+        ICoordinatorArtifactService artifactService)
     {
         var options = coordinatorOptions.Value;
         var desiredUpdateManifest = options.DesiredUpdateManifest ?? new CoordinatorUpdateManifestOptions();
         var desiredWorkflowPack = options.DesiredWorkflowPack ?? new CoordinatorWorkflowPackOptions();
         var securityPolicy = options.SecurityPolicy ?? new CoordinatorSecurityPolicyOptions();
+        var hostedArtifact = ResolveHostedArtifact(options, desiredUpdateManifest, artifactService);
 
-        _desiredUpdateManifest = new RunnerUpdateManifest
+        var unsignedManifest = new RunnerUpdateManifest
         {
             ManifestId = NormalizeRequired(desiredUpdateManifest.ManifestId, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:ManifestId"),
             Version = NormalizeRequired(desiredUpdateManifest.Version, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:Version"),
             Channel = NormalizeRequired(desiredUpdateManifest.Channel, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:Channel"),
-            ArtifactUrl = NormalizeRequired(desiredUpdateManifest.ArtifactUrl, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:ArtifactUrl"),
-            Sha256 = NormalizeOptional(desiredUpdateManifest.Sha256),
-            ArtifactSizeBytes = desiredUpdateManifest.ArtifactSizeBytes,
+            ArtifactUrl = hostedArtifact?.DownloadUrl ?? NormalizeRequired(desiredUpdateManifest.ArtifactUrl, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:ArtifactUrl"),
+            Sha256 = hostedArtifact?.Sha256 ?? NormalizeOptional(desiredUpdateManifest.Sha256),
+            ArtifactSizeBytes = hostedArtifact?.ArtifactSizeBytes ?? desiredUpdateManifest.ArtifactSizeBytes,
             MinimumProtocolVersion = desiredUpdateManifest.MinimumProtocolVersion,
             MaximumProtocolVersion = desiredUpdateManifest.MaximumProtocolVersion,
             PublishedAt = desiredUpdateManifest.PublishedAt ?? DateTimeOffset.UtcNow,
@@ -38,14 +41,23 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
                     ProvenanceUri = NormalizeOptional(desiredUpdateManifest.ProvenanceUri)
                 }
                 : null,
-            Signature = HasConfiguredSignature(desiredUpdateManifest)
-                ? new RunnerUpdateManifestSignature
-                {
-                    Algorithm = NormalizeRequired(desiredUpdateManifest.SignatureAlgorithm, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SignatureAlgorithm"),
-                    SignerId = NormalizeRequired(desiredUpdateManifest.SignerId, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SignerId"),
-                    Value = NormalizeRequired(desiredUpdateManifest.Signature, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:Signature")
-                }
-                : null
+            Signature = null
+        };
+
+        _desiredUpdateManifest = new RunnerUpdateManifest
+        {
+            ManifestId = unsignedManifest.ManifestId,
+            Version = unsignedManifest.Version,
+            Channel = unsignedManifest.Channel,
+            ArtifactUrl = unsignedManifest.ArtifactUrl,
+            Sha256 = unsignedManifest.Sha256,
+            ArtifactSizeBytes = unsignedManifest.ArtifactSizeBytes,
+            MinimumProtocolVersion = unsignedManifest.MinimumProtocolVersion,
+            MaximumProtocolVersion = unsignedManifest.MaximumProtocolVersion,
+            PublishedAt = unsignedManifest.PublishedAt,
+            Notes = unsignedManifest.Notes,
+            Provenance = unsignedManifest.Provenance,
+            Signature = BuildManifestSignature(unsignedManifest, desiredUpdateManifest)
         };
         ValidateUpdateManifest(_desiredUpdateManifest, options.PublicBaseUrl, securityPolicy);
 
@@ -94,6 +106,55 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
         string.IsNullOrWhiteSpace(value)
             ? throw new InvalidOperationException($"Coordinator setting '{settingName}' is required.")
             : value.Trim();
+
+    private static CoordinatorHostedArtifact? ResolveHostedArtifact(
+        CoordinatorOptions options,
+        CoordinatorUpdateManifestOptions manifest,
+        ICoordinatorArtifactService artifactService)
+    {
+        ArgumentNullException.ThrowIfNull(artifactService);
+
+        return string.IsNullOrWhiteSpace(manifest.HostedArtifactPath)
+            ? null
+            : artifactService.ResolveHostedArtifact(manifest.HostedArtifactPath, options.PublicBaseUrl);
+    }
+
+    private static RunnerUpdateManifestSignature? BuildManifestSignature(
+        RunnerUpdateManifest manifest,
+        CoordinatorUpdateManifestOptions options)
+    {
+        var algorithm = NormalizeRequired(options.SignatureAlgorithm, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SignatureAlgorithm");
+        if (!string.IsNullOrWhiteSpace(options.PrivateKeyPem))
+        {
+            if (!string.Equals(algorithm, RunnerUpdateManifestSigning.RsaSha256Algorithm, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Coordinator update manifest auto-signing only supports '{RunnerUpdateManifestSigning.RsaSha256Algorithm}'.");
+            }
+
+            var signerId = NormalizeRequired(options.SignerId, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SignerId");
+            if (!RunnerUpdateManifestSigning.TrySignManifest(manifest, options.PrivateKeyPem, out var signatureValue, out var error))
+            {
+                throw new InvalidOperationException(error);
+            }
+
+            return new RunnerUpdateManifestSignature
+            {
+                Algorithm = algorithm,
+                SignerId = signerId,
+                Value = signatureValue
+            };
+        }
+
+        return HasConfiguredSignature(options)
+            ? new RunnerUpdateManifestSignature
+            {
+                Algorithm = algorithm,
+                SignerId = NormalizeRequired(options.SignerId, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SignerId"),
+                Value = NormalizeRequired(options.Signature, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:Signature")
+            }
+            : null;
+    }
 
     private static void ValidateUpdateManifest(
         RunnerUpdateManifest manifest,

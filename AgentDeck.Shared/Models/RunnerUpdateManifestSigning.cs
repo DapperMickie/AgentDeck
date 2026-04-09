@@ -87,6 +87,35 @@ public static class RunnerUpdateManifestSigning
         }
     }
 
+    public static bool TrySignManifest(RunnerUpdateManifest manifest, string privateKeyPem, out string signatureValue, out string error)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        if (string.IsNullOrWhiteSpace(privateKeyPem))
+        {
+            signatureValue = string.Empty;
+            error = "Manifest signing private key is required.";
+            return false;
+        }
+
+        try
+        {
+            using var rsa = RSA.Create();
+            rsa.ImportFromPem(privateKeyPem);
+            var payloadBytes = Encoding.UTF8.GetBytes(BuildSigningPayload(manifest));
+            var signatureBytes = rsa.SignData(payloadBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            signatureValue = Convert.ToBase64String(signatureBytes);
+            error = string.Empty;
+            return true;
+        }
+        catch (CryptographicException)
+        {
+            signatureValue = string.Empty;
+            error = "Manifest signing private key is invalid.";
+            return false;
+        }
+    }
+
     public static string BuildSigningPayload(RunnerUpdateManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);

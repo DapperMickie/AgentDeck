@@ -8,6 +8,7 @@ public sealed class CoordinatorUpdateManifestOptions
     public string Version { get; set; } = "0.1.0-dev";
     public string Channel { get; set; } = "stable";
     public string ArtifactUrl { get; set; } = "https://example.invalid/agentdeck/runner-0.1.0-dev.zip";
+    public string? HostedArtifactPath { get; set; }
     public string? Sha256 { get; set; }
     public long? ArtifactSizeBytes { get; set; }
     public int MinimumProtocolVersion { get; set; } = 1;
@@ -21,5 +22,6 @@ public sealed class CoordinatorUpdateManifestOptions
     public string? ProvenanceUri { get; set; }
     public string? SignerId { get; set; }
     public string SignatureAlgorithm { get; set; } = RunnerUpdateManifestSigning.RsaSha256Algorithm;
+    public string? PrivateKeyPem { get; set; }
     public string? Signature { get; set; }
 }

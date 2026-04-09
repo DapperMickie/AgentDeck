@@ -218,6 +218,8 @@ The desired-state heartbeat can point to a specific update manifest and workflow
 
 Runner update staging is now a separate first-pass flow: workers can persist staged update metadata for an assigned manifest, and optionally download the referenced payload when `Coordinator:DownloadUpdatePayload` is enabled. When `Coordinator:ApplyStagedUpdate` is also enabled and policy allows apply, the runner launches a detached helper that waits for the current process to exit, extracts the trusted staged zip into a candidate install directory, preserves local `appsettings*.json`, and restarts from that candidate install. The runner reports structured update state back through its coordinator heartbeat so the control plane can distinguish between update-available, staged, applying, applied, and failed states.
 
+Coordinators can now also host runner artifacts directly from a local artifact root. When `Coordinator:DesiredUpdateManifest:HostedArtifactPath` is configured, the coordinator serves the file at `/artifacts/{path}`, derives the manifest `ArtifactUrl`, `Sha256`, and `ArtifactSizeBytes` from the hosted file, and can optionally generate the manifest signature from `Coordinator:DesiredUpdateManifest:PrivateKeyPem`. This makes same-origin runner update download testing possible without hard-coding placeholder checksum or size metadata.
+
 ### Control-plane security model
 
 - Runners only accept a non-HTTPS coordinator URL by default when it targets loopback and `Coordinator:AllowInsecureHttpCoordinatorForLoopback` is enabled for local development.
@@ -230,6 +232,7 @@ Runner update staging is now a separate first-pass flow: workers can persist sta
 - When `SecurityPolicy.RequireSignedUpdateManifest` is enabled, manifests must include an RSA-SHA256 detached signature whose signer ID appears in the policy and whose public key is trusted by the runner.
 - `Coordinator:ApplyStagedUpdate` stays off by default. The current apply flow only supports trusted `.zip` payloads and restarts into a candidate install directory rather than replacing the original install in place.
 - The checked-in coordinator manifest values and dev signer are placeholders for development shape only. Before enabling payload downloads in a real environment, replace the example coordinator-hosted artifact URL, checksum, provenance, and signer material with real published artifact metadata.
+- For local coordinator-hosted artifacts, place the runner ZIP under `Coordinator:ArtifactRoot`, set `Coordinator:DesiredUpdateManifest:HostedArtifactPath` to the relative path under that root, and keep `Coordinator:PublicBaseUrl` aligned with the URL runners use to reach the coordinator. If signed manifests remain enabled, set `Coordinator:DesiredUpdateManifest:PrivateKeyPem` so the coordinator can re-sign the manifest after deriving the real artifact metadata.
 
 ---
 
