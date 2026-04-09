@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using AgentDeck.Coordinator.Hubs;
+using AgentDeck.Shared;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
 using Microsoft.AspNetCore.SignalR;
@@ -22,15 +23,18 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
 
     private readonly ConcurrentDictionary<string, RunnerEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _sessionMachineMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ICompanionRegistryService _companions;
     private readonly IWorkerRegistryService _registry;
     private readonly IHubContext<CoordinatorAgentHub, IAgentHubClient> _hubContext;
     private readonly ILogger<RunnerBrokerService> _logger;
 
     public RunnerBrokerService(
+        ICompanionRegistryService companions,
         IWorkerRegistryService registry,
         IHubContext<CoordinatorAgentHub, IAgentHubClient> hubContext,
         ILogger<RunnerBrokerService> logger)
     {
+        _companions = companions;
         _registry = registry;
         _hubContext = hubContext;
         _logger = logger;
@@ -251,6 +255,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
             sessionId =>
             {
                 _sessionMachineMap.TryRemove(sessionId, out _);
+                _companions.RemoveSessionFromAll(sessionId);
                 _logger.LogInformation("Runner reported closed session {SessionId} on machine {MachineName} ({MachineId})", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId);
                 return _hubContext.Clients.All.SessionClosedAsync(sessionId);
             });
@@ -316,7 +321,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
     private static HttpRequestMessage CreateRunnerRequest(RunnerEntry entry, HttpMethod method, string relativePath, string actorId)
     {
         var request = new HttpRequestMessage(method, relativePath);
-        request.Headers.TryAddWithoutValidation("X-AgentDeck-Actor", string.IsNullOrWhiteSpace(actorId) ? "coordinator" : actorId.Trim());
+        request.Headers.TryAddWithoutValidation(AgentDeckHeaderNames.Actor, string.IsNullOrWhiteSpace(actorId) ? "coordinator" : actorId.Trim());
         request.Headers.TryAddWithoutValidation("User-Agent", "AgentDeck.Coordinator");
         return request;
     }

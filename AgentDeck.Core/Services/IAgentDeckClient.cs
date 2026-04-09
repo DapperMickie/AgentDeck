@@ -38,6 +38,12 @@ public interface IAgentDeckClient
     /// <summary>Disconnect from the runner.</summary>
     Task DisconnectAsync();
 
+    /// <summary>Mark this companion as attached to a runner machine through the coordinator.</summary>
+    Task AttachMachineAsync(string machineId);
+
+    /// <summary>Mark this companion as detached from a runner machine through the coordinator.</summary>
+    Task DetachMachineAsync(string machineId);
+
     /// <summary>Subscribe to output from a specific session.</summary>
     Task JoinSessionAsync(string sessionId);
 

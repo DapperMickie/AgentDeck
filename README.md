@@ -258,7 +258,7 @@ In **Settings** you can:
 
 When you create a new terminal, you choose which machine it should run on.
 
-The companion now treats the coordinator as its only network endpoint for live terminal and machine-setup flows. Runners still register outward with advertised URLs, but only the coordinator uses those runner URLs when brokering requests.
+The companion now treats the coordinator as its only network endpoint for live terminal and machine-setup flows. Runners still register outward with advertised URLs, but only the coordinator uses those runner URLs when brokering requests. Coordinator sessions now also issue a companion identity up front and attach later machine/session requests to that identity so future shared-project, viewer-only, and control-handoff flows can build on explicit companion ownership metadata.
 
 Shared orchestration contracts now also include repository/project metadata, per-machine workspace mappings, supported targets, and default run/debug launch profiles so later coordinator work can build on a stable project model instead of raw terminal sessions alone.
 

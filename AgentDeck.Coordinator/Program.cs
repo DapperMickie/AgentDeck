@@ -1,6 +1,7 @@
 using AgentDeck.Coordinator.Configuration;
 using AgentDeck.Coordinator.Hubs;
 using AgentDeck.Coordinator.Services;
+using AgentDeck.Shared;
 using AgentDeck.Shared.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,6 +19,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IRunnerDefinitionCatalogService, RunnerDefinitionCatalogService>();
 builder.Services.AddSingleton<IWorkerRegistryService, WorkerRegistryService>();
+builder.Services.AddSingleton<ICompanionRegistryService, CompanionRegistryService>();
 builder.Services.AddSingleton<RunnerBrokerService>();
 builder.Services.AddSingleton<IRunnerBrokerService>(static services => services.GetRequiredService<RunnerBrokerService>());
 
@@ -31,13 +33,25 @@ app.Logger.LogInformation(
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }));
 
+app.MapPost("/api/companions/register", (RegisterCompanionRequest? request, ICompanionRegistryService companions) =>
+    Results.Ok(companions.RegisterCompanion(request ?? new RegisterCompanionRequest())));
+
+app.MapGet("/api/companions", (ICompanionRegistryService companions) =>
+    Results.Ok(companions.GetCompanions()));
+
+app.MapGet("/api/companions/{companionId}", (string companionId, ICompanionRegistryService companions) =>
+    companions.GetCompanion(companionId) is { } companion
+        ? Results.Ok(companion)
+        : Results.NotFound());
+
 app.MapGet("/api/machines", async (IWorkerRegistryService registry, CancellationToken cancellationToken) =>
     Results.Ok(await registry.GetMachinesAsync(cancellationToken)));
 
-app.MapGet("/api/machines/{machineId}/workspace", async (string machineId, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapGet("/api/machines/{machineId}/workspace", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
     {
+        TrackMachineAttachment(httpContext, companions, machineId);
         var workspace = await runners.GetWorkspaceAsync(machineId, cancellationToken);
         return workspace is null ? Results.NotFound() : Results.Ok(workspace);
     }
@@ -47,10 +61,11 @@ app.MapGet("/api/machines/{machineId}/workspace", async (string machineId, IRunn
     }
 });
 
-app.MapGet("/api/machines/{machineId}/capabilities", async (string machineId, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapGet("/api/machines/{machineId}/capabilities", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
     {
+        TrackMachineAttachment(httpContext, companions, machineId);
         var capabilities = await runners.GetMachineCapabilitiesAsync(machineId, cancellationToken);
         return capabilities is null ? Results.NotFound() : Results.Ok(capabilities);
     }
@@ -60,12 +75,12 @@ app.MapGet("/api/machines/{machineId}/capabilities", async (string machineId, IR
     }
 });
 
-app.MapPost("/api/machines/{machineId}/capabilities/{capabilityId}/install", async (string machineId, string capabilityId, MachineCapabilityInstallRequest? request, HttpContext httpContext, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapPost("/api/machines/{machineId}/capabilities/{capabilityId}/install", async (string machineId, string capabilityId, MachineCapabilityInstallRequest? request, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
     {
-        var actorId = httpContext.Request.Headers["X-AgentDeck-Actor"].FirstOrDefault();
-        var result = await runners.InstallMachineCapabilityAsync(machineId, capabilityId, request ?? new MachineCapabilityInstallRequest(), actorId ?? "coordinator", cancellationToken);
+        TrackMachineAttachment(httpContext, companions, machineId);
+        var result = await runners.InstallMachineCapabilityAsync(machineId, capabilityId, request ?? new MachineCapabilityInstallRequest(), GetActorId(httpContext), cancellationToken);
         return result is null ? Results.NotFound() : Results.Ok(result);
     }
     catch (InvalidOperationException ex)
@@ -74,12 +89,12 @@ app.MapPost("/api/machines/{machineId}/capabilities/{capabilityId}/install", asy
     }
 });
 
-app.MapPost("/api/machines/{machineId}/capabilities/{capabilityId}/update", async (string machineId, string capabilityId, HttpContext httpContext, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapPost("/api/machines/{machineId}/capabilities/{capabilityId}/update", async (string machineId, string capabilityId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
     {
-        var actorId = httpContext.Request.Headers["X-AgentDeck-Actor"].FirstOrDefault();
-        var result = await runners.UpdateMachineCapabilityAsync(machineId, capabilityId, actorId ?? "coordinator", cancellationToken);
+        TrackMachineAttachment(httpContext, companions, machineId);
+        var result = await runners.UpdateMachineCapabilityAsync(machineId, capabilityId, GetActorId(httpContext), cancellationToken);
         return result is null ? Results.NotFound() : Results.Ok(result);
     }
     catch (InvalidOperationException ex)
@@ -113,3 +128,20 @@ app.MapPost("/api/cluster/workers/register", (RegisterRunnerMachineRequest reque
 app.MapHub<CoordinatorAgentHub>("/hubs/agent");
 
 app.Run();
+
+static string? GetCompanionId(HttpContext httpContext) =>
+    httpContext.Request.Headers[AgentDeckHeaderNames.Companion].FirstOrDefault();
+
+static string GetActorId(HttpContext httpContext) =>
+    httpContext.Request.Headers[AgentDeckHeaderNames.Actor].FirstOrDefault()
+    ?? GetCompanionId(httpContext)
+    ?? "coordinator";
+
+static void TrackMachineAttachment(HttpContext httpContext, ICompanionRegistryService companions, string machineId)
+{
+    var companionId = GetCompanionId(httpContext);
+    if (!string.IsNullOrWhiteSpace(companionId))
+    {
+        companions.AttachMachine(companionId, machineId);
+    }
+}

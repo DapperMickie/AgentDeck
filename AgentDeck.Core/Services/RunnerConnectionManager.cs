@@ -1,5 +1,6 @@
 using AgentDeck.Core.Models;
 using AgentDeck.Shared.Models;
+using Microsoft.Extensions.Logging;
 
 namespace AgentDeck.Core.Services;
 
@@ -9,16 +10,19 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
     private readonly Lock _lock = new();
     private readonly IAgentDeckClient _client;
     private readonly IConnectionSettingsService _settingsService;
+    private readonly ILogger<RunnerConnectionManager> _logger;
     private readonly Dictionary<string, RunnerMachineSettings> _machines = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _activeMachineIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _sessionMachineMap = new(StringComparer.OrdinalIgnoreCase);
 
     public RunnerConnectionManager(
         IAgentDeckClient client,
-        IConnectionSettingsService settingsService)
+        IConnectionSettingsService settingsService,
+        ILogger<RunnerConnectionManager> logger)
     {
         _client = client;
         _settingsService = settingsService;
+        _logger = logger;
         _client.OutputReceived += (_, output) => OutputReceived?.Invoke(this, output);
         _client.SessionCreated += (_, session) =>
         {
@@ -39,12 +43,34 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
 
             SessionClosed?.Invoke(this, sessionId);
         };
-        _client.ConnectionStateChanged += (_, state) =>
+        _client.ConnectionStateChanged += async (_, state) =>
         {
             string[] machineIds;
+            string[] sessionIds;
             lock (_lock)
             {
                 machineIds = _activeMachineIds.ToArray();
+                sessionIds = _sessionMachineMap.Keys.ToArray();
+            }
+
+            if (state == HubConnectionState.Connected)
+            {
+                try
+                {
+                    foreach (var machineId in machineIds)
+                    {
+                        await _client.AttachMachineAsync(machineId);
+                    }
+
+                    foreach (var sessionId in sessionIds)
+                    {
+                        await _client.JoinSessionAsync(sessionId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to restore coordinator machine/session attachments after reconnect");
+                }
             }
 
             foreach (var machineId in machineIds)
@@ -103,6 +129,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
         }
 
         await _client.ConnectAsync(settings.CoordinatorUrl, cancellationToken);
+        await _client.AttachMachineAsync(machine.Id);
         lock (_lock)
         {
             _machines[machine.Id] = machine.Clone();
@@ -136,6 +163,11 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
             }
 
             shouldDisconnectCoordinator = _activeMachineIds.Count == 0;
+        }
+
+        if (_client.ConnectionState == HubConnectionState.Connected)
+        {
+            await _client.DetachMachineAsync(machineId);
         }
 
         if (shouldDisconnectCoordinator)
