@@ -14,16 +14,19 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
     private readonly CoordinatorOptions _coordinatorOptions;
     private readonly IRunnerDefinitionCatalogService _definitions;
     private readonly TimeProvider _timeProvider;
+    private readonly ILogger<WorkerRegistryService> _logger;
     private readonly ConcurrentDictionary<string, WorkerEntry> _workers = new(StringComparer.OrdinalIgnoreCase);
 
     public WorkerRegistryService(
         IOptions<CoordinatorOptions> coordinatorOptions,
         IRunnerDefinitionCatalogService definitions,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ILogger<WorkerRegistryService> logger)
     {
         _coordinatorOptions = coordinatorOptions.Value;
         _definitions = definitions;
         _timeProvider = timeProvider;
+        _logger = logger;
     }
 
     public Task<IReadOnlyList<RegisteredRunnerMachine>> GetMachinesAsync(CancellationToken cancellationToken = default)
@@ -65,19 +68,22 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             var machineId = Normalize(request.MachineId);
             var existing = _workers.TryGetValue(machineId, out var current) ? current.Machine : null;
             var desiredState = BuildDesiredState(request.AgentVersion, request.ProtocolVersion);
+            var normalizedMachineName = Normalize(request.MachineName);
+            var normalizedAgentVersion = Normalize(request.AgentVersion);
+            var normalizedRunnerUrl = string.IsNullOrWhiteSpace(request.RunnerUrl) ? null : request.RunnerUrl.Trim();
             var machine = new RegisteredRunnerMachine
             {
                 MachineId = machineId,
-                MachineName = Normalize(request.MachineName),
+                MachineName = normalizedMachineName,
                 Role = RunnerMachineRole.Worker,
-                AgentVersion = Normalize(request.AgentVersion),
+                AgentVersion = normalizedAgentVersion,
                 ProtocolVersion = request.ProtocolVersion,
                 WorkflowCatalogVersion = NormalizeOptional(request.WorkflowCatalogVersion),
                 SecurityPolicyVersion = desiredState.SecurityPolicy.PolicyVersion,
                 DesiredUpdateManifestId = desiredState.DesiredUpdateManifest?.DefinitionId,
                 DesiredWorkflowPackId = desiredState.DesiredWorkflowPack?.DefinitionId,
                 UpdateStatus = request.UpdateStatus,
-                RunnerUrl = string.IsNullOrWhiteSpace(request.RunnerUrl) ? null : request.RunnerUrl.Trim(),
+                RunnerUrl = normalizedRunnerUrl,
                 RegisteredAt = existing?.RegisteredAt ?? now,
                 LastSeenAt = now,
                 IsOnline = true,
@@ -91,6 +97,26 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             };
 
             _workers[machineId] = new WorkerEntry(machine);
+            if (existing is null)
+            {
+                _logger.LogInformation(
+                    "Registered worker {MachineName} ({MachineId}) version {AgentVersion} protocol {ProtocolVersion} at {RunnerUrl}",
+                    normalizedMachineName,
+                    machineId,
+                    normalizedAgentVersion,
+                    request.ProtocolVersion,
+                    normalizedRunnerUrl ?? "<not advertised>");
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Updated worker heartbeat for {MachineName} ({MachineId}) version {AgentVersion} protocol {ProtocolVersion} at {RunnerUrl}",
+                    normalizedMachineName,
+                    machineId,
+                    normalizedAgentVersion,
+                    request.ProtocolVersion,
+                    normalizedRunnerUrl ?? "<not advertised>");
+            }
             return new RegisterRunnerMachineResponse
             {
                 Machine = machine,
@@ -116,6 +142,7 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             var machine = worker.Value.Machine;
             if (machine.LastSeenAt < expiryThreshold)
             {
+                _logger.LogWarning("Removing expired worker {MachineName} ({MachineId}) last seen at {LastSeenAt}", machine.MachineName, machine.MachineId, machine.LastSeenAt);
                 _workers.TryRemove(worker.Key, out _);
                 continue;
             }
@@ -146,6 +173,11 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                     SupportedTargets = machine.SupportedTargets
                 };
                 _workers[worker.Key] = new WorkerEntry(machine);
+                _logger.LogInformation(
+                    "Worker {MachineName} ({MachineId}) is now {State}",
+                    machine.MachineName,
+                    machine.MachineId,
+                    isOnline ? "online" : "offline");
             }
 
             machines.Add(machine);

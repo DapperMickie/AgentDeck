@@ -39,6 +39,12 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
     public async Task<TerminalSession> CreateSessionAsync(string machineId, CreateTerminalRequest request, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering session creation '{SessionName}' for machine {MachineName} ({MachineId}) in {WorkingDirectory}",
+            request.Name,
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            request.WorkingDirectory);
         var session = await entry.HubConnection!.InvokeAsync<TerminalSession>(
             nameof(IAgentHub.CreateSessionAsync),
             request,
@@ -50,12 +56,18 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
     public async Task CloseSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering close for session {SessionId} on machine {MachineName} ({MachineId})",
+            sessionId,
+            entry.Machine?.MachineName ?? entry.MachineId,
+            entry.MachineId);
         await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.CloseSessionAsync), sessionId, cancellationToken);
     }
 
     public async Task<IReadOnlyList<TerminalSession>> GetSessionsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogDebug("Brokering session list request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
         var sessions = await entry.HubConnection!.InvokeAsync<IReadOnlyList<TerminalSession>>(
             nameof(IAgentHub.GetSessionsAsync),
             cancellationToken);
@@ -66,6 +78,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
     public async Task JoinSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
+        _logger.LogDebug("Broker joining session {SessionId} on machine {MachineName} ({MachineId})", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId);
         await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.JoinSessionAsync), sessionId, cancellationToken);
     }
 
@@ -74,39 +87,52 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         var entry = await TryResolveEntryBySessionAsync(sessionId, cancellationToken);
         if (entry is null)
         {
+            _logger.LogDebug("Broker leave ignored for unknown session {SessionId}", sessionId);
             return;
         }
 
+        _logger.LogDebug("Broker leaving session {SessionId} on machine {MachineName} ({MachineId})", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId);
         await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.LeaveSessionAsync), sessionId, cancellationToken);
     }
 
     public async Task ResizeTerminalAsync(string sessionId, int cols, int rows, CancellationToken cancellationToken = default)
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
+        _logger.LogDebug("Broker resizing session {SessionId} on machine {MachineName} ({MachineId}) to {Cols}x{Rows}", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId, cols, rows);
         await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.ResizeTerminalAsync), sessionId, cols, rows, cancellationToken);
     }
 
     public async Task SendInputAsync(string sessionId, string data, CancellationToken cancellationToken = default)
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
+        _logger.LogDebug("Broker sending input to session {SessionId} on machine {MachineName} ({MachineId}) ({CharacterCount} chars)", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId, data.Length);
         await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.SendInputAsync), sessionId, data, cancellationToken);
     }
 
     public async Task<WorkspaceInfo?> GetWorkspaceAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation("Brokering workspace request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
         return await entry.HttpClient!.GetFromJsonAsync<WorkspaceInfo>("api/workspace", cancellationToken);
     }
 
     public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation("Brokering capability snapshot request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
         return await entry.HttpClient!.GetFromJsonAsync<MachineCapabilitiesSnapshot>("api/capabilities", cancellationToken);
     }
 
     public async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string machineId, string capabilityId, MachineCapabilityInstallRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering capability install {CapabilityId} for machine {MachineName} ({MachineId}) requested by {ActorId} version {RequestedVersion}",
+            capabilityId,
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            actorId,
+            request.Version ?? "<default>");
         using var response = await CreateRunnerRequest(entry, HttpMethod.Post, $"api/capabilities/{Uri.EscapeDataString(capabilityId)}/install", actorId)
             .WithJsonContent(request)
             .SendAsync(entry.HttpClient!, cancellationToken);
@@ -117,6 +143,12 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
     public async Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string machineId, string capabilityId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering capability update {CapabilityId} for machine {MachineName} ({MachineId}) requested by {ActorId}",
+            capabilityId,
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            actorId);
         using var response = await CreateRunnerRequest(entry, HttpMethod.Post, $"api/capabilities/{Uri.EscapeDataString(capabilityId)}/update", actorId)
             .SendAsync(entry.HttpClient!, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -219,6 +251,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
             sessionId =>
             {
                 _sessionMachineMap.TryRemove(sessionId, out _);
+                _logger.LogInformation("Runner reported closed session {SessionId} on machine {MachineName} ({MachineId})", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId);
                 return _hubContext.Clients.All.SessionClosedAsync(sessionId);
             });
     }
@@ -248,6 +281,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
             return entry;
         }
 
+        _logger.LogWarning("Coordinator could not resolve runner ownership for session {SessionId}", sessionId);
         throw new InvalidOperationException($"Coordinator could not resolve runner ownership for session '{sessionId}'.");
     }
 
