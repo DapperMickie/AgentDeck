@@ -11,17 +11,20 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
 {
     private readonly WorkerCoordinatorOptions _coordinatorOptions;
     private readonly IMachineCapabilityService _capabilities;
+    private readonly IRunnerUpdateStagingService _updateStaging;
     private readonly ILogger<WorkerCoordinatorRegistrationService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
 
     public WorkerCoordinatorRegistrationService(
         IOptions<WorkerCoordinatorOptions> coordinatorOptions,
         IMachineCapabilityService capabilities,
+        IRunnerUpdateStagingService updateStaging,
         IHttpClientFactory httpClientFactory,
         ILogger<WorkerCoordinatorRegistrationService> logger)
     {
         _coordinatorOptions = coordinatorOptions.Value;
         _capabilities = capabilities;
+        _updateStaging = updateStaging;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
@@ -44,6 +47,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                 httpClient.BaseAddress = new Uri(coordinatorUrl, UriKind.Absolute);
 
                 var snapshot = await _capabilities.GetSnapshotAsync(stoppingToken);
+                var updateStatus = await _updateStaging.GetCurrentStatusAsync(stoppingToken);
                 var request = new RegisterRunnerMachineRequest
                 {
                     MachineId = _coordinatorOptions.MachineId.Trim(),
@@ -52,6 +56,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                     AgentVersion = agentVersion,
                     ProtocolVersion = _coordinatorOptions.ProtocolVersion,
                     WorkflowCatalogVersion = "1",
+                    UpdateStatus = updateStatus,
                     RunnerUrl = string.IsNullOrWhiteSpace(_coordinatorOptions.AdvertisedRunnerUrl)
                         ? null
                         : _coordinatorOptions.AdvertisedRunnerUrl.Trim(),
@@ -99,6 +104,8 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                             desiredWorkflowPack.Version,
                             request.MachineName);
                     }
+
+                    await _updateStaging.ReconcileDesiredUpdateAsync(httpClient, desiredState, stoppingToken);
                 }
 
                 _logger.LogInformation(

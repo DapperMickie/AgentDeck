@@ -176,6 +176,8 @@ The coordinator now also publishes first-pass runner definition contracts:
 
 The desired-state heartbeat can point to a specific update manifest and workflow pack so later slices can add real artifact download/apply behavior and workflow-pack execution without changing the protocol shape again.
 
+Runner update staging is now a separate first-pass flow: workers can persist staged update metadata for an assigned manifest, and optionally download the referenced payload when `Coordinator:DownloadUpdatePayload` is enabled. The runner reports structured staging state back through its coordinator heartbeat so the control plane can distinguish between update-available, staged, and failed states.
+
 ---
 
 ## Machine Setup Model
