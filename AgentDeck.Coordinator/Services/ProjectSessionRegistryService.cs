@@ -69,6 +69,16 @@ public sealed class ProjectSessionRegistryService : IProjectSessionRegistryServi
         return CloneSession(session);
     }
 
+    public bool RemoveSession(string projectSessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectSessionId);
+
+        lock (_lock)
+        {
+            return _sessions.Remove(projectSessionId.Trim());
+        }
+    }
+
     public ProjectSessionRecord RegisterSurface(string projectSessionId, RegisterProjectSessionSurfaceRequest request)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectSessionId);

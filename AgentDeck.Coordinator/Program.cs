@@ -143,16 +143,24 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             machine.MachineId,
             machine.MachineName,
             companionId);
-        projectSession = projectSessions.RegisterSurface(projectSession.Id, new RegisterProjectSessionSurfaceRequest
+        try
         {
-            Kind = ProjectSessionSurfaceKind.Terminal,
-            DisplayName = session.Name,
-            MachineId = machine.MachineId,
-            MachineName = machine.MachineName,
-            ReferenceId = session.Id,
-            Status = ProjectSessionSurfaceStatus.Ready,
-            StatusMessage = $"Terminal ready in '{openedWorkspace.ProjectPath}'."
-        });
+            projectSession = projectSessions.RegisterSurface(projectSession.Id, new RegisterProjectSessionSurfaceRequest
+            {
+                Kind = ProjectSessionSurfaceKind.Terminal,
+                DisplayName = session.Name,
+                MachineId = machine.MachineId,
+                MachineName = machine.MachineName,
+                ReferenceId = session.Id,
+                Status = ProjectSessionSurfaceStatus.Ready,
+                StatusMessage = $"Terminal ready in '{openedWorkspace.ProjectPath}'."
+            });
+        }
+        catch
+        {
+            projectSessions.RemoveSession(projectSession.Id);
+            throw;
+        }
 
         return Results.Ok(new OpenProjectOnMachineResult
         {
