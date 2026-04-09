@@ -6,10 +6,10 @@ namespace AgentDeck.Core.Models;
 public sealed class ConnectionSettings
 {
     /// <summary>Base URL of the central coordinator API.</summary>
-    public string CoordinatorUrl { get; set; } = "http://localhost:5001";
+    public string CoordinatorUrl { get; set; } = string.Empty;
 
     /// <summary>Configured runner machines.</summary>
-    public List<RunnerMachineSettings> Machines { get; set; } = [CreateLocalMachine()];
+    public List<RunnerMachineSettings> Machines { get; set; } = [CreateMachineTemplate()];
 
     /// <summary>Machine selected by default when creating a new terminal.</summary>
     public string? PreferredMachineId { get; set; } = LocalMachineId;
@@ -20,8 +20,8 @@ public sealed class ConnectionSettings
     {
         return new ConnectionSettings
         {
-            CoordinatorUrl = "http://localhost:5001",
-            Machines = [CreateLocalMachine()],
+            CoordinatorUrl = string.Empty,
+            Machines = [CreateMachineTemplate()],
             PreferredMachineId = LocalMachineId
         };
     }
@@ -30,7 +30,7 @@ public sealed class ConnectionSettings
     {
         if (Machines.Count == 0)
         {
-            Machines.Add(CreateLocalMachine());
+            Machines.Add(CreateMachineTemplate());
         }
 
         if (!string.IsNullOrWhiteSpace(machineId))
@@ -49,14 +49,14 @@ public sealed class ConnectionSettings
     public void Normalize()
     {
         CoordinatorUrl = string.IsNullOrWhiteSpace(CoordinatorUrl)
-            ? "http://localhost:5001"
+            ? string.Empty
             : CoordinatorUrl.Trim();
 
         Machines ??= [];
 
         if (Machines.Count == 0)
         {
-            Machines.Add(CreateLocalMachine());
+            Machines.Add(CreateMachineTemplate());
         }
 
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -64,8 +64,16 @@ public sealed class ConnectionSettings
         {
             var machine = Machines[index] ?? new RunnerMachineSettings();
             machine.Id = string.IsNullOrWhiteSpace(machine.Id) ? Guid.NewGuid().ToString("n") : machine.Id.Trim();
-            machine.Name = string.IsNullOrWhiteSpace(machine.Name) ? $"Machine {index + 1}" : machine.Name.Trim();
-            machine.RunnerUrl = string.IsNullOrWhiteSpace(machine.RunnerUrl) ? "http://localhost:5000" : machine.RunnerUrl.Trim();
+            machine.Name = string.IsNullOrWhiteSpace(machine.Name)
+                ? GetDefaultMachineName(index)
+                : machine.Name.Trim();
+            machine.RunnerUrl = string.IsNullOrWhiteSpace(machine.RunnerUrl)
+                ? string.Empty
+                : machine.RunnerUrl.Trim();
+            if (string.IsNullOrWhiteSpace(machine.RunnerUrl))
+            {
+                machine.AutoConnect = false;
+            }
             if (machine.Role == RunnerMachineRole.Coordinator)
             {
                 machine.Role = RunnerMachineRole.Standalone;
@@ -87,14 +95,20 @@ public sealed class ConnectionSettings
     }
 
     public static RunnerMachineSettings CreateLocalMachine()
+        => CreateMachineTemplate();
+
+    public static RunnerMachineSettings CreateMachineTemplate()
     {
         return new RunnerMachineSettings
         {
             Id = LocalMachineId,
-            Name = "Local machine",
+            Name = GetDefaultMachineName(0),
             Role = RunnerMachineRole.Standalone,
-            RunnerUrl = "http://localhost:5000",
-            AutoConnect = true
+            RunnerUrl = string.Empty,
+            AutoConnect = false
         };
     }
+
+    private static string GetDefaultMachineName(int index) =>
+        index == 0 ? "Runner machine" : $"Runner machine {index + 1}";
 }
