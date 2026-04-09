@@ -84,6 +84,7 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
 
     public async Task<OpenProjectOnMachineResult?> OpenProjectOnMachineAsync(string coordinatorUrl, string projectId, string machineId, CancellationToken cancellationToken = default)
     {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
         using var httpClient = CreateClient(coordinatorUrl);
         try
         {
@@ -106,6 +107,88 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         }
     }
 
+    public async Task<ProjectSessionRecord?> AttachProjectSessionAsync(string coordinatorUrl, string projectSessionId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsync(
+                $"api/project-sessions/{Uri.EscapeDataString(projectSessionId)}/attachments",
+                content: null,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<ProjectSessionRecord>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator project session attach failed for {ProjectSessionId}", projectSessionId);
+            throw;
+        }
+    }
+
+    public async Task<ProjectSessionRecord?> DetachProjectSessionAsync(string coordinatorUrl, string projectSessionId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsync(
+                $"api/project-sessions/{Uri.EscapeDataString(projectSessionId)}/detach",
+                content: null,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<ProjectSessionRecord>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator project session detach failed for {ProjectSessionId}", projectSessionId);
+            throw;
+        }
+    }
+
+    public async Task<ProjectSessionRecord?> UpdateProjectSessionControlAsync(string coordinatorUrl, string projectSessionId, UpdateProjectSessionControlRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync(
+                $"api/project-sessions/{Uri.EscapeDataString(projectSessionId)}/control",
+                request,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(message ?? $"Project session '{projectSessionId}' rejected the requested control change.");
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<ProjectSessionRecord>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            _logger.LogError(ex, "Coordinator project session control update failed for {ProjectSessionId}", projectSessionId);
+            throw;
+        }
+    }
+
     private HttpClient CreateClient(string coordinatorUrl)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(coordinatorUrl);
@@ -122,4 +205,32 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
 
     private static string AppendTrailingSlash(string baseUrl) =>
         baseUrl.EndsWith("/", StringComparison.Ordinal) ? baseUrl : $"{baseUrl}/";
+
+    private async Task EnsureCompanionIdentityAsync(string coordinatorUrl, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(_agentDeckClient.CompanionId))
+        {
+            return;
+        }
+
+        await _agentDeckClient.ConnectAsync(coordinatorUrl, cancellationToken);
+    }
+
+    private static async Task<string?> TryReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = await response.Content.ReadFromJsonAsync<CoordinatorErrorResponse>(cancellationToken: cancellationToken);
+            return payload?.Message;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private sealed class CoordinatorErrorResponse
+    {
+        public string? Message { get; init; }
+    }
 }

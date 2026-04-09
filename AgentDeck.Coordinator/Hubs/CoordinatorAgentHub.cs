@@ -1,5 +1,6 @@
 using AgentDeck.Coordinator.Services;
 using AgentDeck.Shared;
+using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
 using Microsoft.AspNetCore.SignalR;
@@ -9,15 +10,18 @@ namespace AgentDeck.Coordinator.Hubs;
 public sealed class CoordinatorAgentHub : Hub<IAgentHubClient>, ICoordinatorAgentHub
 {
     private readonly ICompanionRegistryService _companions;
+    private readonly IProjectSessionRegistryService _projectSessions;
     private readonly IRunnerBrokerService _runners;
     private readonly ILogger<CoordinatorAgentHub> _logger;
 
     public CoordinatorAgentHub(
         ICompanionRegistryService companions,
+        IProjectSessionRegistryService projectSessions,
         IRunnerBrokerService runners,
         ILogger<CoordinatorAgentHub> logger)
     {
         _companions = companions;
+        _projectSessions = projectSessions;
         _runners = runners;
         _logger = logger;
     }
@@ -43,6 +47,11 @@ public sealed class CoordinatorAgentHub : Hub<IAgentHubClient>, ICoordinatorAgen
     {
         var companionId = _companions.GetCompanionIdByConnection(Context.ConnectionId);
         _companions.DisconnectConnection(Context.ConnectionId);
+        if (!string.IsNullOrWhiteSpace(companionId))
+        {
+            _projectSessions.DetachCompanionFromAll(companionId);
+        }
+
         if (exception is null)
         {
             _logger.LogInformation("Companion {CompanionId} disconnected from coordinator hub connection {ConnectionId}", companionId ?? "<unknown>", Context.ConnectionId);
@@ -92,6 +101,7 @@ public sealed class CoordinatorAgentHub : Hub<IAgentHubClient>, ICoordinatorAgen
     public Task SendInputAsync(string sessionId, string data)
     {
         var companionId = RequireCompanionId();
+        EnsureControlAllowed(sessionId, companionId);
         _logger.LogDebug("Companion {CompanionId} sending input to session {SessionId} ({CharacterCount} chars)", companionId, sessionId, data.Length);
         return _runners.SendInputAsync(sessionId, data, Context.ConnectionAborted);
     }
@@ -99,6 +109,7 @@ public sealed class CoordinatorAgentHub : Hub<IAgentHubClient>, ICoordinatorAgen
     public Task ResizeTerminalAsync(string sessionId, int cols, int rows)
     {
         var companionId = RequireCompanionId();
+        EnsureControlAllowed(sessionId, companionId);
         _logger.LogDebug("Companion {CompanionId} resizing session {SessionId} to {Cols}x{Rows}", companionId, sessionId, cols, rows);
         return _runners.ResizeTerminalAsync(sessionId, cols, rows, Context.ConnectionAborted);
     }
@@ -120,6 +131,7 @@ public sealed class CoordinatorAgentHub : Hub<IAgentHubClient>, ICoordinatorAgen
     public Task CloseSessionAsync(string sessionId)
     {
         var companionId = RequireCompanionId();
+        EnsureControlAllowed(sessionId, companionId);
         _companions.DetachSession(companionId, sessionId);
         _logger.LogInformation("Companion {CompanionId} closing session {SessionId}", companionId, sessionId);
         return _runners.CloseSessionAsync(sessionId, Context.ConnectionAborted);
@@ -147,5 +159,17 @@ public sealed class CoordinatorAgentHub : Hub<IAgentHubClient>, ICoordinatorAgen
 
         return httpContext.Request.Query[AgentDeckQueryNames.Companion].FirstOrDefault()
             ?? httpContext.Request.Headers[AgentDeckHeaderNames.Companion].FirstOrDefault();
+    }
+
+    private void EnsureControlAllowed(string sessionId, string companionId)
+    {
+        if (_projectSessions.CanCompanionControlSurface(sessionId, companionId, ProjectSessionSurfaceKind.Terminal))
+        {
+            return;
+        }
+
+        var projectSession = _projectSessions.GetSessionBySurfaceReference(sessionId, ProjectSessionSurfaceKind.Terminal);
+        throw new HubException(
+            $"Project session '{projectSession?.Id ?? "<unknown>"}' is currently controlled by companion '{projectSession?.CompanionId ?? "<unknown>"}'.");
     }
 }

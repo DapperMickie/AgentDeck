@@ -14,4 +14,10 @@ public interface ICoordinatorApiClient
     Task<IReadOnlyList<ProjectSessionRecord>> GetProjectSessionsAsync(string coordinatorUrl, string? projectId = null, CancellationToken cancellationToken = default);
 
     Task<OpenProjectOnMachineResult?> OpenProjectOnMachineAsync(string coordinatorUrl, string projectId, string machineId, CancellationToken cancellationToken = default);
+
+    Task<ProjectSessionRecord?> AttachProjectSessionAsync(string coordinatorUrl, string projectSessionId, CancellationToken cancellationToken = default);
+
+    Task<ProjectSessionRecord?> DetachProjectSessionAsync(string coordinatorUrl, string projectSessionId, CancellationToken cancellationToken = default);
+
+    Task<ProjectSessionRecord?> UpdateProjectSessionControlAsync(string coordinatorUrl, string projectSessionId, UpdateProjectSessionControlRequest request, CancellationToken cancellationToken = default);
 }
