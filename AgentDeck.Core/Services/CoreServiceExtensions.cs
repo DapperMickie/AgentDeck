@@ -13,6 +13,7 @@ public static class CoreServiceExtensions
         services.AddSingleton<IRunnerConnectionManager, RunnerConnectionManager>();
         services.AddSingleton<ISessionStateService, SessionStateService>();
         services.AddSingleton<IConnectionSettingsService, ConnectionSettingsService>();
+        services.AddSingleton<ICompanionDashboardStateService, CompanionDashboardStateService>();
         services.AddSingleton<AppInitializer>();
         services.AddScoped<TerminalInterop>();
         services.AddSingleton<ICliPresetService, CliPresetService>();

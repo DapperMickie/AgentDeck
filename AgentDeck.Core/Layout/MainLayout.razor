@@ -14,6 +14,11 @@
         </div>
 
         <nav class="sidebar-nav">
+            <a class="nav-item @(IsActive("/") ? "active" : "")" href="/">
+                <span class="nav-icon">⌂</span>
+                <span class="nav-label">Dashboard</span>
+            </a>
+
             @if (SessionState.Sessions.Count > 0)
             {
                 <div class="nav-section-header">Terminals</div>
