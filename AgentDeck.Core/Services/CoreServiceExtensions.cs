@@ -7,6 +7,8 @@ public static class CoreServiceExtensions
 {
     public static IServiceCollection AddAgentDeckCore(this IServiceCollection services)
     {
+        services.AddHttpClient();
+        services.AddSingleton<ICoordinatorApiClient, CoordinatorApiClient>();
         services.AddSingleton<IAgentDeckClientFactory, AgentDeckClientFactory>();
         services.AddSingleton<IRunnerConnectionManager, RunnerConnectionManager>();
         services.AddSingleton<ISessionStateService, SessionStateService>();

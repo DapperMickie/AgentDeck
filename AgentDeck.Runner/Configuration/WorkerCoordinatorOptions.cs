@@ -1,0 +1,22 @@
+namespace AgentDeck.Runner.Configuration;
+
+/// <summary>Configuration for registering a runner outward to the central coordinator API.</summary>
+public sealed class WorkerCoordinatorOptions
+{
+    public const string SectionName = "Coordinator";
+
+    /// <summary>Stable identifier this runner advertises to the coordinator.</summary>
+    public string MachineId { get; set; } = Environment.MachineName;
+
+    /// <summary>User-facing machine name advertised to the coordinator and companion app.</summary>
+    public string MachineName { get; set; } = Environment.MachineName;
+
+    /// <summary>Coordinator base URL that worker runners register with.</summary>
+    public string? CoordinatorUrl { get; set; }
+
+    /// <summary>Optional runner URL the worker advertises back to the coordinator for future dispatch.</summary>
+    public string? AdvertisedRunnerUrl { get; set; }
+
+    /// <summary>Default interval workers use when refreshing coordinator registration.</summary>
+    public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
+}

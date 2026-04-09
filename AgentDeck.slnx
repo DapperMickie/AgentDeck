@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="AgentDeck.Coordinator/AgentDeck.Coordinator.csproj" />
   <Project Path="AgentDeck.Core/AgentDeck.Core.csproj" />
   <Project Path="AgentDeck.Runner/AgentDeck.Runner.csproj" />
   <Project Path="AgentDeck.Shared/AgentDeck.Shared.csproj" />
