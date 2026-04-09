@@ -14,6 +14,7 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
         var options = coordinatorOptions.Value;
         var desiredUpdateManifest = options.DesiredUpdateManifest ?? new CoordinatorUpdateManifestOptions();
         var desiredWorkflowPack = options.DesiredWorkflowPack ?? new CoordinatorWorkflowPackOptions();
+        var securityPolicy = options.SecurityPolicy ?? new CoordinatorSecurityPolicyOptions();
 
         _desiredUpdateManifest = new RunnerUpdateManifest
         {
@@ -27,6 +28,7 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
             MaximumProtocolVersion = desiredUpdateManifest.MaximumProtocolVersion,
             Notes = NormalizeOptional(desiredUpdateManifest.Notes)
         };
+        ValidateUpdateManifest(_desiredUpdateManifest, options.PublicBaseUrl, securityPolicy);
 
         _desiredWorkflowPack = new RunnerWorkflowPack
         {
@@ -73,4 +75,60 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
         string.IsNullOrWhiteSpace(value)
             ? throw new InvalidOperationException($"Coordinator setting '{settingName}' is required.")
             : value.Trim();
+
+    private static void ValidateUpdateManifest(
+        RunnerUpdateManifest manifest,
+        string? publicBaseUrl,
+        CoordinatorSecurityPolicyOptions securityPolicy)
+    {
+        if (securityPolicy.RequireUpdateArtifactChecksum && string.IsNullOrWhiteSpace(manifest.Sha256))
+        {
+            throw new InvalidOperationException(
+                $"Coordinator setting '{CoordinatorOptions.SectionName}:DesiredUpdateManifest:Sha256' is required when update artifact checksums are enforced.");
+        }
+
+        if (!Uri.TryCreate(manifest.ArtifactUrl, UriKind.RelativeOrAbsolute, out var artifactUri))
+        {
+            throw new InvalidOperationException(
+                $"Coordinator setting '{CoordinatorOptions.SectionName}:DesiredUpdateManifest:ArtifactUrl' must be a valid URI.");
+        }
+
+        if (!artifactUri.IsAbsoluteUri)
+        {
+            if (securityPolicy.RequireCoordinatorOriginForArtifacts)
+            {
+                throw new InvalidOperationException(
+                    $"Coordinator setting '{CoordinatorOptions.SectionName}:DesiredUpdateManifest:ArtifactUrl' must be an absolute URI when coordinator-origin artifacts are required.");
+            }
+
+            return;
+        }
+
+        if (!string.Equals(artifactUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(artifactUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Coordinator update artifact URLs must use HTTP or HTTPS.");
+        }
+
+        if (!securityPolicy.RequireCoordinatorOriginForArtifacts)
+        {
+            return;
+        }
+
+        var baseUrl = NormalizeRequired(publicBaseUrl, $"{CoordinatorOptions.SectionName}:PublicBaseUrl");
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var publicBaseUri))
+        {
+            throw new InvalidOperationException(
+                $"Coordinator setting '{CoordinatorOptions.SectionName}:PublicBaseUrl' must be an absolute URI when coordinator-origin artifacts are required.");
+        }
+
+        var sameOrigin = string.Equals(publicBaseUri.Scheme, artifactUri.Scheme, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(publicBaseUri.Host, artifactUri.Host, StringComparison.OrdinalIgnoreCase) &&
+            publicBaseUri.Port == artifactUri.Port;
+        if (!sameOrigin)
+        {
+            throw new InvalidOperationException(
+                $"Coordinator update artifact '{manifest.ArtifactUrl}' must match coordinator origin '{publicBaseUri.GetLeftPart(UriPartial.Authority)}'.");
+        }
+    }
 }

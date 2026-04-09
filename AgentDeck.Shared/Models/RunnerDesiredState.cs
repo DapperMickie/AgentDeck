@@ -6,6 +6,7 @@ public sealed class RunnerDesiredState
     public int MinimumSupportedProtocolVersion { get; init; } = 1;
     public int MaximumSupportedProtocolVersion { get; init; } = 1;
     public required string DesiredRunnerVersion { get; init; }
+    public required RunnerControlPlaneSecurityPolicy SecurityPolicy { get; init; }
     public RunnerDefinitionReference? DesiredUpdateManifest { get; init; }
     public RunnerDefinitionReference? DesiredWorkflowPack { get; init; }
     public string? WorkflowCatalogVersion { get; init; }

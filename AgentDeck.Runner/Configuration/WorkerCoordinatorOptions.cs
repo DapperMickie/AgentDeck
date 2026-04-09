@@ -26,6 +26,9 @@ public sealed class WorkerCoordinatorOptions
     /// <summary>Optional local root for staged update manifests and payloads.</summary>
     public string? UpdateStagingRoot { get; set; }
 
+    /// <summary>Allow plain HTTP only when the configured coordinator resolves to a loopback host.</summary>
+    public bool AllowInsecureHttpCoordinatorForLoopback { get; set; } = true;
+
     /// <summary>Default interval workers use when refreshing coordinator registration.</summary>
     public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 }
