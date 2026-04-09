@@ -37,6 +37,12 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         }
 
         var coordinatorUrl = AppendTrailingSlash(_coordinatorOptions.CoordinatorUrl);
+        if (!TryValidateCoordinatorUrl(coordinatorUrl, _coordinatorOptions.AllowInsecureHttpCoordinatorForLoopback, out var validationMessage))
+        {
+            _logger.LogError("Runner coordinator registration disabled: {Message}", validationMessage);
+            return;
+        }
+
         var agentVersion = GetAgentVersion();
         var delay = _coordinatorOptions.WorkerHeartbeatInterval;
         while (!stoppingToken.IsCancellationRequested)
@@ -97,12 +103,25 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
 
                     if (desiredState.DesiredWorkflowPack is { } desiredWorkflowPack)
                     {
-                        _logger.LogInformation(
-                            "Coordinator {CoordinatorUrl} assigned workflow pack {WorkflowPackId}@{WorkflowPackVersion} to runner {MachineName}",
-                            coordinatorUrl,
-                            desiredWorkflowPack.DefinitionId,
-                            desiredWorkflowPack.Version,
-                            request.MachineName);
+                        if (desiredState.SecurityPolicy.AllowWorkflowPackExecution)
+                        {
+                            _logger.LogInformation(
+                                "Coordinator {CoordinatorUrl} assigned workflow pack {WorkflowPackId}@{WorkflowPackVersion} to runner {MachineName}",
+                                coordinatorUrl,
+                                desiredWorkflowPack.DefinitionId,
+                                desiredWorkflowPack.Version,
+                                request.MachineName);
+                        }
+                        else
+                        {
+                            _logger.LogInformation(
+                                "Coordinator {CoordinatorUrl} assigned workflow pack {WorkflowPackId}@{WorkflowPackVersion} to runner {MachineName}, but workflow execution remains disabled by security policy {PolicyVersion}",
+                                coordinatorUrl,
+                                desiredWorkflowPack.DefinitionId,
+                                desiredWorkflowPack.Version,
+                                request.MachineName,
+                                desiredState.SecurityPolicy.PolicyVersion);
+                        }
                     }
 
                     await _updateStaging.ReconcileDesiredUpdateAsync(httpClient, desiredState, stoppingToken);
@@ -149,5 +168,35 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         }
 
         return assembly.GetName().Version?.ToString() ?? "0.0.0-dev";
+    }
+
+    private static bool TryValidateCoordinatorUrl(string coordinatorUrl, bool allowInsecureHttpCoordinatorForLoopback, out string validationMessage)
+    {
+        if (!Uri.TryCreate(coordinatorUrl, UriKind.Absolute, out var coordinatorUri))
+        {
+            validationMessage = $"Configured coordinator URL '{coordinatorUrl}' is not a valid absolute URI.";
+            return false;
+        }
+
+        if (string.Equals(coordinatorUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            validationMessage = string.Empty;
+            return true;
+        }
+
+        if (!string.Equals(coordinatorUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+        {
+            validationMessage = $"Configured coordinator URL '{coordinatorUrl}' must use HTTP or HTTPS.";
+            return false;
+        }
+
+        if (allowInsecureHttpCoordinatorForLoopback && coordinatorUri.IsLoopback)
+        {
+            validationMessage = string.Empty;
+            return true;
+        }
+
+        validationMessage = $"Configured coordinator URL '{coordinatorUrl}' must use HTTPS unless it targets loopback and 'Coordinator:AllowInsecureHttpCoordinatorForLoopback' is enabled.";
+        return false;
     }
 }

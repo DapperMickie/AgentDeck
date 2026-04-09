@@ -130,10 +130,19 @@ Coordinator configuration (`AgentDeck.Coordinator/appsettings.json`):
 {
   "Coordinator": {
     "Port": 5001,
+    "PublicBaseUrl": "http://localhost:5001",
     "DesiredRunnerVersion": "0.1.0-dev",
     "MinimumSupportedProtocolVersion": 1,
     "MaximumSupportedProtocolVersion": 1,
     "WorkflowCatalogVersion": "1",
+    "SecurityPolicy": {
+      "PolicyVersion": "1",
+      "AllowUpdateStaging": true,
+      "RequireCoordinatorOriginForArtifacts": true,
+      "RequireUpdateArtifactChecksum": true,
+      "AllowWorkflowPackExecution": false,
+      "AllowUpdateApply": false
+    },
     "WorkerHeartbeatInterval": "00:00:15",
     "WorkerExpiry": "00:00:45"
   }
@@ -154,6 +163,7 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
     "MachineName": "Worker 1",
     "CoordinatorUrl": "http://localhost:5001",
     "ProtocolVersion": 1,
+    "AllowInsecureHttpCoordinatorForLoopback": true,
     "AdvertisedRunnerUrl": "http://worker-host:5000",
     "WorkerHeartbeatInterval": "00:00:15"
   },
@@ -166,9 +176,9 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
 }
 ```
 
-The runner's `Coordinator` section controls how a worker agent registers outward to the central coordinator API. `TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
+The runner's `Coordinator` section controls how a worker agent registers outward to the central coordinator API. `AllowInsecureHttpCoordinatorForLoopback` keeps plain HTTP available for local development only; non-loopback coordinators must use HTTPS. `TrustPolicy` adds first-pass policy hooks around orchestration, viewer creation/closure, and machine setup actions. By default the hooks audit these actions without changing behavior, but you can require an actor header or restrict machine setup and desktop bootstrap to loopback clients.
 
-The coordinator heartbeat is now version-aware: workers report their agent version, protocol version, and workflow catalog version, and the coordinator responds with desired runner version plus compatibility metadata. This is the first foundation step toward self-updating lightweight agents and coordinator-owned workflow/install logic.
+The coordinator heartbeat is now version-aware: workers report their agent version, protocol version, and workflow catalog version, and the coordinator responds with desired runner version plus compatibility metadata. The desired state now also carries an explicit control-plane security policy so update staging and future workflow execution build on declared trust rules instead of implied behavior.
 
 The coordinator now also publishes first-pass runner definition contracts:
 - update manifests at `/api/runner-definitions/update-manifests/{manifestId}`
@@ -177,6 +187,15 @@ The coordinator now also publishes first-pass runner definition contracts:
 The desired-state heartbeat can point to a specific update manifest and workflow pack so later slices can add real artifact download/apply behavior and workflow-pack execution without changing the protocol shape again.
 
 Runner update staging is now a separate first-pass flow: workers can persist staged update metadata for an assigned manifest, and optionally download the referenced payload when `Coordinator:DownloadUpdatePayload` is enabled. The runner reports structured staging state back through its coordinator heartbeat so the control plane can distinguish between update-available, staged, and failed states.
+
+### Control-plane security model
+
+- Runners only accept a non-HTTPS coordinator URL when it targets loopback and `Coordinator:AllowInsecureHttpCoordinatorForLoopback` is enabled for local development.
+- Coordinators now declare a versioned `SecurityPolicy` in runner desired state, covering whether update staging is allowed, whether artifacts must stay on coordinator origin, whether update payloads require checksums, and whether workflow execution or update apply are currently enabled.
+- The default policy keeps workflow execution and self-update apply disabled. Current slices only permit **staging**.
+- When `SecurityPolicy.RequireCoordinatorOriginForArtifacts` is enabled, update manifests must point at the coordinator origin defined by `Coordinator:PublicBaseUrl`, and runners enforce that same-origin rule before downloading payloads.
+- When `SecurityPolicy.RequireUpdateArtifactChecksum` is enabled, coordinators must publish a `Sha256` value and runners verify it before promoting a downloaded payload from temp storage into the staged artifact path.
+- The checked-in coordinator manifest values are placeholders for development shape only. Before enabling payload downloads in a real environment, replace the example coordinator-hosted artifact URL and checksum with a real published artifact.
 
 ---
 

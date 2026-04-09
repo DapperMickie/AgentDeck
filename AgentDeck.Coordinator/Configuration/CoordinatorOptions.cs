@@ -6,6 +6,8 @@ public sealed class CoordinatorOptions
 
     public int Port { get; set; } = 5001;
 
+    public string? PublicBaseUrl { get; set; }
+
     public string DesiredRunnerVersion { get; set; } = "0.1.0-dev";
 
     public int MinimumSupportedProtocolVersion { get; set; } = 1;
@@ -17,6 +19,8 @@ public sealed class CoordinatorOptions
     public CoordinatorUpdateManifestOptions DesiredUpdateManifest { get; set; } = new();
 
     public CoordinatorWorkflowPackOptions DesiredWorkflowPack { get; set; } = new();
+
+    public CoordinatorSecurityPolicyOptions SecurityPolicy { get; set; } = new();
 
     public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 

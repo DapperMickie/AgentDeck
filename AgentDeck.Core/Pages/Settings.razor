@@ -85,6 +85,10 @@
                             {
                                 <span> • workflow @machine.WorkflowCatalogVersion</span>
                             }
+                            @if (!string.IsNullOrWhiteSpace(machine.SecurityPolicyVersion))
+                            {
+                                <span> • security @machine.SecurityPolicyVersion</span>
+                            }
                             @if (!string.IsNullOrWhiteSpace(machine.DesiredWorkflowPackId))
                             {
                                 <span> • pack @machine.DesiredWorkflowPackId</span>

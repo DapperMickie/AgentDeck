@@ -58,6 +58,7 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 AgentVersion = Normalize(request.AgentVersion),
                 ProtocolVersion = request.ProtocolVersion,
                 WorkflowCatalogVersion = NormalizeOptional(request.WorkflowCatalogVersion),
+                SecurityPolicyVersion = desiredState.SecurityPolicy.PolicyVersion,
                 DesiredUpdateManifestId = desiredState.DesiredUpdateManifest?.DefinitionId,
                 DesiredWorkflowPackId = desiredState.DesiredWorkflowPack?.DefinitionId,
                 UpdateStatus = request.UpdateStatus,
@@ -115,6 +116,7 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                     AgentVersion = machine.AgentVersion,
                     ProtocolVersion = machine.ProtocolVersion,
                     WorkflowCatalogVersion = machine.WorkflowCatalogVersion,
+                    SecurityPolicyVersion = machine.SecurityPolicyVersion,
                     DesiredUpdateManifestId = machine.DesiredUpdateManifestId,
                     DesiredWorkflowPackId = machine.DesiredWorkflowPackId,
                     UpdateStatus = machine.UpdateStatus,
@@ -159,6 +161,15 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             MinimumSupportedProtocolVersion = _coordinatorOptions.MinimumSupportedProtocolVersion,
             MaximumSupportedProtocolVersion = _coordinatorOptions.MaximumSupportedProtocolVersion,
             DesiredRunnerVersion = desiredVersion,
+            SecurityPolicy = new RunnerControlPlaneSecurityPolicy
+            {
+                PolicyVersion = NormalizeOptional(_coordinatorOptions.SecurityPolicy?.PolicyVersion) ?? "1",
+                AllowUpdateStaging = _coordinatorOptions.SecurityPolicy?.AllowUpdateStaging ?? true,
+                RequireCoordinatorOriginForArtifacts = _coordinatorOptions.SecurityPolicy?.RequireCoordinatorOriginForArtifacts ?? true,
+                RequireUpdateArtifactChecksum = _coordinatorOptions.SecurityPolicy?.RequireUpdateArtifactChecksum ?? true,
+                AllowWorkflowPackExecution = _coordinatorOptions.SecurityPolicy?.AllowWorkflowPackExecution ?? false,
+                AllowUpdateApply = _coordinatorOptions.SecurityPolicy?.AllowUpdateApply ?? false
+            },
             DesiredUpdateManifest = new RunnerDefinitionReference
             {
                 DefinitionId = desiredManifest.ManifestId,

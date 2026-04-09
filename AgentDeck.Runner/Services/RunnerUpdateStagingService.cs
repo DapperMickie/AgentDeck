@@ -53,6 +53,17 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
                 return await UpdateStatusAsync(null, cancellationToken);
             }
 
+            if (!desiredState.SecurityPolicy.AllowUpdateStaging)
+            {
+                return await UpdateStatusAsync(new RunnerUpdateStatus
+                {
+                    State = RunnerUpdateStageState.Failed,
+                    ManifestId = desiredState.DesiredUpdateManifest.DefinitionId,
+                    ManifestVersion = desiredState.DesiredUpdateManifest.Version,
+                    FailureMessage = $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit runner-side update staging."
+                }, cancellationToken);
+            }
+
             var desiredManifestId = desiredState.DesiredUpdateManifest.DefinitionId;
             var desiredManifestVersion = desiredState.DesiredUpdateManifest.Version;
             var currentStatus = GetCurrentStatusSnapshot();
@@ -120,12 +131,13 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
 
                 if (_options.DownloadUpdatePayload)
                 {
-                    if (string.IsNullOrWhiteSpace(manifest.Sha256))
+                    if (desiredState.SecurityPolicy.RequireUpdateArtifactChecksum &&
+                        string.IsNullOrWhiteSpace(manifest.Sha256))
                     {
                         throw new InvalidOperationException("Coordinator update manifest did not include a SHA-256 checksum.");
                     }
 
-                    var artifactUri = GetValidatedArtifactUri(coordinatorClient, manifest.ArtifactUrl);
+                    var artifactUri = GetValidatedArtifactUri(coordinatorClient, desiredState.SecurityPolicy, manifest.ArtifactUrl);
                     var artifactPath = Path.Combine(stagingDirectory, GetArtifactFileName(artifactUri));
                     var tempArtifactPath = Path.Combine(stagingDirectory, $"{Path.GetFileName(artifactPath)}.{Guid.NewGuid():N}.tmp");
                     try
@@ -139,11 +151,14 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
                             await source.CopyToAsync(destination, cancellationToken);
                         }
 
-                        var actualSha256 = await ComputeSha256Async(tempArtifactPath, cancellationToken);
-                        if (!string.Equals(actualSha256, manifest.Sha256, StringComparison.OrdinalIgnoreCase))
+                        if (desiredState.SecurityPolicy.RequireUpdateArtifactChecksum)
                         {
-                            throw new InvalidOperationException(
-                                $"Downloaded update artifact SHA-256 '{actualSha256}' did not match manifest SHA-256 '{manifest.Sha256}'.");
+                            var actualSha256 = await ComputeSha256Async(tempArtifactPath, cancellationToken);
+                            if (!string.Equals(actualSha256, manifest.Sha256, StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new InvalidOperationException(
+                                    $"Downloaded update artifact SHA-256 '{actualSha256}' did not match manifest SHA-256 '{manifest.Sha256}'.");
+                            }
                         }
 
                         File.Move(tempArtifactPath, artifactPath, overwrite: true);
@@ -272,7 +287,9 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
 
     private static string GetArtifactFileName(Uri artifactUri)
     {
-        var fileName = artifactUri.Segments.LastOrDefault();
+        var fileName = artifactUri.IsAbsoluteUri
+            ? artifactUri.Segments.LastOrDefault()
+            : artifactUri.OriginalString.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
         if (!string.IsNullOrWhiteSpace(fileName))
         {
             return SanitizePathComponent(fileName);
@@ -281,7 +298,10 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
         return "runner-update-artifact.bin";
     }
 
-    private static Uri GetValidatedArtifactUri(HttpClient coordinatorClient, string artifactUrl)
+    private static Uri GetValidatedArtifactUri(
+        HttpClient coordinatorClient,
+        RunnerControlPlaneSecurityPolicy securityPolicy,
+        string artifactUrl)
     {
         if (!Uri.TryCreate(artifactUrl, UriKind.RelativeOrAbsolute, out var artifactUri))
         {
@@ -290,6 +310,12 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
 
         if (!artifactUri.IsAbsoluteUri)
         {
+            if (securityPolicy.RequireCoordinatorOriginForArtifacts)
+            {
+                throw new InvalidOperationException(
+                    $"Coordinator update artifact URL '{artifactUrl}' must be an absolute URI when coordinator-origin artifacts are required.");
+            }
+
             return artifactUri;
         }
 
@@ -302,13 +328,16 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
         var coordinatorBaseAddress = coordinatorClient.BaseAddress
             ?? throw new InvalidOperationException("Coordinator client base address is required for update downloads.");
 
-        var sameOrigin = string.Equals(coordinatorBaseAddress.Scheme, artifactUri.Scheme, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(coordinatorBaseAddress.Host, artifactUri.Host, StringComparison.OrdinalIgnoreCase) &&
-            coordinatorBaseAddress.Port == artifactUri.Port;
-        if (!sameOrigin)
+        if (securityPolicy.RequireCoordinatorOriginForArtifacts)
         {
-            throw new InvalidOperationException(
-                $"Coordinator update artifact URL '{artifactUrl}' must match coordinator origin '{coordinatorBaseAddress.GetLeftPart(UriPartial.Authority)}'.");
+            var sameOrigin = string.Equals(coordinatorBaseAddress.Scheme, artifactUri.Scheme, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(coordinatorBaseAddress.Host, artifactUri.Host, StringComparison.OrdinalIgnoreCase) &&
+                coordinatorBaseAddress.Port == artifactUri.Port;
+            if (!sameOrigin)
+            {
+                throw new InvalidOperationException(
+                    $"Coordinator update artifact URL '{artifactUrl}' must match coordinator origin '{coordinatorBaseAddress.GetLeftPart(UriPartial.Authority)}'.");
+            }
         }
 
         return artifactUri;
