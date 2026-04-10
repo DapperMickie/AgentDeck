@@ -161,7 +161,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
     {
         var logger = loggerFactory.CreateLogger("ProjectOpenFlow");
         TrackMachineAttachment(httpContext, companions, machineId);
-        var companionId = GetCompanionId(httpContext);
+        var companionId = GetCompanionId(httpContext)?.Trim();
 
         var project = projects.GetProject(projectId);
         if (project is null)

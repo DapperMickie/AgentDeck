@@ -59,13 +59,15 @@ public sealed class ProjectSessionRegistryService : IProjectSessionRegistryServi
         ArgumentException.ThrowIfNullOrWhiteSpace(projectName);
 
         var now = DateTimeOffset.UtcNow;
+        var normalizedProjectId = projectId.Trim();
+        var normalizedMachineId = Normalize(machineId);
         var normalizedCompanionId = Normalize(companionId);
         var session = new ProjectSessionRecord
         {
             Id = Guid.NewGuid().ToString("N"),
-            ProjectId = projectId.Trim(),
+            ProjectId = normalizedProjectId,
             ProjectName = projectName.Trim(),
-            MachineId = Normalize(machineId),
+            MachineId = normalizedMachineId,
             MachineName = Normalize(machineName),
             CompanionId = normalizedCompanionId,
             ControlUpdatedAt = now,
@@ -76,6 +78,20 @@ public sealed class ProjectSessionRegistryService : IProjectSessionRegistryServi
 
         lock (_lock)
         {
+            var conflictingSession = _sessions.Values
+                .Where(existing =>
+                    string.Equals(existing.ProjectId, normalizedProjectId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(existing.MachineId, normalizedMachineId, StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(existing.CompanionId) &&
+                    !string.Equals(existing.CompanionId, normalizedCompanionId, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(existing => existing.UpdatedAt)
+                .FirstOrDefault();
+            if (conflictingSession is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Project '{normalizedProjectId}' on machine '{normalizedMachineId}' is currently controlled by companion '{conflictingSession.CompanionId}'. Take control of session '{conflictingSession.Id}' before opening another live session on that machine.");
+            }
+
             _sessions[session.Id] = session;
         }
 
