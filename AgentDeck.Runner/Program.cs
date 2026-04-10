@@ -63,6 +63,7 @@ builder.Services.AddSingleton<IRunnerWorkflowPackService, RunnerWorkflowPackServ
 builder.Services.AddSingleton<IVsCodeDebugSessionService, VsCodeDebugSessionService>();
 builder.Services.AddSingleton<IVirtualDeviceCatalogService, VirtualDeviceCatalogService>();
 builder.Services.AddSingleton<IWorkspaceService, WorkspaceService>();
+builder.Services.AddSingleton<ITerminalSessionService, TerminalSessionService>();
 builder.Services.AddSingleton<IProjectWorkspaceBootstrapService, ProjectWorkspaceBootstrapService>();
 builder.Services.AddSingleton<IMachineCapabilityService, MachineCapabilityService>();
 builder.Services.AddSingleton<IMachineSetupService, MachineSetupService>();
@@ -83,7 +84,32 @@ app.MapGet("/api/audit/events", (IRunnerAuditService audit) =>
 app.MapGet("/api/sessions", (IAgentSessionStore store) =>
     Results.Ok(store.GetAll()));
 
-app.MapPost("/api/sessions", () => Results.StatusCode(501));
+app.MapPost("/api/sessions", async (CreateTerminalRequest request, ITerminalSessionService terminalSessions, Microsoft.AspNetCore.SignalR.IHubContext<AgentDeck.Runner.Hubs.AgentHub, AgentDeck.Shared.Hubs.IAgentHubClient> hubContext, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var session = await terminalSessions.CreateSessionAsync(request, cancellationToken);
+        await hubContext.Clients.All.SessionCreatedAsync(session);
+        return Results.Ok(session);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+    catch (TerminalSessionStartException ex)
+    {
+        await hubContext.Clients.All.SessionCreatedAsync(ex.Session);
+        return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status500InternalServerError);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
 
 app.MapDelete("/api/sessions/{id}", async (string id, IAgentSessionStore store, IPtyProcessManager ptyManager) =>
 {
