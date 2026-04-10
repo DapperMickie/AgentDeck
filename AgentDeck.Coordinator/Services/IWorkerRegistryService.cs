@@ -8,5 +8,9 @@ public interface IWorkerRegistryService
 
     Task<RegisteredRunnerMachine?> GetMachineAsync(string machineId, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<RunnerUpdateRolloutStatus>> GetUpdateRolloutsAsync(CancellationToken cancellationToken = default);
+
+    Task<RunnerUpdateRolloutStatus?> GetUpdateRolloutAsync(string machineId, CancellationToken cancellationToken = default);
+
     RegisterRunnerMachineResponse RegisterOrUpdateWorker(RegisterRunnerMachineRequest request);
 }
