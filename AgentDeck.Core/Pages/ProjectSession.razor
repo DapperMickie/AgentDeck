@@ -58,6 +58,10 @@
                         <p>Project-session tabs now combine coordinator-registered surfaces with live runtime surfaces discovered from the selected machine's jobs and viewer sessions for this project.</p>
                     </div>
                 </div>
+                @if (!string.IsNullOrWhiteSpace(_runtimeLoadError))
+                {
+                    <p class="surface-details-card__note">@_runtimeLoadError</p>
+                }
 
                 <div class="surface-tabs">
                     @foreach (var surface in _surfaceTabs)
@@ -166,6 +170,7 @@
     private IReadOnlyList<SurfaceTab> _surfaceTabs = [];
     private IReadOnlyList<OrchestrationJob> _runtimeJobs = [];
     private IReadOnlyList<RemoteViewerSession> _runtimeViewers = [];
+    private string? _runtimeLoadError;
 
     protected override void OnInitialized()
     {
@@ -208,13 +213,25 @@
                 _runtimeJobs = [];
                 _runtimeViewers = [];
                 _surfaceTabs = [];
+                _runtimeLoadError = null;
                 _activeSurface = null;
                 _attachedTerminalSession = null;
                 _activeSurfaceId = null;
                 return;
             }
 
-            await LoadRuntimeStateAsync();
+            _runtimeLoadError = null;
+            try
+            {
+                await LoadRuntimeStateAsync();
+            }
+            catch (Exception ex)
+            {
+                _runtimeJobs = [];
+                _runtimeViewers = [];
+                _runtimeLoadError = $"Runtime surfaces are temporarily unavailable: {ex.Message}";
+            }
+
             BuildSurfaceTabs();
             SyncActiveSurface();
         }
