@@ -161,6 +161,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
     {
         var logger = loggerFactory.CreateLogger("ProjectOpenFlow");
         TrackMachineAttachment(httpContext, companions, machineId);
+        var companionId = GetCompanionId(httpContext)?.Trim();
 
         var project = projects.GetProject(projectId);
         if (project is null)
@@ -176,51 +177,53 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
 
         var existingWorkspace = project.Workspaces.FirstOrDefault(workspace =>
             string.Equals(workspace.MachineId, machineId, StringComparison.OrdinalIgnoreCase));
-        var openedWorkspace = await runners.OpenProjectAsync(
-            machineId,
-            new OpenProjectOnRunnerRequest
-            {
-                ProjectId = project.Id,
-                ProjectName = project.Name,
-                Repository = project.Repository,
-                ExistingWorkspacePath = existingWorkspace?.ProjectPath
-            },
-            GetActorId(httpContext),
-            cancellationToken);
-
-        if (openedWorkspace is null)
-        {
-            return Results.NotFound();
-        }
-
-        var workspaceMapping = new ProjectWorkspaceMapping
-        {
-            MachineId = machine.MachineId,
-            MachineName = machine.MachineName,
-            ProjectPath = openedWorkspace.ProjectPath,
-            IsPrimary = existingWorkspace?.IsPrimary ?? false
-        };
-
-        var session = await runners.CreateSessionAsync(machineId, new CreateTerminalRequest
-        {
-            Name = $"{project.Name} ({machine.MachineName})",
-            WorkingDirectory = openedWorkspace.ProjectPath
-        }, cancellationToken);
-
-        var companionId = GetCompanionId(httpContext);
-        if (!string.IsNullOrWhiteSpace(companionId))
-        {
-            companions.AttachSession(companionId, session.Id);
-        }
-
         var projectSession = projectSessions.CreateSession(
             project.Id,
             project.Name,
             machine.MachineId,
             machine.MachineName,
             companionId);
+        OpenProjectOnRunnerResult? openedWorkspace = null;
+        ProjectWorkspaceMapping? workspaceMapping = null;
+        TerminalSession? session = null;
         try
         {
+            openedWorkspace = await runners.OpenProjectAsync(
+                machineId,
+                new OpenProjectOnRunnerRequest
+                {
+                    ProjectId = project.Id,
+                    ProjectName = project.Name,
+                    Repository = project.Repository,
+                    ExistingWorkspacePath = existingWorkspace?.ProjectPath
+                },
+                GetActorId(httpContext),
+                cancellationToken);
+
+            if (openedWorkspace is null)
+            {
+                projectSessions.RemoveSession(projectSession.Id);
+                return Results.NotFound();
+            }
+
+            workspaceMapping = new ProjectWorkspaceMapping
+            {
+                MachineId = machine.MachineId,
+                MachineName = machine.MachineName,
+                ProjectPath = openedWorkspace.ProjectPath,
+                IsPrimary = existingWorkspace?.IsPrimary ?? false
+            };
+
+            session = await runners.CreateSessionAsync(machineId, new CreateTerminalRequest
+            {
+                Name = $"{project.Name} ({machine.MachineName})",
+                WorkingDirectory = openedWorkspace.ProjectPath
+            }, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(companionId))
+            {
+                companions.AttachSession(companionId, session.Id);
+            }
+
             projectSession = projectSessions.RegisterSurface(projectSession.Id, new RegisterProjectSessionSurfaceRequest
             {
                 Kind = ProjectSessionSurfaceKind.Terminal,
@@ -251,10 +254,22 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             }
             catch (Exception cleanupEx)
             {
-                logger.LogWarning(cleanupEx, "Failed to remove project session {ProjectSessionId} during open-project cleanup", projectSession.Id);
+                logger.LogWarning(cleanupEx, "Failed to remove project session during open-project cleanup");
             }
 
-            if (!string.IsNullOrWhiteSpace(companionId))
+            if (workspaceMapping is not null)
+            {
+                try
+                {
+                    projects.UpsertWorkspace(projectId, workspaceMapping);
+                }
+                catch (Exception cleanupEx)
+                {
+                    logger.LogWarning(cleanupEx, "Failed to persist workspace mapping for project {ProjectId} during open-project cleanup", projectId);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(companionId) && session is not null)
             {
                 try
                 {
@@ -268,11 +283,14 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
 
             try
             {
-                await runners.CloseSessionAsync(session.Id, cancellationToken);
+                if (session is not null)
+                {
+                    await runners.CloseSessionAsync(session.Id, cancellationToken);
+                }
             }
             catch (Exception cleanupEx)
             {
-                logger.LogWarning(cleanupEx, "Failed to close terminal session {SessionId} during open-project cleanup", session.Id);
+                logger.LogWarning(cleanupEx, "Failed to close terminal session during open-project cleanup");
             }
 
             ExceptionDispatchInfo.Capture(ex).Throw();
@@ -285,7 +303,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
     }
     catch (InvalidOperationException ex)
     {
-        return Results.BadRequest(new { message = ex.Message });
+        return Results.Conflict(new { message = ex.Message });
     }
 });
 
@@ -377,11 +395,16 @@ app.MapGet("/api/machines/{machineId}/orchestration/jobs", async (string machine
     }
 });
 
-app.MapPost("/api/machines/{machineId}/orchestration/jobs", async (string machineId, CreateOrchestrationJobRequest request, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapPost("/api/machines/{machineId}/orchestration/jobs", async (string machineId, CreateOrchestrationJobRequest request, HttpContext httpContext, ICompanionRegistryService companions, IProjectSessionRegistryService projectSessions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
     {
         TrackMachineAttachment(httpContext, companions, machineId);
+        if (RejectProjectMutationIfViewer(httpContext, projectSessions, request.ProjectId, machineId) is { } rejection)
+        {
+            return rejection;
+        }
+
         return Results.Ok(await runners.QueueOrchestrationJobAsync(machineId, request, GetActorId(httpContext), cancellationToken));
     }
     catch (ArgumentException ex)
@@ -390,21 +413,33 @@ app.MapPost("/api/machines/{machineId}/orchestration/jobs", async (string machin
     }
     catch (InvalidOperationException ex)
     {
-        return Results.BadRequest(new { message = ex.Message });
+        return Results.Conflict(new { message = ex.Message });
     }
 });
 
-app.MapPost("/api/machines/{machineId}/orchestration/jobs/{jobId}/cancel", async (string machineId, string jobId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapPost("/api/machines/{machineId}/orchestration/jobs/{jobId}/cancel", async (string machineId, string jobId, HttpContext httpContext, ICompanionRegistryService companions, IProjectSessionRegistryService projectSessions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
     {
         TrackMachineAttachment(httpContext, companions, machineId);
+        var existingJob = (await runners.GetOrchestrationJobsAsync(machineId, cancellationToken))
+            .FirstOrDefault(job => string.Equals(job.Id, jobId, StringComparison.OrdinalIgnoreCase));
+        if (existingJob is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (RejectProjectMutationIfViewer(httpContext, projectSessions, existingJob.ProjectId, machineId) is { } rejection)
+        {
+            return rejection;
+        }
+
         var job = await runners.CancelOrchestrationJobAsync(machineId, jobId, GetActorId(httpContext), cancellationToken);
         return job is null ? Results.NotFound() : Results.Ok(job);
     }
     catch (InvalidOperationException ex)
     {
-        return Results.BadRequest(new { message = ex.Message });
+        return Results.Conflict(new { message = ex.Message });
     }
 });
 
@@ -521,4 +556,46 @@ static void TrackMachineAttachment(HttpContext httpContext, ICompanionRegistrySe
     {
         companions.AttachMachine(companionId, machineId);
     }
+}
+
+static IResult? RejectProjectMutationIfViewer(
+    HttpContext httpContext,
+    IProjectSessionRegistryService projectSessions,
+    string projectId,
+    string machineId)
+{
+    var companionId = GetCompanionId(httpContext);
+    if (string.IsNullOrWhiteSpace(companionId))
+    {
+        return Results.BadRequest(new { message = "Coordinator companion identity is required to mutate a live project session." });
+    }
+
+    var existingSession = GetLatestProjectSession(projectSessions, projectId, machineId);
+    if (existingSession is null ||
+        string.IsNullOrWhiteSpace(existingSession.CompanionId) ||
+        string.Equals(existingSession.CompanionId, companionId.Trim(), StringComparison.OrdinalIgnoreCase))
+    {
+        return null;
+    }
+
+    return Results.Conflict(new
+    {
+        message = $"Project '{projectId}' on machine '{machineId}' is currently controlled by companion '{existingSession.CompanionId}'. Take control of session '{existingSession.Id}' before mutating it."
+    });
+}
+
+static ProjectSessionRecord? GetLatestProjectSession(
+    IProjectSessionRegistryService projectSessions,
+    string projectId,
+    string machineId)
+{
+    var normalizedProjectId = projectId.Trim();
+    var normalizedMachineId = machineId.Trim();
+
+    return projectSessions.GetSessions(normalizedProjectId)
+        .Where(session =>
+            string.Equals(session.ProjectId, normalizedProjectId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(session.MachineId, normalizedMachineId, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(session => session.UpdatedAt)
+        .FirstOrDefault();
 }
