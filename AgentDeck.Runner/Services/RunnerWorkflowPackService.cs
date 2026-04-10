@@ -548,14 +548,14 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
 
         var standardOutputTask = process.StandardOutput.ReadToEndAsync();
         var standardErrorTask = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        await Task.WhenAll(standardOutputTask, standardErrorTask, process.WaitForExitAsync());
         cancellationToken.ThrowIfCancellationRequested();
 
         return new ShellCommandResult(
             process.ExitCode == 0,
             process.ExitCode,
-            await standardOutputTask,
-            await standardErrorTask);
+            standardOutputTask.Result,
+            standardErrorTask.Result);
     }
 
     private static string? GetInput(RunnerWorkflowStep step, string key) =>
