@@ -98,13 +98,9 @@
                             {
                                 <span> • manifest @machine.DesiredUpdateManifestId</span>
                             }
-                            @if (machine.UpdateStatus is not null)
+                            @if (machine.UpdateRollout is not null)
                             {
-                                <span> • update @machine.UpdateStatus.State</span>
-                            }
-                            @if (machine.UpdateAvailable)
-                            {
-                                <span> • update available</span>
+                                <span> • rollout @GetUpdateRolloutLabel(machine.UpdateRollout.State)</span>
                             }
                             @if (!machine.ProtocolCompatible)
                             {
@@ -115,6 +111,10 @@
                                 <span> • @GetHostPlatformLabel(machine.Platform.HostPlatform)</span>
                             }
                         </span>
+                        @if (machine.UpdateRollout is not null)
+                        {
+                            <span class="settings-card__description">@machine.UpdateRollout.StatusMessage</span>
+                        }
                     </article>
                 }
             </div>
@@ -245,6 +245,67 @@
                         <span class="settings-status-row__label">Coordinator hub</span>
                         <code class="settings-status-row__value">@GetHubUrl(SelectedMachine)</code>
                     </div>
+                    @if (SelectedRegisteredMachine?.UpdateRollout is { } rollout)
+                    {
+                        <div class="settings-status-row">
+                            <span class="settings-status-row__label">Update rollout</span>
+                            <strong class="settings-status-row__value">@GetUpdateRolloutLabel(rollout.State)</strong>
+                        </div>
+                        <div class="settings-status-row">
+                            <span class="settings-status-row__label">Desired version</span>
+                            <span class="settings-status-row__value">@rollout.DesiredVersion</span>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(rollout.DesiredManifestId))
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Desired manifest</span>
+                                <span class="settings-status-row__value">@GetDesiredManifestLabel(rollout)</span>
+                            </div>
+                        }
+                        <div class="settings-status-row">
+                            <span class="settings-status-row__label">Apply intent</span>
+                            <span class="settings-status-row__value">@GetApplyIntentLabel(rollout)</span>
+                        </div>
+                        <div class="settings-status-row">
+                            <span class="settings-status-row__label">Rollout summary</span>
+                            <span class="settings-status-row__value">@rollout.StatusMessage</span>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(rollout.BlockingReason))
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Blocked because</span>
+                                <span class="settings-status-row__value">@rollout.BlockingReason</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(rollout.FailureMessage))
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Failure</span>
+                                <span class="settings-status-row__value">@rollout.FailureMessage</span>
+                            </div>
+                        }
+                        @if (rollout.StagedAt is not null)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Staged at</span>
+                                <span class="settings-status-row__value">@rollout.StagedAt.Value.ToLocalTime().ToString("g")</span>
+                            </div>
+                        }
+                        @if (rollout.ApplyStartedAt is not null)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Apply started</span>
+                                <span class="settings-status-row__value">@rollout.ApplyStartedAt.Value.ToLocalTime().ToString("g")</span>
+                            </div>
+                        }
+                        @if (rollout.AppliedAt is not null)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Applied at</span>
+                                <span class="settings-status-row__value">@rollout.AppliedAt.Value.ToLocalTime().ToString("g")</span>
+                            </div>
+                        }
+                    }
                         @if (_machineCapabilities?.Platform is not null)
                         {
                         <div class="settings-status-row">
@@ -473,6 +534,10 @@
             : null;
     private bool _capabilitiesBusy =>
         SelectedMachine is not null && _capabilitiesBusyMachineIds.Contains(SelectedMachine.Id);
+    private RegisteredRunnerMachine? SelectedRegisteredMachine =>
+        SelectedMachine is null
+            ? null
+            : _registeredMachines.FirstOrDefault(machine => string.Equals(machine.MachineId, SelectedMachine.Id, StringComparison.OrdinalIgnoreCase));
 
     protected override async Task OnInitializedAsync()
     {
@@ -630,6 +695,45 @@
         RunnerHostPlatform.MacOS => "macOS",
         _ => "Unknown"
     };
+
+    private static string GetUpdateRolloutLabel(RunnerUpdateRolloutState state) => state switch
+    {
+        RunnerUpdateRolloutState.UpToDate => "Up to date",
+        RunnerUpdateRolloutState.UpdateAvailable => "Update available",
+        RunnerUpdateRolloutState.ManifestStaged => "Manifest staged",
+        RunnerUpdateRolloutState.PayloadStaged => "Payload staged",
+        RunnerUpdateRolloutState.ReadyToApply => "Ready to apply",
+        RunnerUpdateRolloutState.Applying => "Applying",
+        RunnerUpdateRolloutState.Applied => "Applied",
+        RunnerUpdateRolloutState.Failed => "Failed",
+        RunnerUpdateRolloutState.Blocked => "Blocked",
+        _ => state.ToString()
+    };
+
+    private static string GetApplyIntentLabel(RunnerUpdateRolloutStatus rollout)
+    {
+        if (rollout.ApplyEligible)
+        {
+            return "Apply requested and eligible";
+        }
+
+        if (rollout.ApplyRequested && rollout.ApplyPermitted)
+        {
+            return "Apply requested";
+        }
+
+        if (rollout.ApplyRequested)
+        {
+            return "Apply requested but blocked by policy";
+        }
+
+        return rollout.ApplyPermitted ? "Stage only" : "Apply disabled by policy";
+    }
+
+    private static string GetDesiredManifestLabel(RunnerUpdateRolloutStatus rollout) =>
+        string.IsNullOrWhiteSpace(rollout.DesiredManifestVersion)
+            ? rollout.DesiredManifestId ?? string.Empty
+            : $"{rollout.DesiredManifestId}@{rollout.DesiredManifestVersion}";
 
     private static string FormatTargetSummary(MachineTargetSupport target) =>
         $"{target.DisplayName} ({target.Status})";

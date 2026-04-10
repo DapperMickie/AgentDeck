@@ -55,6 +55,35 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
         }
     }
 
+    public Task<IReadOnlyList<RunnerUpdateRolloutStatus>> GetUpdateRolloutsAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            IReadOnlyList<RunnerUpdateRolloutStatus> rollouts = RefreshWorkerStates()
+                .Select(machine => machine.UpdateRollout)
+                .Where(rollout => rollout is not null)
+                .Cast<RunnerUpdateRolloutStatus>()
+                .OrderBy(rollout => rollout.MachineName, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            return Task.FromResult(rollouts);
+        }
+    }
+
+    public Task<RunnerUpdateRolloutStatus?> GetUpdateRolloutAsync(string machineId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineId);
+
+        lock (_lock)
+        {
+            RefreshWorkerStates();
+            var normalizedMachineId = Normalize(machineId);
+            var rollout = _workers.TryGetValue(normalizedMachineId, out var worker)
+                ? worker.Machine.UpdateRollout
+                : null;
+            return Task.FromResult(rollout);
+        }
+    }
+
     public RegisterRunnerMachineResponse RegisterOrUpdateWorker(RegisterRunnerMachineRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -71,6 +100,13 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             var normalizedMachineName = Normalize(request.MachineName);
             var normalizedAgentVersion = Normalize(request.AgentVersion);
             var normalizedRunnerUrl = string.IsNullOrWhiteSpace(request.RunnerUrl) ? null : request.RunnerUrl.Trim();
+            var updateRollout = BuildUpdateRollout(
+                machineId,
+                normalizedMachineName,
+                normalizedAgentVersion,
+                desiredState,
+                request.UpdateStatus,
+                isOnline: true);
             var machine = new RegisteredRunnerMachine
             {
                 MachineId = machineId,
@@ -83,6 +119,7 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 DesiredUpdateManifestId = desiredState.DesiredUpdateManifest?.DefinitionId,
                 DesiredWorkflowPackId = desiredState.DesiredWorkflowPack?.DefinitionId,
                 UpdateStatus = request.UpdateStatus,
+                UpdateRollout = updateRollout,
                 RunnerUrl = normalizedRunnerUrl,
                 RegisteredAt = existing?.RegisteredAt ?? now,
                 LastSeenAt = now,
@@ -148,39 +185,47 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             }
 
             var isOnline = machine.LastSeenAt >= onlineThreshold;
+            var desiredState = BuildDesiredState(machine.AgentVersion, machine.ProtocolVersion);
+            var refreshedMachine = new RegisteredRunnerMachine
+            {
+                MachineId = machine.MachineId,
+                MachineName = machine.MachineName,
+                Role = machine.Role,
+                AgentVersion = machine.AgentVersion,
+                ProtocolVersion = machine.ProtocolVersion,
+                WorkflowCatalogVersion = machine.WorkflowCatalogVersion,
+                SecurityPolicyVersion = desiredState.SecurityPolicy.PolicyVersion,
+                DesiredUpdateManifestId = desiredState.DesiredUpdateManifest?.DefinitionId,
+                DesiredWorkflowPackId = desiredState.DesiredWorkflowPack?.DefinitionId,
+                UpdateStatus = machine.UpdateStatus,
+                UpdateRollout = BuildUpdateRollout(
+                    machine.MachineId,
+                    machine.MachineName,
+                    machine.AgentVersion,
+                    desiredState,
+                    machine.UpdateStatus,
+                    isOnline),
+                RunnerUrl = machine.RunnerUrl,
+                RegisteredAt = machine.RegisteredAt,
+                LastSeenAt = machine.LastSeenAt,
+                IsOnline = isOnline,
+                IsCoordinator = machine.IsCoordinator,
+                UpdateAvailable = desiredState.UpdateAvailable,
+                ProtocolCompatible = desiredState.ProtocolCompatible,
+                Platform = machine.Platform,
+                SupportedTargets = machine.SupportedTargets
+            };
+            _workers[worker.Key] = new WorkerEntry(refreshedMachine);
             if (machine.IsOnline != isOnline)
             {
-                machine = new RegisteredRunnerMachine
-                {
-                    MachineId = machine.MachineId,
-                    MachineName = machine.MachineName,
-                    Role = machine.Role,
-                    AgentVersion = machine.AgentVersion,
-                    ProtocolVersion = machine.ProtocolVersion,
-                    WorkflowCatalogVersion = machine.WorkflowCatalogVersion,
-                    SecurityPolicyVersion = machine.SecurityPolicyVersion,
-                    DesiredUpdateManifestId = machine.DesiredUpdateManifestId,
-                    DesiredWorkflowPackId = machine.DesiredWorkflowPackId,
-                    UpdateStatus = machine.UpdateStatus,
-                    RunnerUrl = machine.RunnerUrl,
-                    RegisteredAt = machine.RegisteredAt,
-                    LastSeenAt = machine.LastSeenAt,
-                    IsOnline = isOnline,
-                    IsCoordinator = machine.IsCoordinator,
-                    UpdateAvailable = machine.UpdateAvailable,
-                    ProtocolCompatible = machine.ProtocolCompatible,
-                    Platform = machine.Platform,
-                    SupportedTargets = machine.SupportedTargets
-                };
-                _workers[worker.Key] = new WorkerEntry(machine);
                 _logger.LogInformation(
                     "Worker {MachineName} ({MachineId}) is now {State}",
-                    machine.MachineName,
-                    machine.MachineId,
+                    refreshedMachine.MachineName,
+                    refreshedMachine.MachineId,
                     isOnline ? "online" : "offline");
             }
 
-            machines.Add(machine);
+            machines.Add(refreshedMachine);
         }
 
         return machines;
@@ -243,6 +288,141 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             StatusMessage = protocolCompatible
                 ? null
                 : $"Runner protocol {protocolVersion} is outside the coordinator supported range {_coordinatorOptions.MinimumSupportedProtocolVersion}-{_coordinatorOptions.MaximumSupportedProtocolVersion}."
+        };
+    }
+
+    private static RunnerUpdateRolloutStatus BuildUpdateRollout(
+        string machineId,
+        string machineName,
+        string currentVersion,
+        RunnerDesiredState desiredState,
+        RunnerUpdateStatus? updateStatus,
+        bool isOnline)
+    {
+        var statusMessage = string.Empty;
+        string? blockingReason = null;
+        string? failureMessage = updateStatus?.FailureMessage;
+        var state = RunnerUpdateRolloutState.UpToDate;
+        var applyPermitted = desiredState.SecurityPolicy.AllowUpdateApply;
+        var applyRequested = desiredState.ApplyUpdate;
+        var applyEligible = false;
+
+        if (!desiredState.ProtocolCompatible)
+        {
+            state = RunnerUpdateRolloutState.Blocked;
+            blockingReason = desiredState.StatusMessage ?? "Runner protocol is incompatible with the coordinator.";
+            statusMessage = blockingReason;
+        }
+        else if (!desiredState.UpdateAvailable)
+        {
+            state = RunnerUpdateRolloutState.UpToDate;
+            statusMessage = "Runner already matches the coordinator's desired version.";
+        }
+        else
+        {
+            switch (updateStatus?.State ?? RunnerUpdateStageState.None)
+            {
+                case RunnerUpdateStageState.Failed:
+                    state = RunnerUpdateRolloutState.Failed;
+                    statusMessage = failureMessage ?? "Runner update failed.";
+                    break;
+                case RunnerUpdateStageState.Applying:
+                    state = RunnerUpdateRolloutState.Applying;
+                    statusMessage = "Runner is currently applying the staged update.";
+                    break;
+                case RunnerUpdateStageState.Applied:
+                    state = RunnerUpdateRolloutState.Applied;
+                    statusMessage = "Runner reported the update as applied and is expected to restart on the new install.";
+                    break;
+                case RunnerUpdateStageState.PayloadStaged:
+                    if (applyRequested && !applyPermitted)
+                    {
+                        state = RunnerUpdateRolloutState.Blocked;
+                        blockingReason = $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit update apply.";
+                        statusMessage = blockingReason;
+                    }
+                    else if (applyRequested && isOnline)
+                    {
+                        state = RunnerUpdateRolloutState.ReadyToApply;
+                        applyEligible = true;
+                        statusMessage = "Payload is staged and the coordinator has requested apply.";
+                    }
+                    else if (applyRequested)
+                    {
+                        state = RunnerUpdateRolloutState.PayloadStaged;
+                        statusMessage = "Payload is staged and apply is requested, but the runner is currently offline.";
+                    }
+                    else
+                    {
+                        state = RunnerUpdateRolloutState.PayloadStaged;
+                        statusMessage = "Payload is staged and ready for a future apply request.";
+                    }
+
+                    break;
+                case RunnerUpdateStageState.ManifestStaged:
+                    if (applyRequested)
+                    {
+                        state = RunnerUpdateRolloutState.Blocked;
+                        blockingReason = "Coordinator requested apply, but the runner only staged the manifest. Payload download must be enabled before apply.";
+                        statusMessage = blockingReason;
+                    }
+                    else
+                    {
+                        state = RunnerUpdateRolloutState.ManifestStaged;
+                        statusMessage = "Manifest is staged. Payload download is not yet complete or is not enabled on this runner.";
+                    }
+
+                    break;
+                default:
+                    if (!desiredState.SecurityPolicy.AllowUpdateStaging)
+                    {
+                        state = RunnerUpdateRolloutState.Blocked;
+                        blockingReason = $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit update staging.";
+                        statusMessage = blockingReason;
+                    }
+                    else if (applyRequested && !applyPermitted)
+                    {
+                        state = RunnerUpdateRolloutState.Blocked;
+                        blockingReason = $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit update apply.";
+                        statusMessage = blockingReason;
+                    }
+                    else if (!isOnline)
+                    {
+                        state = RunnerUpdateRolloutState.UpdateAvailable;
+                        statusMessage = "Coordinator assigned a newer runner version, but the runner is currently offline.";
+                    }
+                    else
+                    {
+                        state = RunnerUpdateRolloutState.UpdateAvailable;
+                        statusMessage = "Coordinator assigned a newer runner version and is waiting for the runner to stage it.";
+                    }
+
+                    break;
+            }
+        }
+
+        return new RunnerUpdateRolloutStatus
+        {
+            MachineId = machineId,
+            MachineName = machineName,
+            CurrentVersion = currentVersion,
+            DesiredVersion = desiredState.DesiredRunnerVersion,
+            DesiredManifestId = desiredState.DesiredUpdateManifest?.DefinitionId,
+            DesiredManifestVersion = desiredState.DesiredUpdateManifest?.Version,
+            SecurityPolicyVersion = desiredState.SecurityPolicy.PolicyVersion,
+            State = state,
+            RunnerStageState = updateStatus?.State,
+            IsOnline = isOnline,
+            UpdateAvailable = desiredState.UpdateAvailable,
+            ApplyRequested = applyRequested,
+            ApplyPermitted = applyPermitted,
+            ApplyEligible = applyEligible,
+            StatusMessage = statusMessage,
+            BlockingReason = blockingReason,
+            FailureMessage = failureMessage,
+            StagedAt = updateStatus?.StagedAt,
+            ApplyStartedAt = updateStatus?.ApplyStartedAt,
+            AppliedAt = updateStatus?.AppliedAt
         };
     }
 }

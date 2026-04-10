@@ -328,6 +328,14 @@ app.MapPut("/api/projects/{projectId}/workspaces/{machineId}", (string projectId
 app.MapGet("/api/machines", async (IWorkerRegistryService registry, CancellationToken cancellationToken) =>
     Results.Ok(await registry.GetMachinesAsync(cancellationToken)));
 
+app.MapGet("/api/updates/rollouts", async (IWorkerRegistryService registry, CancellationToken cancellationToken) =>
+    Results.Ok(await registry.GetUpdateRolloutsAsync(cancellationToken)));
+
+app.MapGet("/api/machines/{machineId}/updates/rollout", async (string machineId, IWorkerRegistryService registry, CancellationToken cancellationToken) =>
+    await registry.GetUpdateRolloutAsync(machineId, cancellationToken) is { } rollout
+        ? Results.Ok(rollout)
+        : Results.NotFound());
+
 app.MapGet("/api/machines/{machineId}/workspace", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try

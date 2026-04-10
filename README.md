@@ -220,6 +220,8 @@ Runner update staging is now a separate first-pass flow: workers can persist sta
 
 Coordinators can now also host runner artifacts directly from a local artifact root. When `Coordinator:DesiredUpdateManifest:HostedArtifactPath` is configured, the coordinator serves the file at `/artifacts/{path}`, derives the manifest `ArtifactUrl`, `Sha256`, and `ArtifactSizeBytes` from the hosted file, and can optionally generate the manifest signature from `Coordinator:DesiredUpdateManifest:PrivateKeyPem`. This makes same-origin runner update download testing possible without hard-coding placeholder checksum or size metadata.
 
+The coordinator also computes an explicit rollout/apply summary for each worker and exposes it through the machine directory plus `/api/updates/rollouts` and `/api/machines/{machineId}/updates/rollout`. That summary makes it clear whether a runner is up to date, merely update-available, manifest-staged, payload-staged, ready to apply, applying, applied, failed, or blocked, along with the coordinator's apply intent and any blocking reason.
+
 ### Control-plane security model
 
 - Runners only accept a non-HTTPS coordinator URL by default when it targets loopback and `Coordinator:AllowInsecureHttpCoordinatorForLoopback` is enabled for local development.
