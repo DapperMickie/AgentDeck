@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentDeck.Runner.Configuration;
@@ -14,14 +15,20 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
     private readonly Lock _lock = new();
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);
     private readonly WorkerCoordinatorOptions _options;
+    private readonly IMachineCapabilityService _capabilities;
+    private readonly IMachineSetupService _machineSetup;
     private readonly ILogger<RunnerWorkflowPackService> _logger;
     private RunnerWorkflowPackStatus? _currentStatus;
 
     public RunnerWorkflowPackService(
         IOptions<WorkerCoordinatorOptions> options,
+        IMachineCapabilityService capabilities,
+        IMachineSetupService machineSetup,
         ILogger<RunnerWorkflowPackService> logger)
     {
         _options = options.Value;
+        _capabilities = capabilities;
+        _machineSetup = machineSetup;
         _logger = logger;
         _currentStatus = LoadPersistedStatus();
     }
@@ -126,29 +133,37 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                 Directory.CreateDirectory(packDirectory);
                 var packPath = Path.Combine(packDirectory, "workflow-pack.json");
                 await WriteTextAtomicallyAsync(packPath, JsonSerializer.Serialize(pack, JsonOptions), cancellationToken);
+                var fetchedAt = DateTimeOffset.UtcNow;
+                var execution = await ExecuteWorkflowPackAsync(pack, cancellationToken);
 
                 return await UpdateStatusAsync(new RunnerWorkflowPackStatus
                 {
-                    State = RunnerWorkflowPackState.Ready,
+                    State = execution.Succeeded ? RunnerWorkflowPackState.Ready : RunnerWorkflowPackState.Failed,
                     PackId = pack.PackId,
                     PackVersion = pack.Version,
                     LocalPackPath = packPath,
-                    FetchedAt = DateTimeOffset.UtcNow,
-                    StatusMessage = $"Workflow pack {pack.PackId}@{pack.Version} is available for future runner-side execution."
+                    FetchedAt = fetchedAt,
+                    StatusMessage = execution.Succeeded ? execution.Message : null,
+                    FailureMessage = execution.Succeeded ? null : execution.Message
                 }, cancellationToken);
             }
             catch (Exception ex)
             {
+                if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+
                 _logger.LogWarning(ex, "Failed to reconcile desired workflow pack {PackId}@{PackVersion}", desiredPackId, desiredPackVersion);
-                    return await UpdateStatusAsync(new RunnerWorkflowPackStatus
-                    {
-                        State = RunnerWorkflowPackState.Failed,
-                        PackId = desiredPackId,
-                        PackVersion = desiredPackVersion,
-                        LocalPackPath = GetRetainedLocalPackPath(currentStatus, desiredPackId, desiredPackVersion),
-                        FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
-                        FailureMessage = ex.Message
-                    }, cancellationToken);
+                return await UpdateStatusAsync(new RunnerWorkflowPackStatus
+                {
+                    State = RunnerWorkflowPackState.Failed,
+                    PackId = desiredPackId,
+                    PackVersion = desiredPackVersion,
+                    LocalPackPath = GetRetainedLocalPackPath(currentStatus, desiredPackId, desiredPackVersion),
+                    FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
+                    FailureMessage = ex.Message
+                }, CancellationToken.None);
             }
         }
         finally
@@ -323,6 +338,236 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         }
     }
 
+    private async Task<WorkflowPackExecutionResult> ExecuteWorkflowPackAsync(RunnerWorkflowPack pack, CancellationToken cancellationToken)
+    {
+        if (pack.Steps.Count == 0)
+        {
+            return WorkflowPackExecutionResult.Success($"Workflow pack {pack.PackId}@{pack.Version} contains no steps to execute.");
+        }
+
+        var messages = new List<string>(pack.Steps.Count);
+        foreach (var step in pack.Steps)
+        {
+            var result = await ExecuteStepAsync(step, cancellationToken);
+            if (!result.Succeeded)
+            {
+                return WorkflowPackExecutionResult.Failure($"{GetStepDisplayName(step)} failed. {result.Message}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.Message))
+            {
+                messages.Add($"{GetStepDisplayName(step)}: {result.Message}");
+            }
+        }
+
+        var summary = $"Workflow pack {pack.PackId}@{pack.Version} executed {pack.Steps.Count} step(s) successfully.";
+        if (messages.Count == 0)
+        {
+            return WorkflowPackExecutionResult.Success(summary);
+        }
+
+        return WorkflowPackExecutionResult.Success($"{summary} {string.Join("; ", messages)}");
+    }
+
+    private async Task<WorkflowPackExecutionResult> ExecuteStepAsync(RunnerWorkflowStep step, CancellationToken cancellationToken)
+    {
+        return step.Kind switch
+        {
+            RunnerWorkflowStepKind.VerifyInstalledTool => await VerifyInstalledToolAsync(step, cancellationToken),
+            RunnerWorkflowStepKind.RunCommand => await ExecuteNamedCommandAsync(step, cancellationToken),
+            _ => WorkflowPackExecutionResult.Failure(
+                $"Workflow step kind '{step.Kind}' is not supported by this runner yet.")
+        };
+    }
+
+    private async Task<WorkflowPackExecutionResult> VerifyInstalledToolAsync(RunnerWorkflowStep step, CancellationToken cancellationToken)
+    {
+        var toolId = GetInput(step, "tool");
+        var probeCommand = GetInput(step, "command");
+        var failIfMissing = GetBooleanInput(step, "failIfMissing");
+        if (string.IsNullOrWhiteSpace(toolId) && string.IsNullOrWhiteSpace(probeCommand))
+        {
+            return WorkflowPackExecutionResult.Failure(
+                "VerifyInstalledTool requires either a 'tool' input or a 'command' input.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(toolId))
+        {
+            var snapshot = await _capabilities.GetSnapshotAsync(cancellationToken);
+            var capability = snapshot.Capabilities.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, toolId, StringComparison.OrdinalIgnoreCase));
+            if (capability?.Status == MachineCapabilityStatus.Installed)
+            {
+                var versionText = string.IsNullOrWhiteSpace(capability.Version) ? string.Empty : $" {capability.Version}";
+                return WorkflowPackExecutionResult.Success($"{capability.Name} detected{versionText}.");
+            }
+
+            if (capability is not null && string.IsNullOrWhiteSpace(probeCommand))
+            {
+                var message = string.IsNullOrWhiteSpace(capability.Message)
+                    ? $"{capability.Name} is not installed."
+                    : $"{capability.Name} is not installed. {capability.Message}";
+                return failIfMissing
+                    ? WorkflowPackExecutionResult.Failure(message)
+                    : WorkflowPackExecutionResult.Success(message);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(probeCommand))
+        {
+            var missingMessage = $"Tool '{toolId}' is not installed.";
+            return failIfMissing
+                ? WorkflowPackExecutionResult.Failure(missingMessage)
+                : WorkflowPackExecutionResult.Success(missingMessage);
+        }
+
+        var probeResult = await RunShellCommandAsync(probeCommand, cancellationToken);
+        if (probeResult.Succeeded)
+        {
+            return WorkflowPackExecutionResult.Success($"Probe command '{probeCommand}' succeeded.");
+        }
+
+        var failureMessage = FirstMeaningfulLine(probeResult.StandardError, probeResult.StandardOutput)
+            ?? $"Probe command '{probeCommand}' exited with code {probeResult.ExitCode}.";
+        return failIfMissing
+            ? WorkflowPackExecutionResult.Failure(failureMessage)
+            : WorkflowPackExecutionResult.Success($"Probe command '{probeCommand}' did not detect the tool yet.");
+    }
+
+    private async Task<WorkflowPackExecutionResult> ExecuteNamedCommandAsync(RunnerWorkflowStep step, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(step.CommandText))
+        {
+            return WorkflowPackExecutionResult.Failure("RunCommand requires a command identifier.");
+        }
+
+        MachineCapabilityInstallResult result;
+        switch (NormalizeCommandIdentifier(step.CommandText))
+        {
+            case "install-gh":
+            case "install-github-cli":
+                result = await _machineSetup.InstallCapabilityAsync("gh", cancellationToken: cancellationToken);
+                break;
+            case "install-copilot":
+            case "install-copilot-cli":
+                result = await _machineSetup.InstallCapabilityAsync("copilot", cancellationToken: cancellationToken);
+                break;
+            case "install-node":
+            case "install-nodejs":
+                result = await _machineSetup.InstallCapabilityAsync("node", GetInput(step, "version"), cancellationToken);
+                break;
+            case "install-python":
+                result = await _machineSetup.InstallCapabilityAsync("python", GetInput(step, "version"), cancellationToken);
+                break;
+            case "install-dotnet":
+            case "install-dotnet-sdk":
+                result = await _machineSetup.InstallCapabilityAsync("dotnet", GetInput(step, "version"), cancellationToken);
+                break;
+            case "update-gh":
+            case "update-github-cli":
+                result = await _machineSetup.UpdateCapabilityAsync("gh", cancellationToken);
+                break;
+            case "update-copilot":
+            case "update-copilot-cli":
+                result = await _machineSetup.UpdateCapabilityAsync("copilot", cancellationToken);
+                break;
+            default:
+                return WorkflowPackExecutionResult.Failure(
+                    $"Workflow command '{step.CommandText}' is not supported by this runner.");
+        }
+
+        if (result.Succeeded)
+        {
+            return WorkflowPackExecutionResult.Success(result.Message ?? $"{result.CapabilityName} {result.Action} succeeded.");
+        }
+
+        var failureMessage = FirstMeaningfulLine(result.StandardError, result.StandardOutput)
+            ?? result.Message
+            ?? $"{result.CapabilityName} {result.Action} failed with exit code {result.ExitCode}.";
+        return WorkflowPackExecutionResult.Failure(failureMessage);
+    }
+
+    private static async Task<ShellCommandResult> RunShellCommandAsync(string commandText, CancellationToken cancellationToken)
+    {
+        var startInfo = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("powershell.exe")
+            : new ProcessStartInfo("/bin/sh");
+
+        if (OperatingSystem.IsWindows())
+        {
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-NonInteractive");
+            startInfo.ArgumentList.Add("-Command");
+            startInfo.ArgumentList.Add(commandText);
+        }
+        else
+        {
+            startInfo.ArgumentList.Add("-lc");
+            startInfo.ArgumentList.Add(commandText);
+        }
+
+        startInfo.UseShellExecute = false;
+        startInfo.RedirectStandardOutput = true;
+        startInfo.RedirectStandardError = true;
+        startInfo.CreateNoWindow = true;
+
+        using var process = new Process { StartInfo = startInfo };
+        try
+        {
+            process.Start();
+        }
+        catch (Exception ex)
+        {
+            return new ShellCommandResult(false, -1, string.Empty, ex.Message);
+        }
+
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+
+        return new ShellCommandResult(
+            process.ExitCode == 0,
+            process.ExitCode,
+            await standardOutputTask,
+            await standardErrorTask);
+    }
+
+    private static string? GetInput(RunnerWorkflowStep step, string key) =>
+        step.Inputs.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : null;
+
+    private static bool GetBooleanInput(RunnerWorkflowStep step, string key) =>
+        step.Inputs.TryGetValue(key, out var value) &&
+        bool.TryParse(value, out var parsed) &&
+        parsed;
+
+    private static string NormalizeCommandIdentifier(string commandText) => commandText.Trim().ToLowerInvariant();
+
+    private static string GetStepDisplayName(RunnerWorkflowStep step) =>
+        string.IsNullOrWhiteSpace(step.DisplayName) ? step.StepId : step.DisplayName.Trim();
+
+    private static string? FirstMeaningfulLine(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var line = value
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .FirstOrDefault(candidate => !string.IsNullOrWhiteSpace(candidate));
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                return line;
+            }
+        }
+
+        return null;
+    }
+
     private static string SanitizePathComponent(string value)
     {
         var invalidChars = Path.GetInvalidFileNameChars();
@@ -335,4 +580,13 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
 
         return new string(builder, 0, index);
     }
+
+    private readonly record struct WorkflowPackExecutionResult(bool Succeeded, string Message)
+    {
+        public static WorkflowPackExecutionResult Success(string message) => new(true, message);
+
+        public static WorkflowPackExecutionResult Failure(string message) => new(false, message);
+    }
+
+    private readonly record struct ShellCommandResult(bool Succeeded, int ExitCode, string StandardOutput, string StandardError);
 }

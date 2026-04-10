@@ -215,7 +215,7 @@ The coordinator now also publishes first-pass runner definition contracts:
 - update manifests at `/api/runner-definitions/update-manifests/{manifestId}`
 - workflow packs at `/api/runner-definitions/workflow-packs/{packId}`
 
-The desired-state heartbeat can point to a specific update manifest and workflow pack so later slices can add real artifact download/apply behavior and workflow-pack execution without changing the protocol shape again.
+The desired-state heartbeat can point to a specific update manifest and workflow pack so later slices can add real artifact download/apply behavior and deepen workflow-pack execution without changing the protocol shape again.
 
 Runner update staging is now a separate first-pass flow: workers can persist staged update metadata for an assigned manifest, and optionally download the referenced payload when `Coordinator:DownloadUpdatePayload` is enabled. When `Coordinator:ApplyStagedUpdate` is also enabled and policy allows apply, the runner launches a detached helper that waits for the current process to exit, extracts the trusted staged zip into a candidate install directory, preserves local `appsettings*.json`, and restarts from that candidate install. The runner reports structured update state back through its coordinator heartbeat so the control plane can distinguish between update-available, staged, applying, applied, and failed states.
 
@@ -223,7 +223,7 @@ Coordinators can now also host runner artifacts directly from a local artifact r
 
 The coordinator also computes an explicit rollout/apply summary for each worker and exposes it through the machine directory plus `/api/updates/rollouts` and `/api/machines/{machineId}/updates/rollout`. It now also accepts per-machine apply-intent overrides at `/api/machines/{machineId}/updates/apply-intent`, so the companion Settings page can request apply, force stage-only behavior, or restore coordinator-default apply intent per runner. The rollout summary makes it clear whether a runner is up to date, merely update-available, manifest-staged, payload-staged, ready to apply, applying, applied, failed, or blocked, along with the coordinator's apply intent and any blocking reason.
 
-Workflow packs now also have a first-pass runner status path: worker runners reconcile the desired workflow pack reference from coordinator desired state, persist the fetched pack metadata locally, and report a `Ready`, `Blocked`, or `Failed` workflow-pack status back through the machine directory without executing the pack yet.
+Workflow packs now also have a first-pass runner execution path: worker runners reconcile the desired workflow pack reference from coordinator desired state, persist the fetched pack metadata locally, and when policy allows they execute supported verification/setup steps by reusing the existing runner machine-setup primitives. The runner reports the resulting `Ready`, `Blocked`, or `Failed` workflow-pack status back through the machine directory, including explicit failures for unsupported step kinds or command identifiers.
 
 Workflow catalog versioning now also has explicit compatibility signaling: worker runners advertise a configured local workflow catalog version, reconcile it against the coordinator's desired catalog version, and report `Matched`, `Mismatched`, or `Unknown` catalog status through the machine directory.
 
