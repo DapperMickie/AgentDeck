@@ -9,6 +9,7 @@ public sealed class RunnerWorkflowCatalogService : IRunnerWorkflowCatalogService
 {
     private readonly WorkerCoordinatorOptions _options;
     private readonly Lock _lock = new();
+    private readonly SemaphoreSlim _reconcileGate = new(1, 1);
     private RunnerWorkflowCatalogStatus _currentStatus;
 
     public RunnerWorkflowCatalogService(IOptions<WorkerCoordinatorOptions> options)
@@ -22,62 +23,75 @@ public sealed class RunnerWorkflowCatalogService : IRunnerWorkflowCatalogService
         };
     }
 
-    public Task<RunnerWorkflowCatalogStatus?> GetCurrentStatusAsync(CancellationToken cancellationToken = default)
+    public async Task<RunnerWorkflowCatalogStatus?> GetCurrentStatusAsync(CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        RunnerWorkflowCatalogStatus snapshot;
-        lock (_lock)
+        await _reconcileGate.WaitAsync(cancellationToken);
+        try
         {
-            snapshot = _currentStatus;
-        }
+            RunnerWorkflowCatalogStatus snapshot;
+            lock (_lock)
+            {
+                snapshot = _currentStatus;
+            }
 
-        return Task.FromResult<RunnerWorkflowCatalogStatus?>(snapshot);
+            return snapshot;
+        }
+        finally
+        {
+            _reconcileGate.Release();
+        }
     }
 
-    public Task<RunnerWorkflowCatalogStatus> ReconcileDesiredWorkflowCatalogAsync(
+    public async Task<RunnerWorkflowCatalogStatus> ReconcileDesiredWorkflowCatalogAsync(
         RunnerDesiredState desiredState,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var localCatalogVersion = GetLocalCatalogVersion();
-        RunnerWorkflowCatalogStatus status;
-        if (string.IsNullOrWhiteSpace(desiredState.WorkflowCatalogVersion))
+        await _reconcileGate.WaitAsync(cancellationToken);
+        try
         {
-            status = new RunnerWorkflowCatalogStatus
+            var localCatalogVersion = GetLocalCatalogVersion();
+            RunnerWorkflowCatalogStatus status;
+            if (string.IsNullOrWhiteSpace(desiredState.WorkflowCatalogVersion))
             {
-                State = RunnerWorkflowCatalogState.Unknown,
-                LocalCatalogVersion = localCatalogVersion,
-                StatusMessage = "Coordinator did not provide a desired workflow catalog version."
-            };
-        }
-        else if (string.Equals(localCatalogVersion, desiredState.WorkflowCatalogVersion, StringComparison.OrdinalIgnoreCase))
-        {
-            status = new RunnerWorkflowCatalogStatus
+                status = new RunnerWorkflowCatalogStatus
+                {
+                    State = RunnerWorkflowCatalogState.Unknown,
+                    LocalCatalogVersion = localCatalogVersion,
+                    StatusMessage = "Coordinator did not provide a desired workflow catalog version."
+                };
+            }
+            else if (string.Equals(localCatalogVersion, desiredState.WorkflowCatalogVersion, StringComparison.OrdinalIgnoreCase))
             {
-                State = RunnerWorkflowCatalogState.Matched,
-                LocalCatalogVersion = localCatalogVersion,
-                DesiredCatalogVersion = desiredState.WorkflowCatalogVersion,
-                StatusMessage = $"Runner workflow catalog version {localCatalogVersion} matches the coordinator."
-            };
-        }
-        else
-        {
-            status = new RunnerWorkflowCatalogStatus
+                status = new RunnerWorkflowCatalogStatus
+                {
+                    State = RunnerWorkflowCatalogState.Matched,
+                    LocalCatalogVersion = localCatalogVersion,
+                    DesiredCatalogVersion = desiredState.WorkflowCatalogVersion,
+                    StatusMessage = $"Runner workflow catalog version {localCatalogVersion} matches the coordinator."
+                };
+            }
+            else
             {
-                State = RunnerWorkflowCatalogState.Mismatched,
-                LocalCatalogVersion = localCatalogVersion,
-                DesiredCatalogVersion = desiredState.WorkflowCatalogVersion,
-                StatusMessage = $"Runner workflow catalog version {localCatalogVersion} does not match coordinator version {desiredState.WorkflowCatalogVersion}."
-            };
-        }
+                status = new RunnerWorkflowCatalogStatus
+                {
+                    State = RunnerWorkflowCatalogState.Mismatched,
+                    LocalCatalogVersion = localCatalogVersion,
+                    DesiredCatalogVersion = desiredState.WorkflowCatalogVersion,
+                    StatusMessage = $"Runner workflow catalog version {localCatalogVersion} does not match coordinator version {desiredState.WorkflowCatalogVersion}."
+                };
+            }
 
-        lock (_lock)
+            lock (_lock)
+            {
+                _currentStatus = status;
+            }
+
+            return status;
+        }
+        finally
         {
-            _currentStatus = status;
+            _reconcileGate.Release();
         }
-
-        return Task.FromResult(status);
     }
 
     private string GetLocalCatalogVersion() => _options.WorkflowCatalogVersion.Trim();
