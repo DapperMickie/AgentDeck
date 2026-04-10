@@ -17,4 +17,5 @@ public sealed class RegisterRunnerMachineRequest
     public string? RunnerUrl { get; init; }
     public MachinePlatformProfile? Platform { get; init; }
     public IReadOnlyList<MachineTargetSupport> SupportedTargets { get; init; } = [];
+    public IReadOnlyList<RemoteViewerProviderCapability> RemoteViewerProviders { get; init; } = [];
 }

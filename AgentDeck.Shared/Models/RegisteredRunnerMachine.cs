@@ -27,4 +27,5 @@ public sealed class RegisteredRunnerMachine
     public bool ProtocolCompatible { get; init; } = true;
     public MachinePlatformProfile? Platform { get; init; }
     public IReadOnlyList<MachineTargetSupport> SupportedTargets { get; init; } = [];
+    public IReadOnlyList<RemoteViewerProviderCapability> RemoteViewerProviders { get; init; } = [];
 }

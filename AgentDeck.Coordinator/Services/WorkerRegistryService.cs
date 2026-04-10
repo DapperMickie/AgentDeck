@@ -152,7 +152,8 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 UpdateAvailable = machine.UpdateAvailable,
                 ProtocolCompatible = machine.ProtocolCompatible,
                 Platform = machine.Platform,
-                SupportedTargets = machine.SupportedTargets
+                SupportedTargets = machine.SupportedTargets,
+                RemoteViewerProviders = machine.RemoteViewerProviders
             });
 
             return Task.FromResult(true);
@@ -207,6 +208,9 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 Platform = request.Platform,
                 SupportedTargets = request.SupportedTargets
                     .Where(target => !string.IsNullOrWhiteSpace(target.DisplayName))
+                    .ToArray(),
+                RemoteViewerProviders = request.RemoteViewerProviders
+                    .Where(provider => !string.IsNullOrWhiteSpace(provider.DisplayName))
                     .ToArray()
             };
 
@@ -293,7 +297,8 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 UpdateAvailable = desiredState.UpdateAvailable,
                 ProtocolCompatible = desiredState.ProtocolCompatible,
                 Platform = machine.Platform,
-                SupportedTargets = machine.SupportedTargets
+                SupportedTargets = machine.SupportedTargets,
+                RemoteViewerProviders = machine.RemoteViewerProviders
             };
             _workers[worker.Key] = new WorkerEntry(refreshedMachine);
             if (machine.IsOnline != isOnline)

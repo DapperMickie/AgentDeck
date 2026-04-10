@@ -86,7 +86,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                 UpdateRollout = machine.UpdateRollout,
                 WorkflowPackStatus = machine.WorkflowPackStatus,
                 WorkflowCatalogStatus = machine.WorkflowCatalogStatus,
-                SupportedTargets = machine.SupportedTargets
+                SupportedTargets = machine.SupportedTargets,
+                RemoteViewerProviders = machine.RemoteViewerProviders
             })
             .ToArray();
 
@@ -134,16 +135,22 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
             .ToArray();
 
         var readyMachines = machines
-            .Where(machine => machine.SupportedTargets.Any(supportedTarget =>
-                supportedTarget.Platform == target.Platform &&
-                supportedTarget.Status == MachineTargetSupportStatus.Supported))
+            .Where(machine => machine.IsOnline &&
+                machine.ProtocolCompatible &&
+                launchProfiles.Any(profile => ProjectLaunchReadiness.SupportsLaunchProfile(
+                    profile,
+                    machine.SupportedTargets,
+                    machine.RemoteViewerProviders)))
             .Select(machine => machine.MachineName)
             .ToArray();
 
         var setupRequiredMachines = machines
-            .Where(machine => machine.SupportedTargets.Any(supportedTarget =>
-                supportedTarget.Platform == target.Platform &&
-                supportedTarget.Status == MachineTargetSupportStatus.RequiresSetup))
+            .Where(machine => launchProfiles.Any(profile =>
+                machine.SupportedTargets.Any(supportedTarget =>
+                    supportedTarget.Platform == profile.Platform &&
+                    supportedTarget.Status == MachineTargetSupportStatus.RequiresSetup) ||
+                (ProjectLaunchReadiness.SupportsPlatform(profile, machine.SupportedTargets) &&
+                 ProjectLaunchReadiness.GetMissingViewerTargets(profile, machine.RemoteViewerProviders).Count > 0)))
             .Select(machine => machine.MachineName)
             .ToArray();
 

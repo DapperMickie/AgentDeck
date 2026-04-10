@@ -92,7 +92,8 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                         ? null
                         : _coordinatorOptions.AdvertisedRunnerUrl.Trim(),
                     Platform = snapshot.Platform,
-                    SupportedTargets = snapshot.SupportedTargets
+                    SupportedTargets = snapshot.SupportedTargets,
+                    RemoteViewerProviders = snapshot.RemoteViewerProviders
                 };
 
                 using var response = await httpClient.PostAsJsonAsync("api/cluster/workers/register", request, stoppingToken);

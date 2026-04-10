@@ -223,6 +223,11 @@
                                     <p class="project-template-target__note">@GetMachineStatusMessage(profile, availableMachines.Count)</p>
                                 }
 
+                                @if (GetRequiredViewerSurfaceNote(profile) is { } requiredViewerSurfaceNote)
+                                {
+                                    <p class="project-template-target__note">@requiredViewerSurfaceNote</p>
+                                }
+
                                 @if (selectedMachine is not null && GetProjectWorkflowNotice(selectedMachine) is { } selectedMachineNotice)
                                 {
                                     <p class="project-template-target__note">@selectedMachineNotice</p>
@@ -556,9 +561,7 @@
         return _dashboard.Machines
             .Where(machine => machine.IsOnline &&
                 machine.ProtocolCompatible &&
-                machine.SupportedTargets.Any(target =>
-                target.Platform == profile.Platform &&
-                target.Status == MachineTargetSupportStatus.Supported))
+                MachineSupportsProfile(machine, profile))
             .OrderByDescending(machine => string.Equals(machine.MachineId, profile.PreferredMachineId, StringComparison.OrdinalIgnoreCase))
             .ThenBy(machine => machine.MachineName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -733,9 +736,9 @@
         }
 
         var machine = GetMachine(machineId);
-        if (machine is null || !CanOpenProjectOnMachine(machine))
+        if (machine is null || !CanOpenProjectOnMachine(machine) || !MachineSupportsProfile(machine, profile))
         {
-            Toasts.Show("That machine is not currently eligible for coordinator-managed launch actions.", ToastKind.Warning);
+            Toasts.Show("That machine is not currently eligible for this launch profile's required viewer surfaces.", ToastKind.Warning);
             return;
         }
 
@@ -1065,7 +1068,7 @@
         }
 
         var machine = GetMachine(selectedMachineId);
-        if (machine is null || !CanOpenProjectOnMachine(machine))
+        if (machine is null || !CanOpenProjectOnMachine(machine) || !MachineSupportsProfile(machine, profile))
         {
             return false;
         }
@@ -1092,7 +1095,7 @@
     private string GetMachineStatusMessage(ProjectLaunchProfile profile, int machineCount) =>
         machineCount == 0
             ? GetUnavailableMachineStatusMessage(profile)
-            : $"{machineCount} ready machine(s) can host this profile.";
+            : $"{machineCount} ready machine(s) can host this profile and expose its required viewer surfaces.";
 
     private string GetDeviceStatusMessage(ProjectLaunchProfile profile, string? machineId, int deviceChoiceCount)
     {
@@ -1108,6 +1111,41 @@
 
     private static string GetDeviceLabel(ProjectLaunchProfile profile) =>
         profile.RequiresSimulator ? "Simulator" : "Emulator";
+
+    private static bool MachineSupportsProfile(CompanionMachineSummary machine, ProjectLaunchProfile profile) =>
+        ProjectLaunchReadiness.SupportsLaunchProfile(profile, machine.SupportedTargets, machine.RemoteViewerProviders);
+
+    private static string? GetRequiredViewerSurfaceNote(ProjectLaunchProfile profile)
+    {
+        var requiredTargets = ProjectLaunchReadiness.GetRequiredViewerTargets(profile)
+            .Select(GetViewerTargetLabel)
+            .ToArray();
+
+        return requiredTargets.Length == 0
+            ? null
+            : $"Required viewer surfaces: {string.Join(", ", requiredTargets)}.";
+    }
+
+    private static string GetRequiredViewerSurfaceSummary(ProjectLaunchProfile profile)
+    {
+        var requiredTargets = ProjectLaunchReadiness.GetRequiredViewerTargets(profile)
+            .Select(target => GetViewerTargetLabel(target).ToLowerInvariant())
+            .ToArray();
+
+        return requiredTargets.Length == 0
+            ? "required viewer surfaces"
+            : string.Join(", ", requiredTargets);
+    }
+
+    private static string GetViewerTargetLabel(RemoteViewerTargetKind targetKind) => targetKind switch
+    {
+        RemoteViewerTargetKind.Window => "Window viewer",
+        RemoteViewerTargetKind.VsCode => "VS Code viewer",
+        RemoteViewerTargetKind.Emulator => "Emulator viewer",
+        RemoteViewerTargetKind.Simulator => "Simulator viewer",
+        RemoteViewerTargetKind.Desktop => "Desktop viewer",
+        _ => targetKind.ToString()
+    };
 
     private string GetControllerSummary(ProjectSessionRecord session) =>
         string.IsNullOrWhiteSpace(session.CompanionId)
@@ -1213,16 +1251,29 @@
 
     private string GetUnavailableMachineStatusMessage(ProjectLaunchProfile profile)
     {
+        var viewerSurfaceSummary = GetRequiredViewerSurfaceSummary(profile);
         var incompatibleCount = _dashboard.Machines.Count(machine =>
             machine.IsOnline &&
             !machine.ProtocolCompatible &&
-            machine.SupportedTargets.Any(target =>
-                target.Platform == profile.Platform &&
-                target.Status == MachineTargetSupportStatus.Supported));
+            ProjectLaunchReadiness.SupportsLaunchProfile(profile, machine.SupportedTargets, machine.RemoteViewerProviders));
 
-        return incompatibleCount > 0
-            ? $"No protocol-compatible machine currently advertises {profile.Platform}. {incompatibleCount} matching machine(s) are blocked by protocol compatibility."
-            : $"No ready machine currently advertises {profile.Platform}.";
+        var missingViewerSurfaceCount = _dashboard.Machines.Count(machine =>
+            machine.IsOnline &&
+            machine.ProtocolCompatible &&
+            ProjectLaunchReadiness.SupportsPlatform(profile, machine.SupportedTargets) &&
+            ProjectLaunchReadiness.GetMissingViewerTargets(profile, machine.RemoteViewerProviders).Count > 0);
+
+        if (incompatibleCount > 0)
+        {
+            return $"No protocol-compatible machine currently advertises {profile.Platform} with {viewerSurfaceSummary}. {incompatibleCount} matching machine(s) are blocked by protocol compatibility.";
+        }
+
+        if (missingViewerSurfaceCount > 0)
+        {
+            return $"No ready machine currently advertises {profile.Platform} with {viewerSurfaceSummary}. {missingViewerSurfaceCount} matching machine(s) are missing at least one required viewer surface.";
+        }
+
+        return $"No ready machine currently advertises {profile.Platform}.";
     }
 
     private static string? GetProjectWorkflowNotice(CompanionMachineSummary machine)
