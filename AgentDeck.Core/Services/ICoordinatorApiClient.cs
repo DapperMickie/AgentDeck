@@ -29,6 +29,12 @@ public interface ICoordinatorApiClient
 
     Task<IReadOnlyList<RemoteViewerSession>> GetMachineViewerSessionsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default);
 
+    Task<MachineRemoteControlState?> GetMachineRemoteControlStateAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default);
+
+    Task<RemoteViewerSession?> CreateMachineViewerSessionAsync(string coordinatorUrl, string machineId, CreateMachineViewerSessionRequest request, CancellationToken cancellationToken = default);
+
+    Task<RemoteViewerSession?> CloseMachineViewerSessionAsync(string coordinatorUrl, string machineId, string viewerSessionId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetMachineVirtualDeviceCatalogsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default);
 
     Task<VirtualDeviceLaunchResolution?> ResolveMachineVirtualDeviceAsync(string coordinatorUrl, string machineId, VirtualDeviceLaunchSelection selection, CancellationToken cancellationToken = default);

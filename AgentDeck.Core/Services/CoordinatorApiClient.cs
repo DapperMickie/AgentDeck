@@ -292,6 +292,109 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         }
     }
 
+    public async Task<MachineRemoteControlState?> GetMachineRemoteControlStateAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.GetAsync(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/viewers/control",
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<MachineRemoteControlState>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator remote control lookup failed for machine {MachineId}", machineId);
+            throw;
+        }
+    }
+
+    public async Task<RemoteViewerSession?> CreateMachineViewerSessionAsync(string coordinatorUrl, string machineId, CreateMachineViewerSessionRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/viewers/sessions",
+                request,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(message ?? $"Machine '{machineId}' rejected the requested viewer action.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new HttpRequestException(
+                    message ?? $"Coordinator viewer create failed with HTTP {(int)response.StatusCode}.",
+                    inner: null,
+                    response.StatusCode);
+            }
+
+            return await response.Content.ReadFromJsonAsync<RemoteViewerSession>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            _logger.LogError(ex, "Coordinator viewer create failed for machine {MachineId}", machineId);
+            throw;
+        }
+    }
+
+    public async Task<RemoteViewerSession?> CloseMachineViewerSessionAsync(string coordinatorUrl, string machineId, string viewerSessionId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsync(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/viewers/sessions/{Uri.EscapeDataString(viewerSessionId)}/close",
+                content: null,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(message ?? $"Machine '{machineId}' rejected closing viewer '{viewerSessionId}'.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new HttpRequestException(
+                    message ?? $"Coordinator viewer close failed with HTTP {(int)response.StatusCode}.",
+                    inner: null,
+                    response.StatusCode);
+            }
+
+            return await response.Content.ReadFromJsonAsync<RemoteViewerSession>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            _logger.LogError(ex, "Coordinator viewer close failed for machine {MachineId} viewer {ViewerSessionId}", machineId, viewerSessionId);
+            throw;
+        }
+    }
+
     public async Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetMachineVirtualDeviceCatalogsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default)
     {
         await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);

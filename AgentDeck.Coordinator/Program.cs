@@ -25,6 +25,7 @@ builder.Services.AddSingleton<IWorkerRegistryService, WorkerRegistryService>();
 builder.Services.AddSingleton<ICompanionRegistryService, CompanionRegistryService>();
 builder.Services.AddSingleton<IProjectRegistryService, ProjectRegistryService>();
 builder.Services.AddSingleton<IProjectSessionRegistryService, ProjectSessionRegistryService>();
+builder.Services.AddSingleton<IMachineRemoteControlRegistryService, MachineRemoteControlRegistryService>();
 builder.Services.AddSingleton<RunnerBrokerService>();
 builder.Services.AddSingleton<IRunnerBrokerService>(static services => services.GetRequiredService<RunnerBrokerService>());
 
@@ -151,7 +152,7 @@ app.MapPost("/api/project-sessions/{projectSessionId}/control", (string projectS
     }
     catch (InvalidOperationException ex)
     {
-        return Results.Conflict(new { message = ex.Message });
+        return Results.NotFound(new { message = ex.Message });
     }
 });
 
@@ -303,7 +304,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
     }
     catch (InvalidOperationException ex)
     {
-        return Results.Conflict(new { message = ex.Message });
+        return Results.NotFound(new { message = ex.Message });
     }
 });
 
@@ -413,7 +414,7 @@ app.MapPost("/api/machines/{machineId}/orchestration/jobs", async (string machin
     }
     catch (InvalidOperationException ex)
     {
-        return Results.Conflict(new { message = ex.Message });
+        return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
     }
 });
 
@@ -439,7 +440,7 @@ app.MapPost("/api/machines/{machineId}/orchestration/jobs/{jobId}/cancel", async
     }
     catch (InvalidOperationException ex)
     {
-        return Results.Conflict(new { message = ex.Message });
+        return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
     }
 });
 
@@ -456,6 +457,137 @@ app.MapGet("/api/machines/{machineId}/viewers/sessions", async (string machineId
     }
 });
 
+app.MapGet("/api/machines/{machineId}/viewers/control", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IMachineRemoteControlRegistryService remoteControl, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        var gate = remoteControl.GetGate(machineId);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var state = await ReconcileMachineRemoteControlAsync(machineId, remoteControl, runners, cancellationToken);
+            return state is null ? Results.NotFound() : Results.Ok(state);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.NotFound(new { message = ex.Message });
+    }
+});
+
+app.MapPost("/api/machines/{machineId}/viewers/sessions", async (string machineId, CreateMachineViewerSessionRequest? request, HttpContext httpContext, ICompanionRegistryService companions, IMachineRemoteControlRegistryService remoteControl, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    var companionId = GetCompanionId(httpContext);
+    if (string.IsNullOrWhiteSpace(companionId))
+    {
+        return Results.BadRequest(new { message = "Coordinator companion identity is required to create a remote viewer session." });
+    }
+
+    var companion = companions.GetCompanion(companionId);
+    if (companion is null)
+    {
+        return Results.BadRequest(new { message = $"Coordinator does not recognize companion '{companionId}'." });
+    }
+
+    request ??= new CreateMachineViewerSessionRequest();
+
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        var gate = remoteControl.GetGate(machineId);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var existingState = await ReconcileMachineRemoteControlAsync(machineId, remoteControl, runners, cancellationToken);
+            if (existingState is not null)
+            {
+                var currentControllerIsRequester = string.Equals(existingState.ControllerCompanionId, companionId.Trim(), StringComparison.OrdinalIgnoreCase);
+                if (!currentControllerIsRequester && !request.ForceTakeover)
+                {
+                    return Results.Conflict(new { message = BuildRemoteControlConflictMessage(existingState) });
+                }
+
+                if (!string.IsNullOrWhiteSpace(existingState.ViewerSessionId))
+                {
+                    await runners.CloseViewerSessionAsync(machineId, existingState.ViewerSessionId, GetActorId(httpContext), cancellationToken);
+                }
+
+                remoteControl.ClearState(machineId, existingState.ViewerSessionId);
+            }
+
+            var session = await runners.CreateViewerSessionAsync(machineId, request.Viewer, GetActorId(httpContext), cancellationToken);
+            remoteControl.SetState(new MachineRemoteControlState
+            {
+                MachineId = machineId.Trim(),
+                MachineName = request.Viewer.MachineName,
+                ControllerCompanionId = companion.CompanionId,
+                ControllerDisplayName = companion.DisplayName,
+                ViewerSessionId = session.Id,
+                TargetKind = session.Target.Kind,
+                TargetDisplayName = session.Target.DisplayName,
+                Provider = session.Provider,
+                ViewerStatus = session.Status,
+                ConnectionUri = session.ConnectionUri,
+                StatusMessage = session.StatusMessage,
+                AcquiredAt = DateTimeOffset.UtcNow,
+                UpdatedAt = session.UpdatedAt
+            });
+            return Results.Ok(session);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Conflict(new { message = ex.Message });
+    }
+});
+
+app.MapPost("/api/machines/{machineId}/viewers/sessions/{viewerSessionId}/close", async (string machineId, string viewerSessionId, HttpContext httpContext, ICompanionRegistryService companions, IMachineRemoteControlRegistryService remoteControl, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    var companionId = GetCompanionId(httpContext);
+    if (string.IsNullOrWhiteSpace(companionId))
+    {
+        return Results.BadRequest(new { message = "Coordinator companion identity is required to close a remote viewer session." });
+    }
+
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        var gate = remoteControl.GetGate(machineId);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var existingState = await ReconcileMachineRemoteControlAsync(machineId, remoteControl, runners, cancellationToken);
+            if (existingState is not null &&
+                string.Equals(existingState.ViewerSessionId, viewerSessionId.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(existingState.ControllerCompanionId, companionId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.Conflict(new { message = BuildRemoteControlConflictMessage(existingState) });
+            }
+
+            var session = await runners.CloseViewerSessionAsync(machineId, viewerSessionId, GetActorId(httpContext), cancellationToken);
+            remoteControl.ClearState(machineId, viewerSessionId);
+            return session is null ? Results.NotFound() : Results.Ok(session);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Conflict(new { message = ex.Message });
+    }
+});
+
 app.MapGet("/api/machines/{machineId}/virtual-devices/catalogs", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
@@ -465,7 +597,7 @@ app.MapGet("/api/machines/{machineId}/virtual-devices/catalogs", async (string m
     }
     catch (InvalidOperationException ex)
     {
-        return Results.NotFound(new { message = ex.Message });
+        return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
     }
 });
 
@@ -497,7 +629,7 @@ app.MapPost("/api/machines/{machineId}/capabilities/{capabilityId}/install", asy
     }
     catch (InvalidOperationException ex)
     {
-        return Results.NotFound(new { message = ex.Message });
+        return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
     }
 });
 
@@ -598,4 +730,48 @@ static ProjectSessionRecord? GetLatestProjectSession(
             string.Equals(session.MachineId, normalizedMachineId, StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(session => session.UpdatedAt)
         .FirstOrDefault();
+}
+
+static string BuildRemoteControlConflictMessage(MachineRemoteControlState state) =>
+    $"Machine '{state.MachineName ?? state.MachineId}' is currently remotely controlled by companion '{state.ControllerDisplayName ?? state.ControllerCompanionId}' through viewer session '{state.ViewerSessionId}'. Use force takeover to replace that remote controller.";
+
+static async Task<MachineRemoteControlState?> ReconcileMachineRemoteControlAsync(
+    string machineId,
+    IMachineRemoteControlRegistryService remoteControl,
+    IRunnerBrokerService runners,
+    CancellationToken cancellationToken)
+{
+    var state = remoteControl.GetState(machineId);
+    if (state is null)
+    {
+        return null;
+    }
+
+    var viewers = await runners.GetViewerSessionsAsync(machineId, cancellationToken);
+    var activeViewer = viewers.FirstOrDefault(viewer =>
+        string.Equals(viewer.Id, state.ViewerSessionId, StringComparison.OrdinalIgnoreCase));
+    if (activeViewer is null || activeViewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
+    {
+        remoteControl.ClearState(machineId, state.ViewerSessionId);
+        return null;
+    }
+
+    var reconciled = new MachineRemoteControlState
+    {
+        MachineId = state.MachineId,
+        MachineName = activeViewer.MachineName ?? state.MachineName,
+        ControllerCompanionId = state.ControllerCompanionId,
+        ControllerDisplayName = state.ControllerDisplayName,
+        ViewerSessionId = activeViewer.Id,
+        TargetKind = activeViewer.Target.Kind,
+        TargetDisplayName = activeViewer.Target.DisplayName,
+        Provider = activeViewer.Provider,
+        ViewerStatus = activeViewer.Status,
+        ConnectionUri = activeViewer.ConnectionUri,
+        StatusMessage = activeViewer.StatusMessage,
+        AcquiredAt = state.AcquiredAt,
+        UpdatedAt = activeViewer.UpdatedAt
+    };
+
+    return remoteControl.SetState(reconciled);
 }

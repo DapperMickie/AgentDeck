@@ -53,6 +53,7 @@
                 <div class="project-machine-grid">
                     @foreach (var machine in _dashboard.Machines.OrderByDescending(machine => machine.IsOnline).ThenBy(machine => machine.MachineName, StringComparer.OrdinalIgnoreCase))
                     {
+                        var remoteControlState = GetMachineRemoteControlState(machine.MachineId);
                         <article class="project-machine-card">
                             <div class="project-machine-card__header">
                                 <div>
@@ -68,6 +69,16 @@
                             {
                                 <p class="project-template-target__note">@projectControlNotice</p>
                             }
+                            @if (GetRemoteControlNotice(machine.MachineId) is { } remoteControlNotice)
+                            {
+                                <p class="project-template-target__note">@remoteControlNotice</p>
+                            }
+                            @if (remoteControlState is not null &&
+                                IsCurrentRemoteController(remoteControlState) &&
+                                !string.IsNullOrWhiteSpace(remoteControlState.ConnectionUri))
+                            {
+                                <p class="project-template-target__note"><code>@remoteControlState.ConnectionUri</code></p>
+                            }
                             <div class="project-machine-card__targets">
                                 @foreach (var target in machine.SupportedTargets.OrderBy(target => target.DisplayName))
                                 {
@@ -82,6 +93,27 @@
                                         @onclick="() => OpenProjectAsync(machine.MachineId, navigateToSession: true)">
                                     @(_openingMachineId == machine.MachineId ? "Opening..." : "Open project")
                                 </button>
+                                <button class="btn btn-accent"
+                                        disabled="@(!machine.IsOnline || _viewerActionMachineId == machine.MachineId)"
+                                        @onclick="() => OpenDesktopViewerAsync(machine, forceTakeover: false)">
+                                    @(_viewerActionMachineId == machine.MachineId ? "Working..." : "Open desktop viewer")
+                                </button>
+                                @if (remoteControlState is not null && !IsCurrentRemoteController(remoteControlState))
+                                {
+                                    <button class="btn btn-danger"
+                                            disabled="@(!machine.IsOnline || _viewerActionMachineId == machine.MachineId)"
+                                            @onclick="() => OpenDesktopViewerAsync(machine, forceTakeover: true)">
+                                        Force take over
+                                    </button>
+                                }
+                                else if (remoteControlState is not null && IsCurrentRemoteController(remoteControlState))
+                                {
+                                    <button class="btn btn-danger"
+                                            disabled="@(_viewerActionMachineId == machine.MachineId)"
+                                            @onclick="() => CloseViewerAsync(machine.MachineId, remoteControlState.ViewerSessionId)">
+                                        Close viewer
+                                    </button>
+                                }
                             </div>
                         </article>
                     }
@@ -355,8 +387,10 @@
     private IReadOnlyList<ProjectSessionRecord> _projectSessions = [];
     private IReadOnlyList<OrchestrationJob> _projectJobs = [];
     private IReadOnlyList<RemoteViewerSession> _projectViewerSessions = [];
+    private readonly Dictionary<string, MachineRemoteControlState> _remoteControlByMachineId = new(StringComparer.OrdinalIgnoreCase);
     private bool _loading = true;
     private string? _openingMachineId;
+    private string? _viewerActionMachineId;
     private string? _queueingProfileId;
     private string? _cancellingJobId;
     private string? _coordinatorUrl;
@@ -482,6 +516,7 @@
         {
             _projectJobs = [];
             _projectViewerSessions = [];
+            _remoteControlByMachineId.Clear();
             return;
         }
 
@@ -495,6 +530,12 @@
 
         var jobs = new List<OrchestrationJob>();
         var viewers = new List<RemoteViewerSession>();
+        var remoteControlTasks = _dashboard.Machines
+            .Where(machine => machine.IsOnline)
+            .ToDictionary(
+                machine => machine.MachineId,
+                machine => TryGetMachineRemoteControlStateAsync(machine.MachineId),
+                StringComparer.OrdinalIgnoreCase);
 
         foreach (var machineId in machinesToQuery)
         {
@@ -515,6 +556,28 @@
         _projectViewerSessions = viewers
             .OrderByDescending(viewer => viewer.UpdatedAt)
             .ToArray();
+
+        await Task.WhenAll(remoteControlTasks.Values);
+        _remoteControlByMachineId.Clear();
+        foreach (var (machineId, task) in remoteControlTasks)
+        {
+            if (task.Result is { } remoteControlState)
+            {
+                _remoteControlByMachineId[machineId] = remoteControlState;
+            }
+        }
+    }
+
+    private async Task<MachineRemoteControlState?> TryGetMachineRemoteControlStateAsync(string machineId)
+    {
+        try
+        {
+            return await CoordinatorClient.GetMachineRemoteControlStateAsync(_coordinatorUrl!, machineId);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private async Task OpenProjectAsync(string machineId, bool navigateToSession)
@@ -637,6 +700,92 @@
         finally
         {
             _queueingProfileId = null;
+        }
+    }
+
+    private async Task OpenDesktopViewerAsync(CompanionMachineSummary machine, bool forceTakeover)
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        _viewerActionMachineId = machine.MachineId;
+        try
+        {
+            var session = await CoordinatorClient.CreateMachineViewerSessionAsync(_coordinatorUrl, machine.MachineId, new CreateMachineViewerSessionRequest
+            {
+                ForceTakeover = forceTakeover,
+                Viewer = new CreateRemoteViewerSessionRequest
+                {
+                    MachineId = machine.MachineId,
+                    MachineName = machine.MachineName,
+                    Target = new RemoteViewerTarget
+                    {
+                        Kind = RemoteViewerTargetKind.Desktop,
+                        DisplayName = $"{machine.MachineName} desktop"
+                    }
+                }
+            });
+            if (session is null)
+            {
+                Toasts.Show("The coordinator could not create that viewer session.", ToastKind.Error);
+                return;
+            }
+
+            Toasts.Show(
+                !string.IsNullOrWhiteSpace(session.ConnectionUri)
+                    ? $"Viewer ready: {session.ConnectionUri}"
+                    : session.StatusMessage ?? $"Opened desktop viewer on {machine.MachineName}.",
+                session.Status == RemoteViewerSessionStatus.Ready ? ToastKind.Success : ToastKind.Info);
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _viewerActionMachineId = null;
+        }
+    }
+
+    private async Task CloseViewerAsync(string machineId, string viewerSessionId)
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        _viewerActionMachineId = machineId;
+        try
+        {
+            var session = await CoordinatorClient.CloseMachineViewerSessionAsync(_coordinatorUrl, machineId, viewerSessionId);
+            if (session is null)
+            {
+                Toasts.Show("The coordinator could no longer find that viewer session.", ToastKind.Warning);
+                await LoadAsync();
+                return;
+            }
+
+            Toasts.Show(session.StatusMessage ?? "Viewer session closed.", ToastKind.Info);
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _viewerActionMachineId = null;
         }
     }
 
@@ -860,6 +1009,23 @@
     private static string GetDeviceSelectionLabel(VirtualDeviceLaunchSelection selection) =>
         selection.DisplayName ?? selection.DeviceId ?? selection.ProfileId ?? "Device selection";
 
+    private MachineRemoteControlState? GetMachineRemoteControlState(string machineId) =>
+        _remoteControlByMachineId.TryGetValue(machineId, out var state) ? state : null;
+
+    private string? GetRemoteControlNotice(string machineId)
+    {
+        var state = GetMachineRemoteControlState(machineId);
+        if (state is null)
+        {
+            return null;
+        }
+
+        var targetLabel = state.TargetDisplayName ?? "Remote viewer";
+        return IsCurrentRemoteController(state)
+            ? $"{targetLabel} is currently controlled by you."
+            : $"{targetLabel} is currently controlled by {state.ControllerDisplayName ?? state.ControllerCompanionId}. Open will be rejected unless you force takeover.";
+    }
+
     private bool CanCancelJob(OrchestrationJob job) =>
         _cancellingJobId != job.Id &&
         job.Status is OrchestrationJobStatus.Queued or OrchestrationJobStatus.Preparing or OrchestrationJobStatus.Dispatching or OrchestrationJobStatus.Running &&
@@ -903,6 +1069,10 @@
         !string.IsNullOrWhiteSpace(session.CompanionId) &&
         !string.IsNullOrWhiteSpace(AgentClient.CompanionId) &&
         string.Equals(session.CompanionId, AgentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
+
+    private bool IsCurrentRemoteController(MachineRemoteControlState state) =>
+        !string.IsNullOrWhiteSpace(AgentClient.CompanionId) &&
+        string.Equals(state.ControllerCompanionId, AgentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
 
     private static string GetShortId(string value) =>
         value.Length <= 8 ? value : value[..8];
