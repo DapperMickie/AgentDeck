@@ -165,10 +165,12 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
             if (status is null)
             {
                 TryDeleteFile(statusPath);
+                CleanupOldWorkflowPackFiles(previousStatus, null);
                 return null;
             }
 
             await WriteTextAtomicallyAsync(statusPath, JsonSerializer.Serialize(status, JsonOptions), cancellationToken);
+            CleanupOldWorkflowPackFiles(previousStatus, status);
             return status;
         }
         catch
@@ -223,6 +225,43 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "AgentDeck",
             "workflow-packs");
+    }
+
+    private void CleanupOldWorkflowPackFiles(RunnerWorkflowPackStatus? previousStatus, RunnerWorkflowPackStatus? currentStatus)
+    {
+        var previousPath = previousStatus?.LocalPackPath;
+        if (string.IsNullOrWhiteSpace(previousPath))
+        {
+            return;
+        }
+
+        if (string.Equals(previousPath, currentStatus?.LocalPackPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var previousDirectory = Path.GetDirectoryName(previousPath);
+        if (string.IsNullOrWhiteSpace(previousDirectory) || !Directory.Exists(previousDirectory))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(previousDirectory, recursive: true);
+
+            var packDirectory = Path.GetDirectoryName(previousDirectory);
+            if (!string.IsNullOrWhiteSpace(packDirectory) &&
+                Directory.Exists(packDirectory) &&
+                !Directory.EnumerateFileSystemEntries(packDirectory).Any())
+            {
+                Directory.Delete(packDirectory);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clean up stale workflow pack files under {WorkflowPackDirectory}", previousDirectory);
+        }
     }
 
     private static async Task WriteTextAtomicallyAsync(string path, string contents, CancellationToken cancellationToken)
