@@ -284,6 +284,7 @@
                     <div class="project-list">
                         @foreach (var viewer in _projectViewerSessions.OrderByDescending(viewer => viewer.UpdatedAt))
                         {
+                            var remoteControlState = string.IsNullOrWhiteSpace(viewer.MachineId) ? null : GetMachineRemoteControlState(viewer.MachineId);
                             <article class="project-list-card">
                                 <div class="project-runtime-card__body">
                                     <div class="project-session-card__header">
@@ -301,6 +302,46 @@
                                     else if (!string.IsNullOrWhiteSpace(viewer.StatusMessage))
                                     {
                                         <p class="project-template-target__note">@viewer.StatusMessage</p>
+                                    }
+                                    @if (GetViewerControlNotice(viewer) is { } viewerControlNotice)
+                                    {
+                                        <p class="project-template-target__note">@viewerControlNotice</p>
+                                    }
+                                </div>
+                                <div class="project-runtime-card__actions">
+                                    @if (!string.IsNullOrWhiteSpace(viewer.MachineId) && CanControlViewer(viewer))
+                                    {
+                                        @if (remoteControlState is not null &&
+                                             string.Equals(remoteControlState.ViewerSessionId, viewer.Id, StringComparison.OrdinalIgnoreCase) &&
+                                             IsCurrentRemoteController(remoteControlState))
+                                        {
+                                            <button class="btn btn-accent"
+                                                    disabled="@(_viewerActionViewerId == viewer.Id)"
+                                                    @onclick="() => UpdateExistingViewerControlAsync(viewer, ProjectSessionControlRequestMode.Yield)">
+                                                Yield control
+                                            </button>
+                                            <button class="btn btn-danger"
+                                                    disabled="@(_viewerActionViewerId == viewer.Id)"
+                                                    @onclick="() => CloseViewerAsync(viewer.MachineId!, viewer.Id)">
+                                                Close viewer
+                                            </button>
+                                        }
+                                        else if (remoteControlState is not null && !IsCurrentRemoteController(remoteControlState))
+                                        {
+                                            <button class="btn btn-danger"
+                                                    disabled="@(_viewerActionViewerId == viewer.Id)"
+                                                    @onclick="() => UpdateExistingViewerControlAsync(viewer, ProjectSessionControlRequestMode.ForceTakeover)">
+                                                Force take over
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-accent"
+                                                    disabled="@(_viewerActionViewerId == viewer.Id)"
+                                                    @onclick="() => UpdateExistingViewerControlAsync(viewer, ProjectSessionControlRequestMode.Request)">
+                                                Take control
+                                            </button>
+                                        }
                                     }
                                 </div>
                             </article>
@@ -391,6 +432,7 @@
     private bool _loading = true;
     private string? _openingMachineId;
     private string? _viewerActionMachineId;
+    private string? _viewerActionViewerId;
     private string? _queueingProfileId;
     private string? _cancellingJobId;
     private string? _coordinatorUrl;
@@ -751,6 +793,43 @@
         finally
         {
             _viewerActionMachineId = null;
+            _viewerActionViewerId = null;
+        }
+    }
+
+    private async Task UpdateExistingViewerControlAsync(RemoteViewerSession viewer, ProjectSessionControlRequestMode mode)
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl) || string.IsNullOrWhiteSpace(viewer.MachineId))
+        {
+            return;
+        }
+
+        _viewerActionMachineId = viewer.MachineId;
+        _viewerActionViewerId = viewer.Id;
+        try
+        {
+            await CoordinatorClient.UpdateMachineViewerControlAsync(_coordinatorUrl, viewer.MachineId, viewer.Id, mode);
+            Toasts.Show(mode switch
+            {
+                ProjectSessionControlRequestMode.Request => $"You now control {viewer.Target.DisplayName}.",
+                ProjectSessionControlRequestMode.ForceTakeover => $"You took control of {viewer.Target.DisplayName}.",
+                ProjectSessionControlRequestMode.Yield => $"Yielded control of {viewer.Target.DisplayName}.",
+                _ => "Updated viewer control."
+            }, mode == ProjectSessionControlRequestMode.Yield ? ToastKind.Info : ToastKind.Success);
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _viewerActionMachineId = null;
+            _viewerActionViewerId = null;
         }
     }
 
@@ -762,6 +841,7 @@
         }
 
         _viewerActionMachineId = machineId;
+        _viewerActionViewerId = viewerSessionId;
         try
         {
             var session = await CoordinatorClient.CloseMachineViewerSessionAsync(_coordinatorUrl, machineId, viewerSessionId);
@@ -786,6 +866,7 @@
         finally
         {
             _viewerActionMachineId = null;
+            _viewerActionViewerId = null;
         }
     }
 
@@ -1025,6 +1106,36 @@
             ? $"{targetLabel} is currently controlled by you."
             : $"{targetLabel} is currently controlled by {state.ControllerDisplayName ?? state.ControllerCompanionId}. Open will be rejected unless you force takeover.";
     }
+
+    private string? GetViewerControlNotice(RemoteViewerSession viewer)
+    {
+        if (string.IsNullOrWhiteSpace(viewer.MachineId))
+        {
+            return null;
+        }
+
+        var state = GetMachineRemoteControlState(viewer.MachineId);
+        if (state is null)
+        {
+            return null;
+        }
+
+        var controllerLabel = state.ControllerDisplayName ?? state.ControllerCompanionId;
+        var activeTarget = state.TargetDisplayName ?? "another viewer";
+        if (string.Equals(state.ViewerSessionId, viewer.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return IsCurrentRemoteController(state)
+                ? "You currently control this viewer session."
+                : $"{controllerLabel} currently controls this viewer session.";
+        }
+
+        return IsCurrentRemoteController(state)
+            ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote target."
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this viewer requires force takeover.";
+    }
+
+    private static bool CanControlViewer(RemoteViewerSession viewer) =>
+        viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
 
     private bool CanCancelJob(OrchestrationJob job) =>
         _cancellingJobId != job.Id &&
