@@ -128,9 +128,12 @@
                                     <div class="project-machine-card__targets">
                                         @if (machine.UpdateRollout is { } rollout)
                                         {
-                                            <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetUpdateRolloutChipClass(rollout.State))">
+                                            @if (ShouldShowUpdateRolloutChip(rollout.State))
+                                            {
+                                                <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetUpdateRolloutChipClass(rollout.State))">
                                                 Update @GetUpdateRolloutLabel(rollout.State)
-                                            </span>
+                                                </span>
+                                            }
                                         }
                                         @if (machine.WorkflowPackStatus is { } workflowPackStatus &&
                                              workflowPackStatus.State != RunnerWorkflowPackState.None)
@@ -326,11 +329,14 @@
     };
 
     private static bool HasControlPlaneSignals(CompanionMachineSummary machine) =>
-        machine.UpdateRollout is not null ||
+        (machine.UpdateRollout is not null && ShouldShowUpdateRolloutChip(machine.UpdateRollout.State)) ||
         (machine.WorkflowPackStatus is not null && machine.WorkflowPackStatus.State != RunnerWorkflowPackState.None) ||
         (machine.WorkflowCatalogStatus is not null && machine.WorkflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown);
 
     private static string GetControlPlaneChipClass(string stateClass) => stateClass;
+
+    private static bool ShouldShowUpdateRolloutChip(RunnerUpdateRolloutState state) =>
+        state is not (RunnerUpdateRolloutState.UpToDate or RunnerUpdateRolloutState.Applied);
 
     private static string GetUpdateRolloutLabel(RunnerUpdateRolloutState state) => state switch
     {
