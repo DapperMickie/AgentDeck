@@ -398,7 +398,8 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         return step.Kind switch
         {
             RunnerWorkflowStepKind.VerifyInstalledTool => await VerifyInstalledToolAsync(step, cancellationToken),
-            RunnerWorkflowStepKind.RunCommand => await ExecuteNamedCommandAsync(step, cancellationToken),
+            RunnerWorkflowStepKind.ManageCapability => await ExecuteCapabilityActionAsync(step, cancellationToken),
+            RunnerWorkflowStepKind.RunCommand => await ExecuteShellCommandStepAsync(step, cancellationToken),
             _ => WorkflowPackExecutionResult.Failure(
                 $"Workflow step kind '{step.Kind}' is not supported by this runner yet.")
         };
@@ -458,47 +459,22 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
             : WorkflowPackExecutionResult.Success($"Probe command '{probeCommand}' did not detect the tool yet.");
     }
 
-    private async Task<WorkflowPackExecutionResult> ExecuteNamedCommandAsync(RunnerWorkflowStep step, CancellationToken cancellationToken)
+    private async Task<WorkflowPackExecutionResult> ExecuteCapabilityActionAsync(RunnerWorkflowStep step, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(step.CommandText))
+        var capabilityId = GetInput(step, "capability");
+        var action = GetInput(step, "action");
+        var version = GetInput(step, "version");
+        if (string.IsNullOrWhiteSpace(capabilityId) || string.IsNullOrWhiteSpace(action))
         {
-            return WorkflowPackExecutionResult.Failure("RunCommand requires a command identifier.");
+            return WorkflowPackExecutionResult.Failure("ManageCapability requires 'capability' and 'action' inputs.");
         }
 
-        MachineCapabilityInstallResult result;
-        switch (NormalizeCommandIdentifier(step.CommandText))
+        var result = await (NormalizeCommandIdentifier(action) switch
         {
-            case "install-gh":
-            case "install-github-cli":
-                result = await _machineSetup.InstallCapabilityAsync("gh", cancellationToken: cancellationToken);
-                break;
-            case "install-copilot":
-            case "install-copilot-cli":
-                result = await _machineSetup.InstallCapabilityAsync("copilot", cancellationToken: cancellationToken);
-                break;
-            case "install-node":
-            case "install-nodejs":
-                result = await _machineSetup.InstallCapabilityAsync("node", GetInput(step, "version"), cancellationToken);
-                break;
-            case "install-python":
-                result = await _machineSetup.InstallCapabilityAsync("python", GetInput(step, "version"), cancellationToken);
-                break;
-            case "install-dotnet":
-            case "install-dotnet-sdk":
-                result = await _machineSetup.InstallCapabilityAsync("dotnet", GetInput(step, "version"), cancellationToken);
-                break;
-            case "update-gh":
-            case "update-github-cli":
-                result = await _machineSetup.UpdateCapabilityAsync("gh", cancellationToken);
-                break;
-            case "update-copilot":
-            case "update-copilot-cli":
-                result = await _machineSetup.UpdateCapabilityAsync("copilot", cancellationToken);
-                break;
-            default:
-                return WorkflowPackExecutionResult.Failure(
-                    $"Workflow command '{step.CommandText}' is not supported by this runner.");
-        }
+            "install" => _machineSetup.InstallCapabilityAsync(capabilityId, version, cancellationToken),
+            "update" => _machineSetup.UpdateCapabilityAsync(capabilityId, cancellationToken),
+            _ => CreateUnsupportedCapabilityActionResult(capabilityId, action)
+        });
 
         if (result.Succeeded)
         {
@@ -508,6 +484,37 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         var failureMessage = FirstMeaningfulLine(result.StandardError, result.StandardOutput)
             ?? result.Message
             ?? $"{result.CapabilityName} {result.Action} failed with exit code {result.ExitCode}.";
+        return WorkflowPackExecutionResult.Failure(failureMessage);
+    }
+
+    private static Task<MachineCapabilityInstallResult> CreateUnsupportedCapabilityActionResult(string capabilityId, string action) =>
+        Task.FromResult(new MachineCapabilityInstallResult
+        {
+            CapabilityId = capabilityId,
+            CapabilityName = capabilityId,
+            Action = action,
+            ExitCode = -1,
+            Succeeded = false,
+            Message = $"Capability action '{action}' is not supported for '{capabilityId}'."
+        });
+
+    private static async Task<WorkflowPackExecutionResult> ExecuteShellCommandStepAsync(RunnerWorkflowStep step, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(step.CommandText))
+        {
+            return WorkflowPackExecutionResult.Failure("RunCommand requires command text.");
+        }
+
+        var result = await RunShellCommandAsync(step.CommandText, cancellationToken);
+        if (result.Succeeded)
+        {
+            var detail = FirstMeaningfulLine(result.StandardOutput, result.StandardError)
+                ?? $"Command '{step.CommandText}' succeeded.";
+            return WorkflowPackExecutionResult.Success(detail);
+        }
+
+        var failureMessage = FirstMeaningfulLine(result.StandardError, result.StandardOutput)
+            ?? $"Command '{step.CommandText}' exited with code {result.ExitCode}.";
         return WorkflowPackExecutionResult.Failure(failureMessage);
     }
 

@@ -4,6 +4,7 @@ namespace AgentDeck.Shared.Enums;
 public enum RunnerWorkflowStepKind
 {
     RunCommand,
+    ManageCapability,
     DownloadFile,
     ExtractArchive,
     WriteFile,
