@@ -84,6 +84,16 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                 return currentStatus;
             }
 
+            if (currentStatus?.State == RunnerWorkflowPackState.Failed &&
+                currentStatus.ExecutionAttempted &&
+                string.Equals(currentStatus.PackId, desiredPackId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(currentStatus.PackVersion, desiredPackVersion, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(currentStatus.LocalPackPath) &&
+                File.Exists(currentStatus.LocalPackPath))
+            {
+                return currentStatus;
+            }
+
             try
             {
                 var pack = await coordinatorClient.GetFromJsonAsync<RunnerWorkflowPack>(
@@ -139,6 +149,7 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                 return await UpdateStatusAsync(new RunnerWorkflowPackStatus
                 {
                     State = execution.Succeeded ? RunnerWorkflowPackState.Ready : RunnerWorkflowPackState.Failed,
+                    ExecutionAttempted = true,
                     PackId = pack.PackId,
                     PackVersion = pack.Version,
                     LocalPackPath = packPath,
@@ -521,9 +532,24 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
             return new ShellCommandResult(false, -1, string.Empty, ex.Message);
         }
 
-        var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        using var cancellationRegistration = cancellationToken.Register(() =>
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch
+            {
+            }
+        });
+
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        cancellationToken.ThrowIfCancellationRequested();
 
         return new ShellCommandResult(
             process.ExitCode == 0,
