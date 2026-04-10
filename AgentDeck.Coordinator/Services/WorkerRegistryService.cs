@@ -280,13 +280,14 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
         var workflowCatalogVersion = NormalizeOptional(_coordinatorOptions.WorkflowCatalogVersion);
         var protocolCompatible = protocolVersion >= _coordinatorOptions.MinimumSupportedProtocolVersion &&
                                  protocolVersion <= _coordinatorOptions.MaximumSupportedProtocolVersion;
+        var securityPolicyAllowsApply = _coordinatorOptions.SecurityPolicy?.AllowUpdateApply ?? false;
         var updateAvailable = !string.Equals(normalizedAgentVersion, desiredVersion, StringComparison.OrdinalIgnoreCase);
-        var applyUpdate = _coordinatorOptions.ApplyStagedUpdate && updateAvailable;
+        var applyUpdate = securityPolicyAllowsApply && _coordinatorOptions.ApplyStagedUpdate && updateAvailable;
         if (_machineApplyIntentOverrides.TryGetValue(normalizedMachineId, out var applyIntentOverride))
         {
             applyUpdate = applyIntentOverride switch
             {
-                MachineUpdateApplyIntentMode.RequestApply => updateAvailable,
+                MachineUpdateApplyIntentMode.RequestApply => securityPolicyAllowsApply && updateAvailable,
                 MachineUpdateApplyIntentMode.StageOnly => false,
                 _ => applyUpdate
             };
