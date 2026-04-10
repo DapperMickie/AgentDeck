@@ -568,13 +568,36 @@
             return;
         }
 
+        var activeViewerMachineId = _activeSurface?.MachineId;
+        var activeViewer = _activeSurface?.Viewer;
+        var shouldSyncActiveViewer =
+            activeViewer is not null &&
+            !string.IsNullOrWhiteSpace(activeViewerMachineId) &&
+            activeViewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed &&
+            (mode is ProjectSessionControlRequestMode.Request or ProjectSessionControlRequestMode.ForceTakeover ||
+             IsActiveViewerControlledByCurrentCompanion());
+
         try
         {
             await CoordinatorClient.UpdateProjectSessionControlAsync(_coordinatorUrl, _projectSession.Id, new UpdateProjectSessionControlRequest
             {
                 Mode = mode
             });
+
+            string? viewerSyncWarning = null;
+            if (shouldSyncActiveViewer)
+            {
+                viewerSyncWarning = await TrySyncActiveViewerAfterSessionControlAsync(
+                    activeViewerMachineId!,
+                    activeViewer!,
+                    mode);
+            }
+
             await LoadAsync();
+            if (!string.IsNullOrWhiteSpace(viewerSyncWarning))
+            {
+                Toasts.Show(viewerSyncWarning, ToastKind.Warning);
+            }
         }
         catch (InvalidOperationException ex)
         {
@@ -583,6 +606,26 @@
         catch (Exception ex)
         {
             Toasts.Show(ex.Message, ToastKind.Error);
+        }
+    }
+
+    private async Task<string?> TrySyncActiveViewerAfterSessionControlAsync(
+        string machineId,
+        RemoteViewerSession viewer,
+        ProjectSessionControlRequestMode mode)
+    {
+        try
+        {
+            await CoordinatorClient.UpdateMachineViewerControlAsync(_coordinatorUrl!, machineId, viewer.Id, mode);
+            return null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            return $"Project-session control updated, but viewer handoff for {viewer.Target.DisplayName} did not: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            return $"Project-session control updated, but syncing viewer control for {viewer.Target.DisplayName} failed: {ex.Message}";
         }
     }
 
