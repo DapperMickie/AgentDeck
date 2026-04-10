@@ -82,7 +82,9 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                     Role = RunnerMachineRole.Worker,
                     AgentVersion = agentVersion,
                     ProtocolVersion = _coordinatorOptions.ProtocolVersion,
-                    WorkflowCatalogVersion = _coordinatorOptions.WorkflowCatalogVersion.Trim(),
+                    WorkflowCatalogVersion = string.IsNullOrWhiteSpace(_coordinatorOptions.WorkflowCatalogVersion)
+                        ? "1"
+                        : _coordinatorOptions.WorkflowCatalogVersion.Trim(),
                     WorkflowCatalogStatus = workflowCatalogStatus,
                     UpdateStatus = updateStatus,
                     WorkflowPackStatus = workflowPackStatus,

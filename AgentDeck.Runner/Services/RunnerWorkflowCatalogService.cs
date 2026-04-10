@@ -85,5 +85,5 @@ public sealed class RunnerWorkflowCatalogService : IRunnerWorkflowCatalogService
 
     public void Dispose() => _reconcileGate.Dispose();
 
-    private string GetLocalCatalogVersion() => _options.WorkflowCatalogVersion.Trim();
+    private string GetLocalCatalogVersion() => string.IsNullOrWhiteSpace(_options.WorkflowCatalogVersion) ? "1" : _options.WorkflowCatalogVersion.Trim();
 }
