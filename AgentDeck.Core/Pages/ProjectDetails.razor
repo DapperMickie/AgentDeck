@@ -4,6 +4,7 @@
 @inject IConnectionSettingsService SettingsService
 @inject ISessionStateService SessionState
 @inject IActiveSessionService ActiveSession
+@inject IAgentDeckClient AgentClient
 @inject IToastService Toasts
 @inject NavigationManager Nav
 
@@ -63,6 +64,10 @@
                                 </span>
                             </div>
                             <p class="project-machine-card__meta">@GetMachineTargetSummary(machine)</p>
+                            @if (GetProjectControlNotice(machine.MachineId) is { } projectControlNotice)
+                            {
+                                <p class="project-template-target__note">@projectControlNotice</p>
+                            }
                             <div class="project-machine-card__targets">
                                 @foreach (var target in machine.SupportedTargets.OrderBy(target => target.DisplayName))
                                 {
@@ -73,7 +78,7 @@
                             </div>
                             <div class="project-machine-card__actions">
                                 <button class="btn btn-primary"
-                                        disabled="@(!machine.IsOnline || _openingMachineId == machine.MachineId)"
+                                        disabled="@(!machine.IsOnline || _openingMachineId == machine.MachineId || !CanMutateProjectOnMachine(machine.MachineId))"
                                         @onclick="() => OpenProjectAsync(machine.MachineId, navigateToSession: true)">
                                     @(_openingMachineId == machine.MachineId ? "Opening..." : "Open project")
                                 </button>
@@ -143,6 +148,11 @@
                                 else
                                 {
                                     <p class="project-template-target__note">@GetMachineStatusMessage(profile, availableMachines.Count)</p>
+                                }
+
+                                @if (!string.IsNullOrWhiteSpace(selectedMachineId) && GetProjectControlNotice(selectedMachineId) is { } projectControlNotice)
+                                {
+                                    <p class="project-template-target__note">@projectControlNotice</p>
                                 }
 
                                 @if (!string.IsNullOrWhiteSpace(profile.Notes))
@@ -215,6 +225,10 @@
                                         <button class="btn btn-danger" @onclick="() => CancelJobAsync(job)">Cancel</button>
                                     }
                                 </div>
+                                @if (!CanMutateProjectOnMachine(job.TargetMachineId) && GetProjectControlNotice(job.TargetMachineId) is { } jobControlNotice)
+                                {
+                                    <p class="project-template-target__note">@jobControlNotice</p>
+                                }
                             </article>
                         }
                     </div>
@@ -529,6 +543,10 @@
                 Nav.NavigateTo($"/project-sessions/{Uri.EscapeDataString(result.ProjectSession.Id)}");
             }
         }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
         catch (Exception ex)
         {
             Toasts.Show(ex.Message, ToastKind.Error);
@@ -608,6 +626,10 @@
             Toasts.Show($"Queued {profile.DisplayName} on {machine?.MachineName ?? machineId}.", ToastKind.Success);
             await LoadAsync();
         }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
         catch (Exception ex)
         {
             Toasts.Show(ex.Message, ToastKind.Error);
@@ -659,9 +681,20 @@
         _cancellingJobId = job.Id;
         try
         {
-            await CoordinatorClient.CancelMachineOrchestrationJobAsync(_coordinatorUrl, job.TargetMachineId, job.Id);
+            var cancelledJob = await CoordinatorClient.CancelMachineOrchestrationJobAsync(_coordinatorUrl, job.TargetMachineId, job.Id);
+            if (cancelledJob is null)
+            {
+                Toasts.Show("The coordinator could no longer find that job to cancel.", ToastKind.Warning);
+                await LoadAsync();
+                return;
+            }
+
             Toasts.Show($"Cancellation requested for {job.LaunchProfileName}.", ToastKind.Info);
             await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
         }
         catch (Exception ex)
         {
@@ -781,7 +814,9 @@
     private string GetControllerSummary(ProjectSessionRecord session) =>
         string.IsNullOrWhiteSpace(session.CompanionId)
             ? "No controller companion recorded"
-            : $"Controller {session.CompanionId}";
+            : IsCurrentCompanionController(session)
+                ? "You control this session"
+                : $"Controller {session.CompanionId}";
 
     private string GetProjectSessionMeta(ProjectSessionRecord session)
     {
@@ -827,7 +862,50 @@
 
     private bool CanCancelJob(OrchestrationJob job) =>
         _cancellingJobId != job.Id &&
-        job.Status is OrchestrationJobStatus.Queued or OrchestrationJobStatus.Preparing or OrchestrationJobStatus.Dispatching or OrchestrationJobStatus.Running;
+        job.Status is OrchestrationJobStatus.Queued or OrchestrationJobStatus.Preparing or OrchestrationJobStatus.Dispatching or OrchestrationJobStatus.Running &&
+        CanMutateProjectOnMachine(job.TargetMachineId);
+
+    private bool CanMutateProjectOnMachine(string? machineId)
+    {
+        var session = GetLatestProjectSessionForMachine(machineId);
+        return session is null ||
+               string.IsNullOrWhiteSpace(session.CompanionId) ||
+               IsCurrentCompanionController(session);
+    }
+
+    private string? GetProjectControlNotice(string? machineId)
+    {
+        var session = GetLatestProjectSessionForMachine(machineId);
+        if (session is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(session.CompanionId))
+        {
+            return $"Live session {GetShortId(session.Id)} exists on this machine, but no controller companion is currently recorded.";
+        }
+
+        return IsCurrentCompanionController(session)
+            ? $"You control live session {GetShortId(session.Id)} on this machine."
+            : $"View-only while {session.CompanionId} controls live session {GetShortId(session.Id)} on this machine.";
+    }
+
+    private ProjectSessionRecord? GetLatestProjectSessionForMachine(string? machineId) =>
+        string.IsNullOrWhiteSpace(machineId)
+            ? null
+            : _projectSessions
+                .Where(session => string.Equals(session.MachineId, machineId, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(session => session.UpdatedAt)
+                .FirstOrDefault();
+
+    private bool IsCurrentCompanionController(ProjectSessionRecord session) =>
+        !string.IsNullOrWhiteSpace(session.CompanionId) &&
+        !string.IsNullOrWhiteSpace(AgentClient.CompanionId) &&
+        string.Equals(session.CompanionId, AgentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
+
+    private static string GetShortId(string value) =>
+        value.Length <= 8 ? value : value[..8];
 
     private static string GetPlatformLabel(RunnerHostPlatform platform) => platform switch
     {

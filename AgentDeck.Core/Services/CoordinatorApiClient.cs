@@ -97,10 +97,16 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
                 return null;
             }
 
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(message ?? $"Project '{projectId}' on machine '{machineId}' rejected the requested action.");
+            }
+
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadFromJsonAsync<OpenProjectOnMachineResult>(cancellationToken: cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not InvalidOperationException)
         {
             _logger.LogError(ex, "Coordinator project open failed for {ProjectId} on {MachineId}", projectId, machineId);
             throw;
@@ -222,10 +228,16 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
                 return null;
             }
 
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(message ?? $"Machine '{machineId}' rejected the requested orchestration action.");
+            }
+
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadFromJsonAsync<OrchestrationJob>(cancellationToken: cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not InvalidOperationException)
         {
             _logger.LogError(ex, "Coordinator orchestration queue failed for machine {MachineId}", machineId);
             throw;
@@ -247,10 +259,16 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
                 return null;
             }
 
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(message ?? $"Machine '{machineId}' rejected cancellation for job '{jobId}'.");
+            }
+
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadFromJsonAsync<OrchestrationJob>(cancellationToken: cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not InvalidOperationException)
         {
             _logger.LogError(ex, "Coordinator orchestration cancel failed for machine {MachineId} job {JobId}", machineId, jobId);
             throw;

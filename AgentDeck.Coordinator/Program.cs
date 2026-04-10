@@ -161,6 +161,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
     {
         var logger = loggerFactory.CreateLogger("ProjectOpenFlow");
         TrackMachineAttachment(httpContext, companions, machineId);
+        var companionId = GetCompanionId(httpContext);
 
         var project = projects.GetProject(projectId);
         if (project is null)
@@ -172,6 +173,11 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
         if (machine is null)
         {
             return Results.NotFound(new { message = $"Coordinator does not know runner machine '{machineId}'." });
+        }
+
+        if (RejectProjectMutationIfViewer(httpContext, projectSessions, projectId, machineId) is { } rejection)
+        {
+            return rejection;
         }
 
         var existingWorkspace = project.Workspaces.FirstOrDefault(workspace =>
@@ -206,8 +212,6 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             Name = $"{project.Name} ({machine.MachineName})",
             WorkingDirectory = openedWorkspace.ProjectPath
         }, cancellationToken);
-
-        var companionId = GetCompanionId(httpContext);
         if (!string.IsNullOrWhiteSpace(companionId))
         {
             companions.AttachSession(companionId, session.Id);
@@ -285,7 +289,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
     }
     catch (InvalidOperationException ex)
     {
-        return Results.BadRequest(new { message = ex.Message });
+        return Results.Conflict(new { message = ex.Message });
     }
 });
 
@@ -377,11 +381,16 @@ app.MapGet("/api/machines/{machineId}/orchestration/jobs", async (string machine
     }
 });
 
-app.MapPost("/api/machines/{machineId}/orchestration/jobs", async (string machineId, CreateOrchestrationJobRequest request, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapPost("/api/machines/{machineId}/orchestration/jobs", async (string machineId, CreateOrchestrationJobRequest request, HttpContext httpContext, ICompanionRegistryService companions, IProjectSessionRegistryService projectSessions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
     {
         TrackMachineAttachment(httpContext, companions, machineId);
+        if (RejectProjectMutationIfViewer(httpContext, projectSessions, request.ProjectId, machineId) is { } rejection)
+        {
+            return rejection;
+        }
+
         return Results.Ok(await runners.QueueOrchestrationJobAsync(machineId, request, GetActorId(httpContext), cancellationToken));
     }
     catch (ArgumentException ex)
@@ -394,11 +403,23 @@ app.MapPost("/api/machines/{machineId}/orchestration/jobs", async (string machin
     }
 });
 
-app.MapPost("/api/machines/{machineId}/orchestration/jobs/{jobId}/cancel", async (string machineId, string jobId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+app.MapPost("/api/machines/{machineId}/orchestration/jobs/{jobId}/cancel", async (string machineId, string jobId, HttpContext httpContext, ICompanionRegistryService companions, IProjectSessionRegistryService projectSessions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
     {
         TrackMachineAttachment(httpContext, companions, machineId);
+        var existingJob = (await runners.GetOrchestrationJobsAsync(machineId, cancellationToken))
+            .FirstOrDefault(job => string.Equals(job.Id, jobId, StringComparison.OrdinalIgnoreCase));
+        if (existingJob is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (RejectProjectMutationIfViewer(httpContext, projectSessions, existingJob.ProjectId, machineId) is { } rejection)
+        {
+            return rejection;
+        }
+
         var job = await runners.CancelOrchestrationJobAsync(machineId, jobId, GetActorId(httpContext), cancellationToken);
         return job is null ? Results.NotFound() : Results.Ok(job);
     }
@@ -522,3 +543,40 @@ static void TrackMachineAttachment(HttpContext httpContext, ICompanionRegistrySe
         companions.AttachMachine(companionId, machineId);
     }
 }
+
+static IResult? RejectProjectMutationIfViewer(
+    HttpContext httpContext,
+    IProjectSessionRegistryService projectSessions,
+    string projectId,
+    string machineId)
+{
+    var companionId = GetCompanionId(httpContext);
+    if (string.IsNullOrWhiteSpace(companionId))
+    {
+        return Results.BadRequest(new { message = "Coordinator companion identity is required to mutate a live project session." });
+    }
+
+    var existingSession = GetLatestProjectSession(projectSessions, projectId, machineId);
+    if (existingSession is null ||
+        string.IsNullOrWhiteSpace(existingSession.CompanionId) ||
+        string.Equals(existingSession.CompanionId, companionId.Trim(), StringComparison.OrdinalIgnoreCase))
+    {
+        return null;
+    }
+
+    return Results.Conflict(new
+    {
+        message = $"Project '{projectId}' on machine '{machineId}' is currently controlled by companion '{existingSession.CompanionId}'. Take control of session '{existingSession.Id}' before mutating it."
+    });
+}
+
+static ProjectSessionRecord? GetLatestProjectSession(
+    IProjectSessionRegistryService projectSessions,
+    string projectId,
+    string machineId) =>
+    projectSessions.GetSessions(projectId)
+        .Where(session =>
+            string.Equals(session.ProjectId, projectId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(session.MachineId, machineId, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(session => session.UpdatedAt)
+        .FirstOrDefault();
