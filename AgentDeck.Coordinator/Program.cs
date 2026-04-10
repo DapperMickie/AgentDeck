@@ -212,19 +212,20 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             Name = $"{project.Name} ({machine.MachineName})",
             WorkingDirectory = openedWorkspace.ProjectPath
         }, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(companionId))
-        {
-            companions.AttachSession(companionId, session.Id);
-        }
-
-        var projectSession = projectSessions.CreateSession(
-            project.Id,
-            project.Name,
-            machine.MachineId,
-            machine.MachineName,
-            companionId);
+        ProjectSessionRecord? projectSession = null;
         try
         {
+            if (!string.IsNullOrWhiteSpace(companionId))
+            {
+                companions.AttachSession(companionId, session.Id);
+            }
+
+            projectSession = projectSessions.CreateSession(
+                project.Id,
+                project.Name,
+                machine.MachineId,
+                machine.MachineName,
+                companionId);
             projectSession = projectSessions.RegisterSurface(projectSession.Id, new RegisterProjectSessionSurfaceRequest
             {
                 Kind = ProjectSessionSurfaceKind.Terminal,
@@ -251,11 +252,14 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
         {
             try
             {
-                projectSessions.RemoveSession(projectSession.Id);
+                if (projectSession is not null)
+                {
+                    projectSessions.RemoveSession(projectSession.Id);
+                }
             }
             catch (Exception cleanupEx)
             {
-                logger.LogWarning(cleanupEx, "Failed to remove project session {ProjectSessionId} during open-project cleanup", projectSession.Id);
+                logger.LogWarning(cleanupEx, "Failed to remove project session during open-project cleanup");
             }
 
             if (!string.IsNullOrWhiteSpace(companionId))
