@@ -225,6 +225,8 @@ The coordinator also computes an explicit rollout/apply summary for each worker 
 
 Workflow packs now also have a first-pass runner status path: worker runners reconcile the desired workflow pack reference from coordinator desired state, persist the fetched pack metadata locally, and report a `Ready`, `Blocked`, or `Failed` workflow-pack status back through the machine directory without executing the pack yet.
 
+Workflow catalog versioning now also has explicit compatibility signaling: worker runners advertise a configured local workflow catalog version, reconcile it against the coordinator's desired catalog version, and report `Matched`, `Mismatched`, or `Unknown` catalog status through the machine directory.
+
 ### Control-plane security model
 
 - Runners only accept a non-HTTPS coordinator URL by default when it targets loopback and `Coordinator:AllowInsecureHttpCoordinatorForLoopback` is enabled for local development.

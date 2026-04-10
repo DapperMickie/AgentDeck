@@ -11,6 +11,7 @@ public sealed class RegisterRunnerMachineRequest
     public required string AgentVersion { get; init; }
     public int ProtocolVersion { get; init; } = 1;
     public string? WorkflowCatalogVersion { get; init; }
+    public RunnerWorkflowCatalogStatus? WorkflowCatalogStatus { get; init; }
     public RunnerUpdateStatus? UpdateStatus { get; init; }
     public RunnerWorkflowPackStatus? WorkflowPackStatus { get; init; }
     public string? RunnerUrl { get; init; }

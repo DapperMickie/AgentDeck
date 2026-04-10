@@ -12,6 +12,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
     private readonly WorkerCoordinatorOptions _coordinatorOptions;
     private readonly IMachineCapabilityService _capabilities;
     private readonly IRunnerUpdateStagingService _updateStaging;
+    private readonly IRunnerWorkflowCatalogService _workflowCatalog;
     private readonly IRunnerWorkflowPackService _workflowPacks;
     private readonly ILogger<WorkerCoordinatorRegistrationService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -20,6 +21,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         IOptions<WorkerCoordinatorOptions> coordinatorOptions,
         IMachineCapabilityService capabilities,
         IRunnerUpdateStagingService updateStaging,
+        IRunnerWorkflowCatalogService workflowCatalog,
         IRunnerWorkflowPackService workflowPacks,
         IHttpClientFactory httpClientFactory,
         ILogger<WorkerCoordinatorRegistrationService> logger)
@@ -27,6 +29,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         _coordinatorOptions = coordinatorOptions.Value;
         _capabilities = capabilities;
         _updateStaging = updateStaging;
+        _workflowCatalog = workflowCatalog;
         _workflowPacks = workflowPacks;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
@@ -69,6 +72,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                 httpClient.BaseAddress = new Uri(coordinatorUrl, UriKind.Absolute);
 
                 var snapshot = await _capabilities.GetSnapshotAsync(stoppingToken);
+                var workflowCatalogStatus = await _workflowCatalog.GetCurrentStatusAsync(stoppingToken);
                 var updateStatus = await _updateStaging.GetCurrentStatusAsync(stoppingToken);
                 var workflowPackStatus = await _workflowPacks.GetCurrentStatusAsync(stoppingToken);
                 var request = new RegisterRunnerMachineRequest
@@ -78,7 +82,10 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                     Role = RunnerMachineRole.Worker,
                     AgentVersion = agentVersion,
                     ProtocolVersion = _coordinatorOptions.ProtocolVersion,
-                    WorkflowCatalogVersion = "1",
+                    WorkflowCatalogVersion = string.IsNullOrWhiteSpace(_coordinatorOptions.WorkflowCatalogVersion)
+                        ? "1"
+                        : _coordinatorOptions.WorkflowCatalogVersion.Trim(),
+                    WorkflowCatalogStatus = workflowCatalogStatus,
                     UpdateStatus = updateStatus,
                     WorkflowPackStatus = workflowPackStatus,
                     RunnerUrl = string.IsNullOrWhiteSpace(_coordinatorOptions.AdvertisedRunnerUrl)
@@ -97,6 +104,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
 
                 if (registration?.DesiredState is { } desiredState)
                 {
+                    var catalogStatus = await _workflowCatalog.ReconcileDesiredWorkflowCatalogAsync(desiredState, stoppingToken);
                     if (!desiredState.ProtocolCompatible)
                     {
                         _logger.LogWarning(
@@ -106,6 +114,16 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                             request.ProtocolVersion,
                             desiredState.MinimumSupportedProtocolVersion,
                             desiredState.MaximumSupportedProtocolVersion);
+                    }
+
+                    if (catalogStatus.State == RunnerWorkflowCatalogState.Mismatched)
+                    {
+                        _logger.LogWarning(
+                            "Coordinator {CoordinatorUrl} expects workflow catalog version {DesiredCatalogVersion}, but runner {MachineName} advertises {LocalCatalogVersion}",
+                            coordinatorUrl,
+                            catalogStatus.DesiredCatalogVersion,
+                            request.MachineName,
+                            catalogStatus.LocalCatalogVersion);
                     }
 
                     if (desiredState.UpdateAvailable)
