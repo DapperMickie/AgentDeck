@@ -22,6 +22,9 @@ public sealed class WorkerCoordinatorOptions
     /// <summary>Protocol version this runner uses when talking to the coordinator.</summary>
     public int ProtocolVersion { get; set; } = 1;
 
+    /// <summary>Local workflow catalog version this runner advertises to the coordinator.</summary>
+    public string WorkflowCatalogVersion { get; set; } = "1";
+
     /// <summary>When true, download the payload referenced by the desired update manifest into the staging directory.</summary>
     public bool DownloadUpdatePayload { get; set; }
 

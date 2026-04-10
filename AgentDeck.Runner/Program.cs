@@ -56,6 +56,7 @@ builder.Services.AddSingleton<IDesktopViewerBootstrapService, DesktopViewerBoots
 builder.Services.AddSingleton<IRunnerAuditService, RunnerAuditService>();
 builder.Services.AddSingleton<IRunnerTrustPolicy, RunnerTrustPolicy>();
 builder.Services.AddSingleton<IRunnerUpdateStagingService, RunnerUpdateStagingService>();
+builder.Services.AddSingleton<IRunnerWorkflowCatalogService, RunnerWorkflowCatalogService>();
 builder.Services.AddSingleton<IRunnerWorkflowPackService, RunnerWorkflowPackService>();
 builder.Services.AddSingleton<IVsCodeDebugSessionService, VsCodeDebugSessionService>();
 builder.Services.AddSingleton<IVirtualDeviceCatalogService, VirtualDeviceCatalogService>();
