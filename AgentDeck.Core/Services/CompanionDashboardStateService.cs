@@ -81,6 +81,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                 HostPlatform = machine.Platform?.HostPlatform ?? RunnerHostPlatform.Unknown,
                 AgentVersion = machine.AgentVersion,
                 LastSeenAt = machine.LastSeenAt,
+                ProtocolCompatible = machine.ProtocolCompatible,
+                SecurityPolicyVersion = machine.SecurityPolicyVersion,
                 UpdateRollout = machine.UpdateRollout,
                 WorkflowPackStatus = machine.WorkflowPackStatus,
                 WorkflowCatalogStatus = machine.WorkflowCatalogStatus,

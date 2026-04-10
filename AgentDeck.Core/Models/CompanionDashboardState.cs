@@ -26,6 +26,8 @@ public sealed class CompanionMachineSummary
     public RunnerHostPlatform HostPlatform { get; init; } = RunnerHostPlatform.Unknown;
     public string? AgentVersion { get; init; }
     public DateTimeOffset LastSeenAt { get; init; }
+    public bool ProtocolCompatible { get; init; } = true;
+    public string? SecurityPolicyVersion { get; init; }
     public RunnerUpdateRolloutStatus? UpdateRollout { get; init; }
     public RunnerWorkflowPackStatus? WorkflowPackStatus { get; init; }
     public RunnerWorkflowCatalogStatus? WorkflowCatalogStatus { get; init; }
