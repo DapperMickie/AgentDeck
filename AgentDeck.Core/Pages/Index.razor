@@ -122,10 +122,20 @@
                                     {
                                         <span>• companion connected</span>
                                     }
+                                    @if (!string.IsNullOrWhiteSpace(machine.SecurityPolicyVersion))
+                                    {
+                                        <span>• security @machine.SecurityPolicyVersion</span>
+                                    }
                                 </p>
                                 @if (HasControlPlaneSignals(machine))
                                 {
                                     <div class="project-machine-card__targets">
+                                        @if (!machine.ProtocolCompatible)
+                                        {
+                                            <span class="project-target-chip project-target-chip--unsupported">
+                                                Protocol incompatible
+                                            </span>
+                                        }
                                         @if (machine.UpdateRollout is { } rollout)
                                         {
                                             @if (ShouldShowUpdateRolloutChip(rollout.State))
@@ -329,6 +339,7 @@
     };
 
     private static bool HasControlPlaneSignals(CompanionMachineSummary machine) =>
+        !machine.ProtocolCompatible ||
         (machine.UpdateRollout is not null && ShouldShowUpdateRolloutChip(machine.UpdateRollout.State)) ||
         (machine.WorkflowPackStatus is not null && machine.WorkflowPackStatus.State != RunnerWorkflowPackState.None) ||
         (machine.WorkflowCatalogStatus is not null && machine.WorkflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown);
