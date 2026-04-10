@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
@@ -15,7 +16,38 @@ namespace AgentDeck.Runner.Services;
 /// <inheritdoc />
 public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapService
 {
-    private sealed record ActiveDesktopTransport(Process Process);
+    private sealed class ActiveDesktopTransport
+    {
+        private readonly Lock _cleanupGate = new();
+        private Task<string?>? _cleanupTask;
+
+        public ActiveDesktopTransport(Process process, ProcessOutputCapture outputCapture)
+        {
+            Process = process;
+            OutputCapture = outputCapture;
+        }
+
+        public Process Process { get; }
+
+        public ProcessOutputCapture OutputCapture { get; }
+
+        public Task<string?> StopAsync()
+        {
+            lock (_cleanupGate)
+            {
+                _cleanupTask ??= StopCoreAsync();
+                return _cleanupTask;
+            }
+        }
+
+        private async Task<string?> StopCoreAsync()
+        {
+            TryStopProcess(Process, dispose: false);
+            await OutputCapture.CompleteAsync(OutputDrainTimeout);
+            Process.Dispose();
+            return OutputCapture.GetFailureDetail();
+        }
+    }
 
     private sealed class ManagedViewerReadySignal
     {
@@ -34,9 +66,91 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         string ConnectionUri,
         string? AccessToken,
         string Message,
-        Process? Process = null);
+        Process? Process = null,
+        ProcessOutputCapture? OutputCapture = null);
+
+    private sealed class ProcessOutputCapture
+    {
+        private readonly BoundedTextBuffer _standardOutput = new();
+        private readonly BoundedTextBuffer _standardError = new();
+        private readonly Task _standardOutputDrain;
+        private readonly Task _standardErrorDrain;
+
+        public ProcessOutputCapture(Process process)
+        {
+            _standardOutputDrain = DrainAsync(process.StandardOutput, _standardOutput);
+            _standardErrorDrain = DrainAsync(process.StandardError, _standardError);
+        }
+
+        public string? GetFailureDetail() => FirstMeaningfulLine(_standardError.GetContent(), _standardOutput.GetContent());
+
+        public Task CompleteAsync() => CompleteAsync(TimeSpan.FromSeconds(5));
+
+        public async Task CompleteAsync(TimeSpan timeout)
+        {
+            try
+            {
+                await Task.WhenAll(_standardOutputDrain, _standardErrorDrain).WaitAsync(timeout);
+            }
+            catch (TimeoutException)
+            {
+            }
+        }
+
+        private static async Task DrainAsync(StreamReader reader, BoundedTextBuffer buffer)
+        {
+            try
+            {
+                var chunk = new char[1024];
+                while (true)
+                {
+                    var read = await reader.ReadAsync(chunk);
+                    if (read <= 0)
+                    {
+                        return;
+                    }
+
+                    buffer.Append(chunk, read);
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    private sealed class BoundedTextBuffer
+    {
+        private const int MaxCharacters = 16 * 1024;
+        private readonly object _gate = new();
+        private readonly StringBuilder _builder = new();
+
+        public void Append(char[] chunk, int length)
+        {
+            lock (_gate)
+            {
+                _builder.Append(chunk, 0, length);
+                if (_builder.Length > MaxCharacters)
+                {
+                    _builder.Remove(0, _builder.Length - MaxCharacters);
+                }
+            }
+        }
+
+        public string GetContent()
+        {
+            lock (_gate)
+            {
+                return _builder.ToString();
+            }
+        }
+    }
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan OutputDrainTimeout = TimeSpan.FromSeconds(5);
     private readonly ConcurrentDictionary<string, ActiveDesktopTransport> _activeTransports = new();
     private readonly IRemoteViewerSessionService _viewers;
     private readonly DesktopViewerTransportOptions _transportOptions;
@@ -77,7 +191,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
             var outcome = await BootstrapTransportAsync(session, connectionTarget, cancellationToken);
             if (outcome.Process is not null)
             {
-                RegisterActiveTransport(sessionId, outcome.Process);
+                await RegisterActiveTransportAsync(session, outcome.Process, outcome.OutputCapture);
             }
 
             var updateResult = _viewers.Update(sessionId, new UpdateRemoteViewerSessionRequest
@@ -90,11 +204,32 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
             if (updateResult.Session is null && outcome.Process is not null)
             {
-                _activeTransports.TryRemove(sessionId, out _);
-                TryKillProcess(outcome.Process);
+                if (_activeTransports.TryRemove(sessionId, out var activeTransport))
+                {
+                    await activeTransport.StopAsync();
+                }
+                else
+                {
+                    TryStopProcess(outcome.Process, dispose: false);
+                    if (outcome.OutputCapture is not null)
+                    {
+                        await outcome.OutputCapture.CompleteAsync(OutputDrainTimeout);
+                    }
+
+                    outcome.Process.Dispose();
+                }
             }
 
             return updateResult.Session ?? _viewers.Get(sessionId);
+        }
+        catch (OperationCanceledException)
+        {
+            if (_activeTransports.TryRemove(sessionId, out var activeTransport))
+            {
+                await activeTransport.StopAsync();
+            }
+
+            throw;
         }
         catch (Exception ex)
         {
@@ -109,17 +244,17 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
     }
 
-    public Task<RemoteViewerSessionMutationResult> CloseAsync(
+    public async Task<RemoteViewerSessionMutationResult> CloseAsync(
         string sessionId,
         string? message = null,
         CancellationToken cancellationToken = default)
     {
         if (_activeTransports.TryRemove(sessionId, out var activeTransport))
         {
-            TryKillProcess(activeTransport.Process);
+            await activeTransport.StopAsync();
         }
 
-        return Task.FromResult(_viewers.Close(sessionId, message ?? "Viewer session closed."));
+        return _viewers.Close(sessionId, message ?? "Viewer session closed.");
     }
 
     private async Task<BootstrapOutcome> BootstrapTransportAsync(
@@ -186,6 +321,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Managed viewer transport helper did not start.");
+        var outputCapture = new ProcessOutputCapture(process);
 
         ManagedViewerReadySignal? readySignal = null;
         try
@@ -197,32 +333,21 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
             }
             else if (!await WaitForPortOrExitAsync(process, port, options.StartupTimeout, cancellationToken))
             {
-                throw await BuildManagedBootstrapFailureAsync(process, cancellationToken);
+                throw await BuildManagedBootstrapFailureAsync(process, outputCapture);
             }
         }
         catch
         {
-            TryKillProcess(process);
+            TryStopProcess(process, dispose: false);
+            await outputCapture.CompleteAsync(OutputDrainTimeout);
+            process.Dispose();
             throw;
         }
 
-        process.EnableRaisingEvents = true;
-        process.Exited += (_, _) =>
-        {
-            if (_activeTransports.TryRemove(session.Id, out _))
-            {
-                _viewers.Update(session.Id, new UpdateRemoteViewerSessionRequest
-                {
-                    Status = RemoteViewerSessionStatus.Failed,
-                    Message = $"Managed {GetTargetLabel(session.Target.Kind)} transport exited unexpectedly."
-                });
-            }
-
-            process.Dispose();
-        };
-
         if (process.HasExited)
         {
+            TryStopProcess(process, dispose: false);
+            await outputCapture.CompleteAsync(OutputDrainTimeout);
             process.Dispose();
             throw new InvalidOperationException("Managed viewer transport exited before it could be retained.");
         }
@@ -235,7 +360,8 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
             Message: string.IsNullOrWhiteSpace(readySignal?.Message)
                 ? $"{GetTargetDisplayName(session)} is ready via AgentDeck-managed transport at {connectionHost}:{port}."
                 : readySignal.Message,
-            Process: process);
+            Process: process,
+            OutputCapture: outputCapture);
     }
 
     private static Dictionary<string, string> BuildManagedBootstrapReplacements(
@@ -393,13 +519,13 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
     }
 
-    private static async Task<InvalidOperationException> BuildManagedBootstrapFailureAsync(Process process, CancellationToken cancellationToken)
+    private static async Task<InvalidOperationException> BuildManagedBootstrapFailureAsync(Process process, ProcessOutputCapture outputCapture)
     {
-        var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-        var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        TryKillProcess(process);
+        TryStopProcess(process, dispose: false);
+        await outputCapture.CompleteAsync(OutputDrainTimeout);
+        process.Dispose();
 
-        var detail = FirstMeaningfulLine(error, output);
+        var detail = outputCapture.GetFailureDetail();
         return new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
             ? "Managed viewer transport exited before it became ready."
             : detail);
@@ -503,57 +629,105 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"x11vnc did not start a {GetTargetLabel(session.Target.Kind)} transport process.");
-
-        if (!await WaitForPortOrExitAsync(process, port, TimeSpan.FromSeconds(10), cancellationToken))
+        var outputCapture = new ProcessOutputCapture(process);
+        try
         {
-            var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-            var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-            TryKillProcess(process);
+            if (!await WaitForPortOrExitAsync(process, port, TimeSpan.FromSeconds(10), cancellationToken))
+            {
+                TryStopProcess(process, dispose: false);
+                await outputCapture.CompleteAsync(OutputDrainTimeout);
+                process.Dispose();
 
-            var detail = FirstMeaningfulLine(error, output);
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
-                ? $"x11vnc exited before the {GetTargetLabel(session.Target.Kind)} transport became ready."
-                : detail);
+                var detail = outputCapture.GetFailureDetail();
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+                    ? $"x11vnc exited before the {GetTargetLabel(session.Target.Kind)} transport became ready."
+                    : detail);
+            }
+
+            if (process.HasExited)
+            {
+                TryStopProcess(process, dispose: false);
+                await outputCapture.CompleteAsync(OutputDrainTimeout);
+                process.Dispose();
+                throw new InvalidOperationException($"x11vnc exited before the {GetTargetLabel(session.Target.Kind)} transport could be retained.");
+            }
+
+            return new BootstrapOutcome(
+                ConnectionUri: $"vnc://{connectionHost}:{port}",
+                AccessToken: accessToken,
+                Message: $"{GetTargetDisplayName(session)} is ready via x11vnc at {connectionHost}:{port}.",
+                Process: process,
+                OutputCapture: outputCapture);
+        }
+        catch
+        {
+            TryStopProcess(process, dispose: false);
+            await outputCapture.CompleteAsync(OutputDrainTimeout);
+            process.Dispose();
+            throw;
+        }
+    }
+
+    private static string BuildUnexpectedExitMessage(RemoteViewerSession session, string? providerLabel, string? detail)
+    {
+        var prefix = string.IsNullOrWhiteSpace(providerLabel)
+            ? $"{GetTargetDisplayName(session)} transport exited unexpectedly."
+            : $"{providerLabel} {GetTargetLabel(session.Target.Kind)} transport exited unexpectedly.";
+
+        return string.IsNullOrWhiteSpace(detail)
+            ? prefix
+            : $"{prefix} {detail}";
+    }
+
+    private static string? GetUnexpectedExitProviderLabel(RemoteViewerSession session) =>
+        session.Provider == RemoteViewerProviderKind.Managed ? "Managed" : null;
+
+    private async Task RegisterActiveTransportAsync(RemoteViewerSession session, Process process, ProcessOutputCapture? outputCapture)
+    {
+        var activeTransport = new ActiveDesktopTransport(
+            process,
+            outputCapture ?? throw new InvalidOperationException("Active viewer transports must retain process output capture."));
+        if (!_activeTransports.TryAdd(session.Id, activeTransport))
+        {
+            await activeTransport.StopAsync();
+            throw new InvalidOperationException($"A viewer transport is already active for session '{session.Id}'.");
         }
 
+        process.Exited += (_, _) => _ = HandleActiveTransportExitAsync(session, activeTransport);
         process.EnableRaisingEvents = true;
-        process.Exited += (_, _) =>
+
+        if (process.HasExited && _activeTransports.TryRemove(session.Id, out var removedTransport))
         {
-            if (_activeTransports.TryRemove(session.Id, out _))
+            var detail = await removedTransport.StopAsync();
+            throw new InvalidOperationException(BuildUnexpectedExitMessage(
+                session,
+                GetUnexpectedExitProviderLabel(session),
+                detail));
+        }
+    }
+
+    private async Task HandleActiveTransportExitAsync(RemoteViewerSession session, ActiveDesktopTransport activeTransport)
+    {
+        try
+        {
+            if (_activeTransports.TryRemove(session.Id, out var removedTransport) &&
+                ReferenceEquals(removedTransport, activeTransport))
             {
+                var detail = await removedTransport.StopAsync();
                 _viewers.Update(session.Id, new UpdateRemoteViewerSessionRequest
                 {
                     Status = RemoteViewerSessionStatus.Failed,
-                    Message = $"{GetTargetDisplayName(session)} transport exited unexpectedly."
+                    Message = BuildUnexpectedExitMessage(
+                        session,
+                        GetUnexpectedExitProviderLabel(session),
+                        detail)
                 });
             }
-
-            process.Dispose();
-        };
-
-        if (process.HasExited)
-        {
-            process.Dispose();
-            throw new InvalidOperationException($"x11vnc exited before the {GetTargetLabel(session.Target.Kind)} transport could be retained.");
         }
-
-        return new BootstrapOutcome(
-            ConnectionUri: $"vnc://{connectionHost}:{port}",
-            AccessToken: accessToken,
-            Message: $"{GetTargetDisplayName(session)} is ready via x11vnc at {connectionHost}:{port}.",
-            Process: process);
-    }
-
-    private void RegisterActiveTransport(string sessionId, Process process)
-    {
-        var activeTransport = new ActiveDesktopTransport(process);
-        if (_activeTransports.TryAdd(sessionId, activeTransport))
+        catch (Exception ex)
         {
-            return;
+            _logger.LogWarning(ex, "Failed to clean up viewer transport for session {SessionId}", session.Id);
         }
-
-        TryKillProcess(process);
-        throw new InvalidOperationException($"A viewer transport is already active for session '{sessionId}'.");
     }
 
     private static bool IsTcpPortListening(int port)
@@ -702,6 +876,11 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
     private static void TryKillProcess(Process process)
     {
+        TryStopProcess(process, dispose: true);
+    }
+
+    private static void TryStopProcess(Process process, bool dispose)
+    {
         try
         {
             if (!process.HasExited)
@@ -715,7 +894,10 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
         finally
         {
-            process.Dispose();
+            if (dispose)
+            {
+                process.Dispose();
+            }
         }
     }
 }
