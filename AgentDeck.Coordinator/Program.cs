@@ -573,10 +573,15 @@ static IResult? RejectProjectMutationIfViewer(
 static ProjectSessionRecord? GetLatestProjectSession(
     IProjectSessionRegistryService projectSessions,
     string projectId,
-    string machineId) =>
-    projectSessions.GetSessions(projectId)
+    string machineId)
+{
+    var normalizedProjectId = projectId.Trim();
+    var normalizedMachineId = machineId.Trim();
+
+    return projectSessions.GetSessions(normalizedProjectId)
         .Where(session =>
-            string.Equals(session.ProjectId, projectId, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(session.MachineId, machineId, StringComparison.OrdinalIgnoreCase))
+            string.Equals(session.ProjectId, normalizedProjectId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(session.MachineId, normalizedMachineId, StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(session => session.UpdatedAt)
         .FirstOrDefault();
+}
