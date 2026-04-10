@@ -37,6 +37,7 @@
             </div>
             <div class="project-page__actions">
                 <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Project</a>
+                <button class="btn btn-accent" @onclick="RefreshAsync">Refresh surfaces</button>
                 @if (IsController())
                 {
                     <button class="btn btn-accent" @onclick="YieldControlAsync">Yield control</button>
@@ -54,15 +55,19 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Surface tabs</h2>
-                        <p>Each tab represents a coordinator-registered live surface for this project session.</p>
+                        <p>Project-session tabs now combine coordinator-registered surfaces with live runtime surfaces discovered from the selected machine's jobs and viewer sessions for this project.</p>
                     </div>
                 </div>
+                @if (!string.IsNullOrWhiteSpace(_runtimeLoadError))
+                {
+                    <p class="surface-details-card__note">@_runtimeLoadError</p>
+                }
 
                 <div class="surface-tabs">
-                    @foreach (var surface in _projectSession.Surfaces.OrderBy(GetSurfaceSortKey).ThenBy(surface => surface.DisplayName, StringComparer.OrdinalIgnoreCase))
+                    @foreach (var surface in _surfaceTabs)
                     {
                         <button class="surface-tab @(surface.Id == _activeSurfaceId ? "surface-tab--active" : "")"
-                                @onclick="() => SelectSurface(surface)">
+                                @onclick="() => SelectSurface(surface.Id)">
                             <span>@surface.DisplayName</span>
                             <span class="surface-tab__kind">@surface.Kind</span>
                         </button>
@@ -106,10 +111,44 @@
                                 <dt>Status</dt>
                                 <dd>@(_activeSurface.StatusMessage ?? _activeSurface.Status.ToString())</dd>
                             </div>
+                            @if (_activeSurface.Job is not null)
+                            {
+                                <div>
+                                    <dt>Runtime job</dt>
+                                    <dd>@GetJobSummary(_activeSurface.Job)</dd>
+                                </div>
+                                @if (_activeSurface.Job.DeviceSelection is not null)
+                                {
+                                    <div>
+                                        <dt>Device</dt>
+                                        <dd>@GetDeviceSelectionLabel(_activeSurface.Job.DeviceSelection)</dd>
+                                    </div>
+                                }
+                            }
+                            @if (_activeSurface.Viewer is not null)
+                            {
+                                <div>
+                                    <dt>Viewer</dt>
+                                    <dd>@GetViewerSummary(_activeSurface.Viewer)</dd>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(_activeSurface.Viewer.ConnectionUri))
+                                {
+                                    <div>
+                                        <dt>Connection</dt>
+                                        <dd><code>@_activeSurface.Viewer.ConnectionUri</code></dd>
+                                    </div>
+                                }
+                            }
                         </dl>
-                        @if (_activeSurface.Kind == ProjectSessionSurfaceKind.Terminal && _attachedTerminalSession is null)
+                        @if (_activeSurface.Kind == ProjectSessionSurfaceKind.Terminal &&
+                            _attachedTerminalSession is null &&
+                            _activeSurface.Job is null)
                         {
-                            <p class="surface-details-card__note">This terminal is registered with the coordinator, but this companion is not currently attached to its live terminal stream.</p>
+                            <p class="surface-details-card__note">This terminal surface is registered with the coordinator, but this companion is not currently attached to its live terminal stream.</p>
+                        }
+                        else if (_activeSurface.Job is not null || _activeSurface.Viewer is not null)
+                        {
+                            <p class="surface-details-card__note">This runtime tab is derived from the current machine orchestration/viewer state for this project session.</p>
                         }
                     </div>
                 }
@@ -122,12 +161,16 @@
     [Parameter] public string ProjectSessionId { get; set; } = string.Empty;
 
     private ProjectSessionRecord? _projectSession;
-    private ProjectSessionSurface? _activeSurface;
+    private SurfaceTab? _activeSurface;
     private TerminalSession? _attachedTerminalSession;
     private string? _activeSurfaceId;
     private bool _loading = true;
     private string? _coordinatorUrl;
     private string? _attachedSessionId;
+    private IReadOnlyList<SurfaceTab> _surfaceTabs = [];
+    private IReadOnlyList<OrchestrationJob> _runtimeJobs = [];
+    private IReadOnlyList<RemoteViewerSession> _runtimeViewers = [];
+    private string? _runtimeLoadError;
 
     protected override void OnInitialized()
     {
@@ -135,6 +178,14 @@
     }
 
     protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task RefreshAsync() =>
+        await LoadAsync();
+
+    private async Task LoadAsync()
     {
         _loading = true;
         try
@@ -159,15 +210,29 @@
 
             if (_projectSession is null)
             {
+                _runtimeJobs = [];
+                _runtimeViewers = [];
+                _surfaceTabs = [];
+                _runtimeLoadError = null;
                 _activeSurface = null;
                 _attachedTerminalSession = null;
                 _activeSurfaceId = null;
                 return;
             }
 
-            _activeSurfaceId = _projectSession.Surfaces.Any(surface => surface.Id == _activeSurfaceId)
-                ? _activeSurfaceId
-                : _projectSession.Surfaces.OrderBy(GetSurfaceSortKey).Select(surface => surface.Id).FirstOrDefault();
+            _runtimeLoadError = null;
+            try
+            {
+                await LoadRuntimeStateAsync();
+            }
+            catch (Exception ex)
+            {
+                _runtimeJobs = [];
+                _runtimeViewers = [];
+                _runtimeLoadError = $"Runtime surfaces are temporarily unavailable: {ex.Message}";
+            }
+
+            BuildSurfaceTabs();
             SyncActiveSurface();
         }
         finally
@@ -176,15 +241,126 @@
         }
     }
 
-    private void SelectSurface(ProjectSessionSurface surface)
+    private async Task LoadRuntimeStateAsync()
     {
-        _activeSurfaceId = surface.Id;
+        if (_projectSession is null ||
+            string.IsNullOrWhiteSpace(_coordinatorUrl) ||
+            string.IsNullOrWhiteSpace(_projectSession.MachineId))
+        {
+            _runtimeJobs = [];
+            _runtimeViewers = [];
+            return;
+        }
+
+        var jobsTask = CoordinatorClient.GetMachineOrchestrationJobsAsync(_coordinatorUrl, _projectSession.MachineId);
+        var viewersTask = CoordinatorClient.GetMachineViewerSessionsAsync(_coordinatorUrl, _projectSession.MachineId);
+        await Task.WhenAll(jobsTask, viewersTask);
+
+        _runtimeJobs = jobsTask.Result
+            .Where(job => string.Equals(job.ProjectId, _projectSession.ProjectId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(job => job.UpdatedAt)
+            .ToArray();
+
+        var jobIds = _runtimeJobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _runtimeViewers = viewersTask.Result
+            .Where(viewer =>
+                (!string.IsNullOrWhiteSpace(viewer.JobId) && jobIds.Contains(viewer.JobId)) ||
+                (!string.IsNullOrWhiteSpace(viewer.Target.JobId) && jobIds.Contains(viewer.Target.JobId)))
+            .OrderByDescending(viewer => viewer.UpdatedAt)
+            .ToArray();
+    }
+
+    private void BuildSurfaceTabs()
+    {
+        if (_projectSession is null)
+        {
+            _surfaceTabs = [];
+            return;
+        }
+
+        var tabs = new List<SurfaceTab>();
+        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var surface in _projectSession.Surfaces)
+        {
+            tabs.Add(new SurfaceTab(
+                surface.Id,
+                surface.Kind,
+                surface.DisplayName,
+                surface.MachineId,
+                surface.MachineName,
+                surface.ReferenceId,
+                surface.Status,
+                surface.StatusMessage,
+                Job: null,
+                Viewer: null));
+            seenKeys.Add(BuildSurfaceKey(surface.Kind, surface.ReferenceId));
+        }
+
+        foreach (var job in _runtimeJobs)
+        {
+            if (!string.IsNullOrWhiteSpace(job.SessionId) &&
+                seenKeys.Add(BuildSurfaceKey(ProjectSessionSurfaceKind.Terminal, job.SessionId)))
+            {
+                tabs.Add(new SurfaceTab(
+                    $"runtime-terminal:{job.Id}",
+                    ProjectSessionSurfaceKind.Terminal,
+                    $"{job.LaunchProfileName} terminal",
+                    job.TargetMachineId,
+                    job.TargetMachineName,
+                    job.SessionId,
+                    MapJobStatus(job.Status),
+                    GetJobStatusMessage(job),
+                    job,
+                    Viewer: null));
+            }
+        }
+
+        foreach (var viewer in _runtimeViewers)
+        {
+            var surfaceKind = MapViewerKind(viewer.Target.Kind);
+            if (surfaceKind is null || !seenKeys.Add(BuildSurfaceKey(surfaceKind.Value, viewer.Id)))
+            {
+                continue;
+            }
+
+            var relatedJob = _runtimeJobs.FirstOrDefault(job =>
+                string.Equals(job.Id, viewer.JobId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(job.Id, viewer.Target.JobId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(job.ViewerSessionId, viewer.Id, StringComparison.OrdinalIgnoreCase));
+
+            tabs.Add(new SurfaceTab(
+                $"runtime-viewer:{viewer.Id}",
+                surfaceKind.Value,
+                viewer.Target.DisplayName,
+                viewer.MachineId,
+                viewer.MachineName,
+                viewer.Id,
+                MapViewerStatus(viewer.Status),
+                viewer.StatusMessage ?? GetViewerSummary(viewer),
+                relatedJob,
+                viewer));
+        }
+
+        _surfaceTabs = tabs
+            .OrderBy(GetSurfaceSortKey)
+            .ThenBy(surface => surface.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        _activeSurfaceId = _surfaceTabs.Any(surface => surface.Id == _activeSurfaceId)
+            ? _activeSurfaceId
+            : _surfaceTabs.Select(surface => surface.Id).FirstOrDefault();
+    }
+
+    private void SelectSurface(string surfaceId)
+    {
+        _activeSurfaceId = surfaceId;
         SyncActiveSurface();
     }
 
     private void SyncActiveSurface()
     {
-        _activeSurface = _projectSession?.Surfaces.FirstOrDefault(surface =>
+        _activeSurface = _surfaceTabs.FirstOrDefault(surface =>
             string.Equals(surface.Id, _activeSurfaceId, StringComparison.OrdinalIgnoreCase));
         _attachedTerminalSession = null;
 
@@ -238,7 +414,7 @@
             ? "Coordinator-managed session"
             : $"Hosted on {_projectSession.MachineName}";
 
-    private static int GetSurfaceSortKey(ProjectSessionSurface surface) => surface.Kind switch
+    private static int GetSurfaceSortKey(SurfaceTab surface) => surface.Kind switch
     {
         ProjectSessionSurfaceKind.Terminal => 0,
         ProjectSessionSurfaceKind.VsCode => 1,
@@ -248,15 +424,69 @@
         _ => 5
     };
 
-    private static string GetSurfaceDescription(ProjectSessionSurface surface) => surface.Kind switch
+    private static string GetSurfaceDescription(SurfaceTab surface) => surface.Kind switch
     {
         ProjectSessionSurfaceKind.Terminal => "Terminal tabs stay dedicated to shell output and input.",
-        ProjectSessionSurfaceKind.VsCode => "VS Code surfaces will host debug sessions and editor workflows.",
-        ProjectSessionSurfaceKind.Simulator => "Simulator surfaces model iOS or desktop simulation targets.",
-        ProjectSessionSurfaceKind.Emulator => "Emulator surfaces model Android device-backed runs.",
-        ProjectSessionSurfaceKind.Viewer => "Viewer surfaces will carry desktop or window remoting targets.",
+        ProjectSessionSurfaceKind.VsCode => "VS Code runtime surfaces are derived from active debug/viewer sessions on this machine.",
+        ProjectSessionSurfaceKind.Simulator => "Simulator runtime surfaces follow the current project job and viewer state.",
+        ProjectSessionSurfaceKind.Emulator => "Emulator runtime surfaces follow the current project job and viewer state.",
+        ProjectSessionSurfaceKind.Viewer => "Viewer tabs capture desktop or window remoting state associated with this project session.",
         _ => "Coordinator-registered project surface."
     };
+
+    private static ProjectSessionSurfaceKind? MapViewerKind(RemoteViewerTargetKind kind) => kind switch
+    {
+        RemoteViewerTargetKind.VsCode => ProjectSessionSurfaceKind.VsCode,
+        RemoteViewerTargetKind.Emulator => ProjectSessionSurfaceKind.Emulator,
+        RemoteViewerTargetKind.Simulator => ProjectSessionSurfaceKind.Simulator,
+        RemoteViewerTargetKind.Desktop or RemoteViewerTargetKind.Window => ProjectSessionSurfaceKind.Viewer,
+        _ => null
+    };
+
+    private static ProjectSessionSurfaceStatus MapJobStatus(OrchestrationJobStatus status) => status switch
+    {
+        OrchestrationJobStatus.Completed or OrchestrationJobStatus.Running => ProjectSessionSurfaceStatus.Ready,
+        OrchestrationJobStatus.Failed or OrchestrationJobStatus.Cancelled => ProjectSessionSurfaceStatus.Failed,
+        _ => ProjectSessionSurfaceStatus.Requested
+    };
+
+    private static ProjectSessionSurfaceStatus MapViewerStatus(RemoteViewerSessionStatus status) => status switch
+    {
+        RemoteViewerSessionStatus.Ready => ProjectSessionSurfaceStatus.Ready,
+        RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Closed => ProjectSessionSurfaceStatus.Failed,
+        _ => ProjectSessionSurfaceStatus.Requested
+    };
+
+    private static string BuildSurfaceKey(ProjectSessionSurfaceKind kind, string? referenceId) =>
+        $"{kind}:{referenceId ?? string.Empty}";
+
+    private static string GetJobStatusMessage(OrchestrationJob job) =>
+        job.StatusMessage
+        ?? job.Logs.LastOrDefault()?.Message
+        ?? GetJobSummary(job);
+
+    private static string GetJobSummary(OrchestrationJob job)
+    {
+        var mode = job.Mode == ProjectLaunchMode.Debug ? "Debug" : "Run";
+        return $"{mode} • {job.Platform} • {job.Status}";
+    }
+
+    private static string GetViewerSummary(RemoteViewerSession viewer)
+    {
+        var label = viewer.Target.Kind switch
+        {
+            RemoteViewerTargetKind.Desktop => "Desktop",
+            RemoteViewerTargetKind.Window => "Window",
+            RemoteViewerTargetKind.VsCode => "VS Code",
+            RemoteViewerTargetKind.Emulator => "Emulator",
+            RemoteViewerTargetKind.Simulator => "Simulator",
+            _ => "Viewer"
+        };
+        return $"{label} • {viewer.Provider}";
+    }
+
+    private static string GetDeviceSelectionLabel(VirtualDeviceLaunchSelection selection) =>
+        selection.DisplayName ?? selection.DeviceId ?? selection.ProfileId ?? "Device selection";
 
     private void OnSessionsChanged(object? sender, EventArgs e)
     {
@@ -286,10 +516,7 @@
             {
                 Mode = mode
             });
-            var dashboard = await DashboardState.BuildAsync();
-            _projectSession = dashboard.ProjectSessions.FirstOrDefault(session =>
-                string.Equals(session.Id, ProjectSessionId, StringComparison.OrdinalIgnoreCase));
-            SyncActiveSurface();
+            await LoadAsync();
         }
         catch (InvalidOperationException ex)
         {
@@ -316,4 +543,16 @@
             }
         }
     }
+
+    private sealed record SurfaceTab(
+        string Id,
+        ProjectSessionSurfaceKind Kind,
+        string DisplayName,
+        string? MachineId,
+        string? MachineName,
+        string? ReferenceId,
+        ProjectSessionSurfaceStatus Status,
+        string? StatusMessage,
+        OrchestrationJob? Job,
+        RemoteViewerSession? Viewer);
 }
