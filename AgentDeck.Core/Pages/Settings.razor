@@ -359,7 +359,8 @@
                                 </div>
                             }
                         }
-                        @if (SelectedRegisteredMachine?.WorkflowCatalogStatus is { } workflowCatalogStatus)
+                        @if (SelectedRegisteredMachine?.WorkflowCatalogStatus is { } workflowCatalogStatus &&
+                             workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
                         {
                             <div class="settings-status-row">
                                 <span class="settings-status-row__label">Workflow catalog state</span>
