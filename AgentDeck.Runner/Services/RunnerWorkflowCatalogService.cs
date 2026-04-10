@@ -5,10 +5,9 @@ using Microsoft.Extensions.Options;
 
 namespace AgentDeck.Runner.Services;
 
-public sealed class RunnerWorkflowCatalogService : IRunnerWorkflowCatalogService
+public sealed class RunnerWorkflowCatalogService : IRunnerWorkflowCatalogService, IDisposable
 {
     private readonly WorkerCoordinatorOptions _options;
-    private readonly Lock _lock = new();
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);
     private RunnerWorkflowCatalogStatus _currentStatus;
 
@@ -28,13 +27,7 @@ public sealed class RunnerWorkflowCatalogService : IRunnerWorkflowCatalogService
         await _reconcileGate.WaitAsync(cancellationToken);
         try
         {
-            RunnerWorkflowCatalogStatus snapshot;
-            lock (_lock)
-            {
-                snapshot = _currentStatus;
-            }
-
-            return snapshot;
+            return _currentStatus;
         }
         finally
         {
@@ -81,11 +74,7 @@ public sealed class RunnerWorkflowCatalogService : IRunnerWorkflowCatalogService
                 };
             }
 
-            lock (_lock)
-            {
-                _currentStatus = status;
-            }
-
+            _currentStatus = status;
             return status;
         }
         finally
@@ -93,6 +82,8 @@ public sealed class RunnerWorkflowCatalogService : IRunnerWorkflowCatalogService
             _reconcileGate.Release();
         }
     }
+
+    public void Dispose() => _reconcileGate.Dispose();
 
     private string GetLocalCatalogVersion() => _options.WorkflowCatalogVersion.Trim();
 }
