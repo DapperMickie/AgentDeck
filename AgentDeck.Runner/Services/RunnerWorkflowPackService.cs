@@ -101,8 +101,10 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                     return await UpdateStatusAsync(new RunnerWorkflowPackStatus
                     {
                         State = RunnerWorkflowPackState.Failed,
-                        PackId = pack.PackId,
-                        PackVersion = pack.Version,
+                        PackId = desiredPackId,
+                        PackVersion = desiredPackVersion,
+                        LocalPackPath = GetRetainedLocalPackPath(currentStatus, desiredPackId, desiredPackVersion),
+                        FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
                         FailureMessage = $"Coordinator workflow pack id '{pack.PackId}' did not match desired pack '{desiredPackId}'."
                     }, cancellationToken);
                 }
@@ -112,8 +114,10 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                     return await UpdateStatusAsync(new RunnerWorkflowPackStatus
                     {
                         State = RunnerWorkflowPackState.Failed,
-                        PackId = pack.PackId,
-                        PackVersion = pack.Version,
+                        PackId = desiredPackId,
+                        PackVersion = desiredPackVersion,
+                        LocalPackPath = GetRetainedLocalPackPath(currentStatus, desiredPackId, desiredPackVersion),
+                        FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
                         FailureMessage = $"Coordinator workflow pack version '{pack.Version}' did not match desired version '{desiredPackVersion}'."
                     }, cancellationToken);
                 }
