@@ -586,6 +586,88 @@ app.MapPost("/api/machines/{machineId}/viewers/sessions/{viewerSessionId}/close"
     }
 });
 
+app.MapPost("/api/machines/{machineId}/viewers/sessions/{viewerSessionId}/control", async (string machineId, string viewerSessionId, UpdateProjectSessionControlRequest? request, HttpContext httpContext, ICompanionRegistryService companions, IMachineRemoteControlRegistryService remoteControl, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+{
+    var companionId = GetCompanionId(httpContext);
+    if (string.IsNullOrWhiteSpace(companionId))
+    {
+        return Results.BadRequest(new { message = "Coordinator companion identity is required to update remote viewer control." });
+    }
+
+    var companion = companions.GetCompanion(companionId);
+    if (companion is null)
+    {
+        return Results.BadRequest(new { message = $"Coordinator does not recognize companion '{companionId}'." });
+    }
+
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        var gate = remoteControl.GetGate(machineId);
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var mode = (request ?? new UpdateProjectSessionControlRequest()).Mode;
+            var existingState = await ReconcileMachineRemoteControlAsync(machineId, remoteControl, runners, cancellationToken);
+            var viewers = await runners.GetViewerSessionsAsync(machineId, cancellationToken);
+            var targetViewer = viewers.FirstOrDefault(viewer =>
+                string.Equals(viewer.Id, viewerSessionId.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (targetViewer is null || targetViewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
+            {
+                return Results.NotFound(new { message = $"Machine '{machineId}' no longer exposes viewer session '{viewerSessionId}'." });
+            }
+
+            var normalizedCompanionId = companionId.Trim();
+            var sameRequesterControlsMachine = existingState is not null &&
+                string.Equals(existingState.ControllerCompanionId, normalizedCompanionId, StringComparison.OrdinalIgnoreCase);
+            var acquiredAt = existingState is not null &&
+                string.Equals(existingState.ControllerCompanionId, normalizedCompanionId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(existingState.ViewerSessionId, targetViewer.Id, StringComparison.OrdinalIgnoreCase)
+                ? existingState.AcquiredAt
+                : DateTimeOffset.UtcNow;
+
+            switch (mode)
+            {
+                case ProjectSessionControlRequestMode.Request:
+                    if (existingState is not null && !sameRequesterControlsMachine)
+                    {
+                        return Results.Conflict(new { message = BuildRemoteControlConflictMessage(existingState) });
+                    }
+
+                    return Results.Ok(remoteControl.SetState(BuildRemoteControlState(machineId, targetViewer, companion, acquiredAt)));
+
+                case ProjectSessionControlRequestMode.ForceTakeover:
+                    return Results.Ok(remoteControl.SetState(BuildRemoteControlState(machineId, targetViewer, companion, acquiredAt)));
+
+                case ProjectSessionControlRequestMode.Yield:
+                    if (existingState is null ||
+                        !string.Equals(existingState.ViewerSessionId, targetViewer.Id, StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(existingState.ControllerCompanionId, normalizedCompanionId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Results.Conflict(new
+                        {
+                            message = $"Companion '{normalizedCompanionId}' does not currently control viewer session '{targetViewer.Id}' on machine '{machineId}'."
+                        });
+                    }
+
+                    remoteControl.ClearState(machineId, targetViewer.Id);
+                    return Results.Ok(new { yielded = true });
+
+                default:
+                    return Results.BadRequest(new { message = $"Remote viewer control mode '{mode}' is not supported." });
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
 app.MapGet("/api/machines/{machineId}/virtual-devices/catalogs", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
@@ -732,6 +814,28 @@ static ProjectSessionRecord? GetLatestProjectSession(
 
 static string BuildRemoteControlConflictMessage(MachineRemoteControlState state) =>
     $"Machine '{state.MachineName ?? state.MachineId}' is currently remotely controlled by companion '{state.ControllerDisplayName ?? state.ControllerCompanionId}' through viewer session '{state.ViewerSessionId}'. Use force takeover to replace that remote controller.";
+
+static MachineRemoteControlState BuildRemoteControlState(
+    string machineId,
+    RemoteViewerSession viewer,
+    RegisteredCompanion companion,
+    DateTimeOffset acquiredAt) =>
+    new()
+    {
+        MachineId = machineId.Trim(),
+        MachineName = viewer.MachineName,
+        ControllerCompanionId = companion.CompanionId,
+        ControllerDisplayName = companion.DisplayName,
+        ViewerSessionId = viewer.Id,
+        TargetKind = viewer.Target.Kind,
+        TargetDisplayName = viewer.Target.DisplayName,
+        Provider = viewer.Provider,
+        ViewerStatus = viewer.Status,
+        ConnectionUri = viewer.ConnectionUri,
+        StatusMessage = viewer.StatusMessage,
+        AcquiredAt = acquiredAt,
+        UpdatedAt = viewer.UpdatedAt
+    };
 
 static async Task<MachineRemoteControlState?> ReconcileMachineRemoteControlAsync(
     string machineId,

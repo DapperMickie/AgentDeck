@@ -131,6 +131,13 @@
                                     <dt>Viewer</dt>
                                     <dd>@GetViewerSummary(_activeSurface.Viewer)</dd>
                                 </div>
+                                @if (GetActiveViewerControlNotice() is { } viewerControlNotice)
+                                {
+                                    <div>
+                                        <dt>Remote control</dt>
+                                        <dd>@viewerControlNotice</dd>
+                                    </div>
+                                }
                                 @if (!string.IsNullOrWhiteSpace(_activeSurface.Viewer.ConnectionUri))
                                 {
                                     <div>
@@ -149,6 +156,40 @@
                         else if (_activeSurface.Job is not null || _activeSurface.Viewer is not null)
                         {
                             <p class="surface-details-card__note">This runtime tab is derived from the current machine orchestration/viewer state for this project session.</p>
+                        }
+                        @if (_activeSurface.Viewer is not null && CanControlActiveViewer())
+                        {
+                            <div class="project-runtime-card__actions">
+                                @if (IsActiveViewerControlledByCurrentCompanion())
+                                {
+                                    <button class="btn btn-accent"
+                                            disabled="@_viewerActionInProgress"
+                                            @onclick="() => UpdateActiveViewerControlAsync(ProjectSessionControlRequestMode.Yield)">
+                                        Yield control
+                                    </button>
+                                    <button class="btn btn-danger"
+                                            disabled="@_viewerActionInProgress"
+                                            @onclick="CloseActiveViewerAsync">
+                                        Close viewer
+                                    </button>
+                                }
+                                else if (HasAnotherCompanionControllingMachine())
+                                {
+                                    <button class="btn btn-danger"
+                                            disabled="@_viewerActionInProgress"
+                                            @onclick="() => UpdateActiveViewerControlAsync(ProjectSessionControlRequestMode.ForceTakeover)">
+                                        Force take over
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-accent"
+                                            disabled="@_viewerActionInProgress"
+                                            @onclick="() => UpdateActiveViewerControlAsync(ProjectSessionControlRequestMode.Request)">
+                                        Take control
+                                    </button>
+                                }
+                            </div>
                         }
                     </div>
                 }
@@ -170,7 +211,9 @@
     private IReadOnlyList<SurfaceTab> _surfaceTabs = [];
     private IReadOnlyList<OrchestrationJob> _runtimeJobs = [];
     private IReadOnlyList<RemoteViewerSession> _runtimeViewers = [];
+    private MachineRemoteControlState? _remoteControlState;
     private string? _runtimeLoadError;
+    private bool _viewerActionInProgress;
 
     protected override void OnInitialized()
     {
@@ -246,15 +289,17 @@
         if (_projectSession is null ||
             string.IsNullOrWhiteSpace(_coordinatorUrl) ||
             string.IsNullOrWhiteSpace(_projectSession.MachineId))
-        {
-            _runtimeJobs = [];
-            _runtimeViewers = [];
-            return;
-        }
+            {
+                _runtimeJobs = [];
+                _runtimeViewers = [];
+                _remoteControlState = null;
+                return;
+            }
 
         var jobsTask = CoordinatorClient.GetMachineOrchestrationJobsAsync(_coordinatorUrl, _projectSession.MachineId);
         var viewersTask = CoordinatorClient.GetMachineViewerSessionsAsync(_coordinatorUrl, _projectSession.MachineId);
-        await Task.WhenAll(jobsTask, viewersTask);
+        var remoteControlTask = TryGetMachineRemoteControlStateAsync(_projectSession.MachineId);
+        await Task.WhenAll(jobsTask, viewersTask, remoteControlTask);
 
         _runtimeJobs = jobsTask.Result
             .Where(job => string.Equals(job.ProjectId, _projectSession.ProjectId, StringComparison.OrdinalIgnoreCase))
@@ -268,6 +313,19 @@
                 (!string.IsNullOrWhiteSpace(viewer.Target.JobId) && jobIds.Contains(viewer.Target.JobId)))
             .OrderByDescending(viewer => viewer.UpdatedAt)
             .ToArray();
+        _remoteControlState = remoteControlTask.Result;
+    }
+
+    private async Task<MachineRemoteControlState?> TryGetMachineRemoteControlStateAsync(string machineId)
+    {
+        try
+        {
+            return await CoordinatorClient.GetMachineRemoteControlStateAsync(_coordinatorUrl!, machineId);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void BuildSurfaceTabs()
@@ -527,6 +585,123 @@
             Toasts.Show(ex.Message, ToastKind.Error);
         }
     }
+
+    private async Task UpdateActiveViewerControlAsync(ProjectSessionControlRequestMode mode)
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl) ||
+            string.IsNullOrWhiteSpace(_activeSurface?.MachineId) ||
+            _activeSurface.Viewer is null)
+        {
+            return;
+        }
+
+        _viewerActionInProgress = true;
+        try
+        {
+            await CoordinatorClient.UpdateMachineViewerControlAsync(_coordinatorUrl, _activeSurface.MachineId, _activeSurface.Viewer.Id, mode);
+            Toasts.Show(mode switch
+            {
+                ProjectSessionControlRequestMode.Request => $"You now control {_activeSurface.Viewer.Target.DisplayName}.",
+                ProjectSessionControlRequestMode.ForceTakeover => $"You took control of {_activeSurface.Viewer.Target.DisplayName}.",
+                ProjectSessionControlRequestMode.Yield => $"Yielded control of {_activeSurface.Viewer.Target.DisplayName}.",
+                _ => "Updated viewer control."
+            }, mode == ProjectSessionControlRequestMode.Yield ? ToastKind.Info : ToastKind.Success);
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _viewerActionInProgress = false;
+        }
+    }
+
+    private async Task CloseActiveViewerAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl) ||
+            string.IsNullOrWhiteSpace(_activeSurface?.MachineId) ||
+            _activeSurface.Viewer is null)
+        {
+            return;
+        }
+
+        _viewerActionInProgress = true;
+        try
+        {
+            var session = await CoordinatorClient.CloseMachineViewerSessionAsync(_coordinatorUrl, _activeSurface.MachineId, _activeSurface.Viewer.Id);
+            if (session is null)
+            {
+                Toasts.Show("The coordinator could no longer find that viewer session.", ToastKind.Warning);
+            }
+            else
+            {
+                Toasts.Show(session.StatusMessage ?? "Viewer session closed.", ToastKind.Info);
+            }
+
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _viewerActionInProgress = false;
+        }
+    }
+
+    private string? GetActiveViewerControlNotice()
+    {
+        if (_activeSurface?.Viewer is null)
+        {
+            return null;
+        }
+
+        if (_remoteControlState is null)
+        {
+            return null;
+        }
+
+        var controllerLabel = _remoteControlState.ControllerDisplayName ?? _remoteControlState.ControllerCompanionId;
+        var activeTarget = _remoteControlState.TargetDisplayName ?? "another viewer";
+        if (string.Equals(_remoteControlState.ViewerSessionId, _activeSurface.Viewer.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return IsActiveViewerControlledByCurrentCompanion()
+                ? "You currently control this viewer session."
+                : $"{controllerLabel} currently controls this viewer session.";
+        }
+
+        return IsCurrentRemoteController(_remoteControlState)
+            ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote target."
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this viewer requires force takeover.";
+    }
+
+    private bool CanControlActiveViewer() =>
+        _activeSurface?.Viewer is not null &&
+        _activeSurface.Viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+
+    private bool IsActiveViewerControlledByCurrentCompanion() =>
+        _activeSurface?.Viewer is not null &&
+        _remoteControlState is not null &&
+        string.Equals(_remoteControlState.ViewerSessionId, _activeSurface.Viewer.Id, StringComparison.OrdinalIgnoreCase) &&
+        IsCurrentRemoteController(_remoteControlState);
+
+    private bool HasAnotherCompanionControllingMachine() =>
+        _remoteControlState is not null && !IsCurrentRemoteController(_remoteControlState);
+
+    private bool IsCurrentRemoteController(MachineRemoteControlState state) =>
+        !string.IsNullOrWhiteSpace(AgentClient.CompanionId) &&
+        string.Equals(state.ControllerCompanionId, AgentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
 
     public async ValueTask DisposeAsync()
     {

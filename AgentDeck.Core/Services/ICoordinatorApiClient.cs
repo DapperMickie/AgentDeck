@@ -1,3 +1,4 @@
+using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 
 namespace AgentDeck.Core.Services;
@@ -32,6 +33,8 @@ public interface ICoordinatorApiClient
     Task<MachineRemoteControlState?> GetMachineRemoteControlStateAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default);
 
     Task<RemoteViewerSession?> CreateMachineViewerSessionAsync(string coordinatorUrl, string machineId, CreateMachineViewerSessionRequest request, CancellationToken cancellationToken = default);
+
+    Task UpdateMachineViewerControlAsync(string coordinatorUrl, string machineId, string viewerSessionId, ProjectSessionControlRequestMode mode, CancellationToken cancellationToken = default);
 
     Task<RemoteViewerSession?> CloseMachineViewerSessionAsync(string coordinatorUrl, string machineId, string viewerSessionId, CancellationToken cancellationToken = default);
 

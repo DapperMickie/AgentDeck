@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Net.Http.Json;
+using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 using Microsoft.Extensions.Logging;
 
@@ -391,6 +392,47 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
             _logger.LogError(ex, "Coordinator viewer close failed for machine {MachineId} viewer {ViewerSessionId}", machineId, viewerSessionId);
+            throw;
+        }
+    }
+
+    public async Task UpdateMachineViewerControlAsync(string coordinatorUrl, string machineId, string viewerSessionId, ProjectSessionControlRequestMode mode, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/viewers/sessions/{Uri.EscapeDataString(viewerSessionId)}/control",
+                new UpdateProjectSessionControlRequest
+                {
+                    Mode = mode
+                },
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(message ?? $"Machine '{machineId}' no longer exposes viewer '{viewerSessionId}'.");
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(message ?? $"Machine '{machineId}' rejected control changes for viewer '{viewerSessionId}'.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new HttpRequestException(
+                    message ?? $"Coordinator viewer control update failed with HTTP {(int)response.StatusCode}.",
+                    inner: null,
+                    response.StatusCode);
+            }
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            _logger.LogError(ex, "Coordinator viewer control update failed for machine {MachineId} viewer {ViewerSessionId}", machineId, viewerSessionId);
             throw;
         }
     }
