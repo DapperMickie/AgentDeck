@@ -516,8 +516,6 @@ app.MapPost("/api/machines/{machineId}/viewers/sessions", async (string machineI
                 {
                     await runners.CloseViewerSessionAsync(machineId, existingState.ViewerSessionId, GetActorId(httpContext), cancellationToken);
                 }
-
-                remoteControl.ClearState(machineId, existingState.ViewerSessionId);
             }
 
             var session = await runners.CreateViewerSessionAsync(machineId, request.Viewer, GetActorId(httpContext), cancellationToken);
@@ -546,7 +544,7 @@ app.MapPost("/api/machines/{machineId}/viewers/sessions", async (string machineI
     }
     catch (InvalidOperationException ex)
     {
-        return Results.Conflict(new { message = ex.Message });
+        return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
     }
 });
 
@@ -584,7 +582,7 @@ app.MapPost("/api/machines/{machineId}/viewers/sessions/{viewerSessionId}/close"
     }
     catch (InvalidOperationException ex)
     {
-        return Results.Conflict(new { message = ex.Message });
+        return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
     }
 });
 
