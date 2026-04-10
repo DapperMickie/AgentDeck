@@ -34,6 +34,51 @@
             <div>
                 <h1>@_projectSession.ProjectName</h1>
                 <p>@GetControllerStateLabel() • @GetViewerSummary() • @GetLocationLabel()</p>
+                @if (_sessionMachine is not null)
+                {
+                    <p class="project-machine-card__meta">
+                        Agent @_sessionMachine.AgentVersion
+                        @if (!string.IsNullOrWhiteSpace(_sessionMachine.SecurityPolicyVersion))
+                        {
+                            <span>• security @_sessionMachine.SecurityPolicyVersion</span>
+                        }
+                    </p>
+                    @if (HasControlPlaneSignals(_sessionMachine))
+                    {
+                        <div class="project-machine-card__targets">
+                            @if (!_sessionMachine.ProtocolCompatible)
+                            {
+                                <span class="project-target-chip project-target-chip--unsupported">
+                                    Protocol incompatible
+                                </span>
+                            }
+                            @if (_sessionMachine.UpdateRollout is { } rollout && ShouldShowUpdateRolloutChip(rollout.State))
+                            {
+                                <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetUpdateRolloutChipClass(rollout.State))">
+                                    Update @GetUpdateRolloutLabel(rollout.State)
+                                </span>
+                            }
+                            @if (_sessionMachine.WorkflowPackStatus is { } workflowPackStatus &&
+                                 workflowPackStatus.State != RunnerWorkflowPackState.None)
+                            {
+                                <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowPackChipClass(workflowPackStatus.State))">
+                                    Workflow pack @GetWorkflowPackStateLabel(workflowPackStatus.State)
+                                </span>
+                            }
+                            @if (_sessionMachine.WorkflowCatalogStatus is { } workflowCatalogStatus &&
+                                 workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
+                            {
+                                <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowCatalogChipClass(workflowCatalogStatus.State))">
+                                    Catalog @GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)
+                                </span>
+                            }
+                        </div>
+                    }
+                    @if (GetSessionMachineNotice() is { } sessionMachineNotice)
+                    {
+                        <p class="project-template-target__note">@sessionMachineNotice</p>
+                    }
+                }
             </div>
             <div class="project-page__actions">
                 <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Project</a>
@@ -212,6 +257,7 @@
     private IReadOnlyList<OrchestrationJob> _runtimeJobs = [];
     private IReadOnlyList<RemoteViewerSession> _runtimeViewers = [];
     private MachineRemoteControlState? _remoteControlState;
+    private CompanionMachineSummary? _sessionMachine;
     private string? _runtimeLoadError;
     private bool _viewerActionInProgress;
 
@@ -253,6 +299,7 @@
 
             if (_projectSession is null)
             {
+                _sessionMachine = null;
                 _runtimeJobs = [];
                 _runtimeViewers = [];
                 _surfaceTabs = [];
@@ -263,6 +310,10 @@
                 return;
             }
 
+            _sessionMachine = string.IsNullOrWhiteSpace(_projectSession.MachineId)
+                ? null
+                : dashboard.Machines.FirstOrDefault(machine =>
+                    string.Equals(machine.MachineId, _projectSession.MachineId, StringComparison.OrdinalIgnoreCase));
             _runtimeLoadError = null;
             try
             {
@@ -471,6 +522,112 @@
         string.IsNullOrWhiteSpace(_projectSession?.MachineName)
             ? "Coordinator-managed session"
             : $"Hosted on {_projectSession.MachineName}";
+
+    private static bool HasControlPlaneSignals(CompanionMachineSummary machine) =>
+        !machine.ProtocolCompatible ||
+        (machine.UpdateRollout is not null && ShouldShowUpdateRolloutChip(machine.UpdateRollout.State)) ||
+        (machine.WorkflowPackStatus is not null && machine.WorkflowPackStatus.State != RunnerWorkflowPackState.None) ||
+        (machine.WorkflowCatalogStatus is not null && machine.WorkflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown);
+
+    private static string GetControlPlaneChipClass(string stateClass) => stateClass;
+
+    private static bool ShouldShowUpdateRolloutChip(RunnerUpdateRolloutState state) =>
+        state is not (RunnerUpdateRolloutState.UpToDate or RunnerUpdateRolloutState.Applied);
+
+    private static string GetUpdateRolloutLabel(RunnerUpdateRolloutState state) => state switch
+    {
+        RunnerUpdateRolloutState.UpToDate => "Up to date",
+        RunnerUpdateRolloutState.UpdateAvailable => "Update available",
+        RunnerUpdateRolloutState.ManifestStaged => "Manifest staged",
+        RunnerUpdateRolloutState.PayloadStaged => "Payload staged",
+        RunnerUpdateRolloutState.ReadyToApply => "Ready to apply",
+        RunnerUpdateRolloutState.Applying => "Applying",
+        RunnerUpdateRolloutState.Applied => "Applied",
+        RunnerUpdateRolloutState.Failed => "Failed",
+        RunnerUpdateRolloutState.Blocked => "Blocked",
+        _ => state.ToString()
+    };
+
+    private static string GetUpdateRolloutChipClass(RunnerUpdateRolloutState state) => state switch
+    {
+        RunnerUpdateRolloutState.UpToDate or RunnerUpdateRolloutState.Applied => "supported",
+        RunnerUpdateRolloutState.UpdateAvailable or
+        RunnerUpdateRolloutState.ManifestStaged or
+        RunnerUpdateRolloutState.PayloadStaged or
+        RunnerUpdateRolloutState.ReadyToApply or
+        RunnerUpdateRolloutState.Applying => "setup",
+        _ => "unsupported"
+    };
+
+    private static string GetWorkflowPackStateLabel(RunnerWorkflowPackState state) => state switch
+    {
+        RunnerWorkflowPackState.Ready => "Ready",
+        RunnerWorkflowPackState.Blocked => "Blocked",
+        RunnerWorkflowPackState.Failed => "Failed",
+        _ => "Unknown"
+    };
+
+    private static string GetWorkflowPackChipClass(RunnerWorkflowPackState state) => state switch
+    {
+        RunnerWorkflowPackState.Ready => "supported",
+        RunnerWorkflowPackState.Blocked => "setup",
+        RunnerWorkflowPackState.Failed => "unsupported",
+        _ => "setup"
+    };
+
+    private static string GetWorkflowCatalogStateLabel(RunnerWorkflowCatalogState state) => state switch
+    {
+        RunnerWorkflowCatalogState.Matched => "Matched",
+        RunnerWorkflowCatalogState.Mismatched => "Mismatched",
+        _ => "Unknown"
+    };
+
+    private static string GetWorkflowCatalogChipClass(RunnerWorkflowCatalogState state) => state switch
+    {
+        RunnerWorkflowCatalogState.Matched => "supported",
+        RunnerWorkflowCatalogState.Mismatched => "unsupported",
+        _ => "setup"
+    };
+
+    private string? GetSessionMachineNotice()
+    {
+        if (_sessionMachine is null)
+        {
+            return null;
+        }
+
+        if (!_sessionMachine.ProtocolCompatible)
+        {
+            return "This session is hosted on a runner that is currently protocol-incompatible with the coordinator.";
+        }
+
+        if (_sessionMachine.WorkflowCatalogStatus?.State == RunnerWorkflowCatalogState.Mismatched)
+        {
+            return "The host runner workflow catalog does not match the coordinator's desired version.";
+        }
+
+        if (_sessionMachine.WorkflowPackStatus?.State == RunnerWorkflowPackState.Failed)
+        {
+            return "The host runner's assigned workflow pack last failed.";
+        }
+
+        if (_sessionMachine.WorkflowPackStatus?.State == RunnerWorkflowPackState.Blocked)
+        {
+            return "The host runner's assigned workflow pack is currently blocked.";
+        }
+
+        if (_sessionMachine.UpdateRollout is { State: RunnerUpdateRolloutState.Blocked })
+        {
+            return "Host runner update rollout is currently blocked.";
+        }
+
+        if (_sessionMachine.UpdateRollout is { State: RunnerUpdateRolloutState.Failed })
+        {
+            return "Host runner update rollout last failed.";
+        }
+
+        return null;
+    }
 
     private static int GetSurfaceSortKey(SurfaceTab surface) => surface.Kind switch
     {
