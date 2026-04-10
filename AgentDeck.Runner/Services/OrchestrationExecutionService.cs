@@ -206,7 +206,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
                 status: OrchestrationJobStatus.Running,
                 statusMessage: "Launching application.",
                 fallbackMachineId: job.TargetMachineId,
-                attachDeviceViewer: true);
+                attachRuntimeViewer: true);
 
             await FinishIfTerminalAsync(jobId, launchExitCode, "Launch");
         }
@@ -322,7 +322,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         OrchestrationJobStatus status,
         string statusMessage,
         string? fallbackMachineId,
-        bool attachDeviceViewer = false)
+        bool attachRuntimeViewer = false)
     {
         if (string.IsNullOrWhiteSpace(command))
         {
@@ -355,9 +355,9 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         try
         {
             await _ptyManager.StartAsync(sessionId, shellCommand, shellArguments, workingDirectory, 120, 40);
-            if (attachDeviceViewer)
+            if (attachRuntimeViewer)
             {
-                await TryAttachDeviceViewerAsync(job, sessionId);
+                await TryAttachRuntimeViewerAsync(job, sessionId);
             }
 
             return await completion.Task;
@@ -424,9 +424,9 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         return false;
     }
 
-    private async Task TryAttachDeviceViewerAsync(OrchestrationJob job, string sessionId)
+    private async Task TryAttachRuntimeViewerAsync(OrchestrationJob job, string sessionId)
     {
-        if (!TryBuildDeviceViewerRequest(job, sessionId, out var request, out var targetKind))
+        if (!TryBuildRuntimeViewerRequest(job, sessionId, out var request, out var targetKind))
         {
             return;
         }
@@ -444,7 +444,13 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
             viewer = await _viewerBootstrap.BootstrapAsync(viewer.Id) ?? viewer;
 
-            var targetLabel = targetKind == RemoteViewerTargetKind.Emulator ? "Emulator" : "Simulator";
+            var targetLabel = targetKind switch
+            {
+                RemoteViewerTargetKind.Emulator => "Emulator",
+                RemoteViewerTargetKind.Simulator => "Simulator",
+                RemoteViewerTargetKind.Window => "Window",
+                _ => "Viewer"
+            };
             var viewerMessage = viewer.Status switch
             {
                 RemoteViewerSessionStatus.Ready => $"{targetLabel} viewer session '{viewer.Id}' is ready.",
@@ -463,14 +469,14 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         {
             if (viewer is not null)
             {
-                await _viewerBootstrap.CloseAsync(viewer.Id, "Viewer session closed because device viewer attachment failed.");
-            }
+                    await _viewerBootstrap.CloseAsync(viewer.Id, "Viewer session closed because runtime viewer attachment failed.");
+                }
 
-            throw;
-        }
+                throw;
+            }
     }
 
-    private bool TryBuildDeviceViewerRequest(
+    private bool TryBuildRuntimeViewerRequest(
         OrchestrationJob job,
         string sessionId,
         out CreateRemoteViewerSessionRequest request,
@@ -479,13 +485,34 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         request = new CreateRemoteViewerSessionRequest();
         targetKind = default;
 
-        if (job.DeviceSelection?.HasTarget != true ||
-            !TryMapDeviceViewerTargetKind(job.Platform, out targetKind))
+        if (job.DeviceSelection?.HasTarget == true &&
+            TryMapDeviceViewerTargetKind(job.Platform, out targetKind))
+        {
+            var deviceLabel = job.DeviceSelection.DisplayName ?? job.DeviceSelection.DeviceId ?? job.DeviceSelection.ProfileId ?? job.LaunchProfileName;
+            request = new CreateRemoteViewerSessionRequest
+            {
+                MachineId = job.TargetMachineId,
+                MachineName = job.TargetMachineName,
+                JobId = job.Id,
+                Target = new RemoteViewerTarget
+                {
+                    Kind = targetKind,
+                    DisplayName = $"{job.ProjectName} {deviceLabel}",
+                    JobId = job.Id,
+                    SessionId = sessionId,
+                    VirtualDeviceId = job.DeviceSelection.DeviceId,
+                    VirtualDeviceProfileId = job.DeviceSelection.ProfileId
+                }
+            };
+
+            return true;
+        }
+
+        if (!TryMapWindowViewerTargetKind(job.Platform, out targetKind))
         {
             return false;
         }
 
-        var deviceLabel = job.DeviceSelection.DisplayName ?? job.DeviceSelection.DeviceId ?? job.DeviceSelection.ProfileId ?? job.LaunchProfileName;
         request = new CreateRemoteViewerSessionRequest
         {
             MachineId = job.TargetMachineId,
@@ -494,11 +521,10 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             Target = new RemoteViewerTarget
             {
                 Kind = targetKind,
-                DisplayName = $"{job.ProjectName} {deviceLabel}",
+                DisplayName = $"{job.ProjectName} {job.LaunchProfileName}",
                 JobId = job.Id,
                 SessionId = sessionId,
-                VirtualDeviceId = job.DeviceSelection.DeviceId,
-                VirtualDeviceProfileId = job.DeviceSelection.ProfileId
+                WindowTitle = job.ProjectName
             }
         };
 
@@ -525,6 +551,21 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
                 return true;
             case ApplicationTargetPlatform.iOS:
                 targetKind = RemoteViewerTargetKind.Simulator;
+                return true;
+            default:
+                targetKind = default;
+                return false;
+        }
+    }
+
+    private static bool TryMapWindowViewerTargetKind(ApplicationTargetPlatform platform, out RemoteViewerTargetKind targetKind)
+    {
+        switch (platform)
+        {
+            case ApplicationTargetPlatform.Windows:
+            case ApplicationTargetPlatform.Linux:
+            case ApplicationTargetPlatform.MacOS:
+                targetKind = RemoteViewerTargetKind.Window;
                 return true;
             default:
                 targetKind = default;
