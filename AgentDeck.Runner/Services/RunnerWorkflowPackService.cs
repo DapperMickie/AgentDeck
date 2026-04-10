@@ -47,6 +47,7 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         await _reconcileGate.WaitAsync(cancellationToken);
         try
         {
+            var currentStatus = GetCurrentStatusSnapshot();
             if (desiredState.DesiredWorkflowPack is null)
             {
                 return await UpdateStatusAsync(null, cancellationToken);
@@ -61,11 +62,12 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                     State = RunnerWorkflowPackState.Blocked,
                     PackId = desiredPackId,
                     PackVersion = desiredPackVersion,
+                    LocalPackPath = GetRetainedLocalPackPath(currentStatus, desiredPackId, desiredPackVersion),
+                    FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
                     StatusMessage = $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit workflow pack execution."
                 }, cancellationToken);
             }
 
-            var currentStatus = GetCurrentStatusSnapshot();
             if (currentStatus?.State == RunnerWorkflowPackState.Ready &&
                 string.Equals(currentStatus.PackId, desiredPackId, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(currentStatus.PackVersion, desiredPackVersion, StringComparison.OrdinalIgnoreCase) &&
@@ -88,6 +90,8 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                         State = RunnerWorkflowPackState.Failed,
                         PackId = desiredPackId,
                         PackVersion = desiredPackVersion,
+                        LocalPackPath = GetRetainedLocalPackPath(currentStatus, desiredPackId, desiredPackVersion),
+                        FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
                         FailureMessage = "Coordinator returned an empty workflow pack response."
                     }, cancellationToken);
                 }
@@ -132,13 +136,15 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to reconcile desired workflow pack {PackId}@{PackVersion}", desiredPackId, desiredPackVersion);
-                return await UpdateStatusAsync(new RunnerWorkflowPackStatus
-                {
-                    State = RunnerWorkflowPackState.Failed,
-                    PackId = desiredPackId,
-                    PackVersion = desiredPackVersion,
-                    FailureMessage = ex.Message
-                }, cancellationToken);
+                    return await UpdateStatusAsync(new RunnerWorkflowPackStatus
+                    {
+                        State = RunnerWorkflowPackState.Failed,
+                        PackId = desiredPackId,
+                        PackVersion = desiredPackVersion,
+                        LocalPackPath = GetRetainedLocalPackPath(currentStatus, desiredPackId, desiredPackVersion),
+                        FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
+                        FailureMessage = ex.Message
+                    }, cancellationToken);
             }
         }
         finally
@@ -157,31 +163,28 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         lock (_lock)
         {
             previousStatus = _currentStatus;
+        }
+
+        if (status is null)
+        {
+            TryDeleteFile(statusPath);
+            CleanupOldWorkflowPackFiles(previousStatus, null);
+            lock (_lock)
+            {
+                _currentStatus = null;
+            }
+
+            return null;
+        }
+
+        await WriteTextAtomicallyAsync(statusPath, JsonSerializer.Serialize(status, JsonOptions), cancellationToken);
+        CleanupOldWorkflowPackFiles(previousStatus, status);
+        lock (_lock)
+        {
             _currentStatus = status;
         }
 
-        try
-        {
-            if (status is null)
-            {
-                TryDeleteFile(statusPath);
-                CleanupOldWorkflowPackFiles(previousStatus, null);
-                return null;
-            }
-
-            await WriteTextAtomicallyAsync(statusPath, JsonSerializer.Serialize(status, JsonOptions), cancellationToken);
-            CleanupOldWorkflowPackFiles(previousStatus, status);
-            return status;
-        }
-        catch
-        {
-            lock (_lock)
-            {
-                _currentStatus = previousStatus;
-            }
-
-            throw;
-        }
+        return status;
     }
 
     private RunnerWorkflowPackStatus? LoadPersistedStatus()
@@ -263,6 +266,23 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
             _logger.LogWarning(ex, "Failed to clean up stale workflow pack files under {WorkflowPackDirectory}", previousDirectory);
         }
     }
+
+    private static string? GetRetainedLocalPackPath(RunnerWorkflowPackStatus? currentStatus, string desiredPackId, string desiredPackVersion) =>
+        IsSamePack(currentStatus, desiredPackId, desiredPackVersion) &&
+        !string.IsNullOrWhiteSpace(currentStatus?.LocalPackPath) &&
+        File.Exists(currentStatus.LocalPackPath)
+            ? currentStatus.LocalPackPath
+            : null;
+
+    private static DateTimeOffset? GetRetainedFetchedAt(RunnerWorkflowPackStatus? currentStatus, string desiredPackId, string desiredPackVersion) =>
+        IsSamePack(currentStatus, desiredPackId, desiredPackVersion)
+            ? currentStatus?.FetchedAt
+            : null;
+
+    private static bool IsSamePack(RunnerWorkflowPackStatus? currentStatus, string desiredPackId, string desiredPackVersion) =>
+        currentStatus is not null &&
+        string.Equals(currentStatus.PackId, desiredPackId, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(currentStatus.PackVersion, desiredPackVersion, StringComparison.OrdinalIgnoreCase);
 
     private static async Task WriteTextAtomicallyAsync(string path, string contents, CancellationToken cancellationToken)
     {
