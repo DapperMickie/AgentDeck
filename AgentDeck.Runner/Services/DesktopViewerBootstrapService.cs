@@ -696,9 +696,14 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         process.Exited += (_, _) => _ = HandleActiveTransportExitAsync(session, activeTransport);
         process.EnableRaisingEvents = true;
 
-        if (process.HasExited && _activeTransports.TryRemove(session.Id, out var removedTransport))
+        if (process.HasExited)
         {
-            var detail = await removedTransport.StopAsync();
+            string? detail = null;
+            if (_activeTransports.TryRemove(session.Id, out var removedTransport))
+            {
+                detail = await removedTransport.StopAsync();
+            }
+
             throw new InvalidOperationException(BuildUnexpectedExitMessage(
                 session,
                 GetUnexpectedExitProviderLabel(session),
