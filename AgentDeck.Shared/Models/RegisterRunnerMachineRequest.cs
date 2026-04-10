@@ -14,6 +14,8 @@ public sealed class RegisterRunnerMachineRequest
     public RunnerWorkflowCatalogStatus? WorkflowCatalogStatus { get; init; }
     public string? CapabilityCatalogVersion { get; init; }
     public RunnerCapabilityCatalogStatus? CapabilityCatalogStatus { get; init; }
+    public string? SetupCatalogVersion { get; init; }
+    public RunnerSetupCatalogStatus? SetupCatalogStatus { get; init; }
     public RunnerUpdateStatus? UpdateStatus { get; init; }
     public RunnerWorkflowPackStatus? WorkflowPackStatus { get; init; }
     public string? RunnerUrl { get; init; }

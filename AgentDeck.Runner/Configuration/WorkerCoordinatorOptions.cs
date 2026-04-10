@@ -37,6 +37,9 @@ public sealed class WorkerCoordinatorOptions
     /// <summary>Optional local root for the reconciled coordinator capability catalog.</summary>
     public string? CapabilityCatalogRoot { get; set; }
 
+    /// <summary>Optional local root for the reconciled coordinator setup catalog.</summary>
+    public string? SetupCatalogRoot { get; set; }
+
     /// <summary>Allow plain HTTP only when the configured coordinator resolves to a loopback host.</summary>
     public bool AllowInsecureHttpCoordinatorForLoopback { get; set; } = true;
 

@@ -9,6 +9,7 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
     private readonly RunnerUpdateManifest _desiredUpdateManifest;
     private readonly RunnerWorkflowPack _desiredWorkflowPack;
     private readonly RunnerCapabilityCatalog _desiredCapabilityCatalog;
+    private readonly RunnerSetupCatalog _desiredSetupCatalog;
 
     public RunnerDefinitionCatalogService(
         IOptions<CoordinatorOptions> coordinatorOptions,
@@ -18,6 +19,7 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
         var desiredUpdateManifest = options.DesiredUpdateManifest ?? new CoordinatorUpdateManifestOptions();
         var desiredWorkflowPack = options.DesiredWorkflowPack ?? new CoordinatorWorkflowPackOptions();
         var desiredCapabilityCatalog = options.DesiredCapabilityCatalog ?? new CoordinatorCapabilityCatalogOptions();
+        var desiredSetupCatalog = options.DesiredSetupCatalog ?? new CoordinatorSetupCatalogOptions();
         var securityPolicy = options.SecurityPolicy ?? new CoordinatorSecurityPolicyOptions();
         var hostedArtifact = ResolveHostedArtifact(options, desiredUpdateManifest, artifactService);
 
@@ -114,6 +116,50 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
                 })
                 .ToArray()
         };
+
+        _desiredSetupCatalog = new RunnerSetupCatalog
+        {
+            CatalogId = NormalizeRequired(desiredSetupCatalog.CatalogId, $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog:CatalogId"),
+            Version = NormalizeRequired(desiredSetupCatalog.Version, $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog:Version"),
+            DisplayName = NormalizeRequired(desiredSetupCatalog.DisplayName, $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog:DisplayName"),
+            Description = NormalizeOptional(desiredSetupCatalog.Description),
+            Capabilities = (desiredSetupCatalog.Capabilities ?? [])
+                .Where(capability => !string.IsNullOrWhiteSpace(capability.CapabilityId))
+                .Select(capability => new RunnerSetupCapabilityDefinition
+                {
+                    CapabilityId = NormalizeRequired(capability.CapabilityId, $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog:Capabilities:CapabilityId"),
+                    DisplayName = NormalizeRequired(capability.DisplayName, $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog:Capabilities:DisplayName"),
+                    Actions = (capability.Actions ?? [])
+                        .Where(action => !string.IsNullOrWhiteSpace(action.Action))
+                        .Select(action => new RunnerSetupActionDefinition
+                        {
+                            Action = NormalizeRequired(action.Action, $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog:Capabilities:Actions:Action"),
+                            Recipes = (action.Recipes ?? [])
+                                .Select(recipe => new RunnerSetupRecipe
+                                {
+                                    Platform = recipe.Platform,
+                                    ExecutionKind = recipe.ExecutionKind,
+                                    MatchVersionPattern = NormalizeOptional(recipe.MatchVersionPattern),
+                                    MatchWhenVersionMissing = recipe.MatchWhenVersionMissing,
+                                    DefaultVersion = NormalizeOptional(recipe.DefaultVersion),
+                                    CommandText = NormalizeOptional(recipe.CommandText),
+                                    FileName = NormalizeOptional(recipe.FileName),
+                                    Arguments = (recipe.Arguments ?? [])
+                                        .Where(argument => !string.IsNullOrWhiteSpace(argument))
+                                        .Select(argument => argument.Trim())
+                                        .ToArray(),
+                                    RequiredCommands = (recipe.RequiredCommands ?? [])
+                                        .Where(command => !string.IsNullOrWhiteSpace(command))
+                                        .Select(command => command.Trim())
+                                        .ToArray(),
+                                    RequiredCommandsMessage = NormalizeOptional(recipe.RequiredCommandsMessage)
+                                })
+                                .ToArray()
+                        })
+                        .ToArray()
+                })
+                .ToArray()
+        };
     }
 
     public RunnerUpdateManifest GetDesiredUpdateManifest() => _desiredUpdateManifest;
@@ -121,6 +167,8 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
     public RunnerWorkflowPack GetDesiredWorkflowPack() => _desiredWorkflowPack;
 
     public RunnerCapabilityCatalog GetDesiredCapabilityCatalog() => _desiredCapabilityCatalog;
+
+    public RunnerSetupCatalog GetDesiredSetupCatalog() => _desiredSetupCatalog;
 
     public RunnerUpdateManifest? GetUpdateManifest(string manifestId) =>
         string.Equals(_desiredUpdateManifest.ManifestId, manifestId, StringComparison.OrdinalIgnoreCase)
@@ -135,6 +183,11 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
     public RunnerCapabilityCatalog? GetCapabilityCatalog(string catalogId) =>
         string.Equals(_desiredCapabilityCatalog.CatalogId, catalogId, StringComparison.OrdinalIgnoreCase)
             ? _desiredCapabilityCatalog
+            : null;
+
+    public RunnerSetupCatalog? GetSetupCatalog(string catalogId) =>
+        string.Equals(_desiredSetupCatalog.CatalogId, catalogId, StringComparison.OrdinalIgnoreCase)
+            ? _desiredSetupCatalog
             : null;
 
     private static string? NormalizeOptional(string? value) =>

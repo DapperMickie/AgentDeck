@@ -24,6 +24,8 @@ public sealed class CoordinatorOptions
 
     public CoordinatorCapabilityCatalogOptions DesiredCapabilityCatalog { get; set; } = new();
 
+    public CoordinatorSetupCatalogOptions DesiredSetupCatalog { get; set; } = new();
+
     public CoordinatorSecurityPolicyOptions SecurityPolicy { get; set; } = new();
 
     public bool ApplyStagedUpdate { get; set; }

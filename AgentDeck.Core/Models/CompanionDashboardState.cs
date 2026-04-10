@@ -33,6 +33,8 @@ public sealed class CompanionMachineSummary
     public RunnerWorkflowCatalogStatus? WorkflowCatalogStatus { get; init; }
     public RunnerCapabilityCatalogStatus? CapabilityCatalogStatus { get; init; }
     public string? CapabilityCatalogVersion { get; init; }
+    public RunnerSetupCatalogStatus? SetupCatalogStatus { get; init; }
+    public string? SetupCatalogVersion { get; init; }
     public IReadOnlyList<MachineTargetSupport> SupportedTargets { get; init; } = [];
     public IReadOnlyList<RemoteViewerProviderCapability> RemoteViewerProviders { get; init; } = [];
 }

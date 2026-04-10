@@ -10,8 +10,10 @@ public sealed class RunnerDesiredState
     public RunnerDefinitionReference? DesiredUpdateManifest { get; init; }
     public RunnerDefinitionReference? DesiredWorkflowPack { get; init; }
     public RunnerDefinitionReference? DesiredCapabilityCatalog { get; init; }
+    public RunnerDefinitionReference? DesiredSetupCatalog { get; init; }
     public string? WorkflowCatalogVersion { get; init; }
     public string? CapabilityCatalogVersion { get; init; }
+    public string? SetupCatalogVersion { get; init; }
     public bool UpdateAvailable { get; init; }
     public bool ApplyUpdate { get; init; }
     public bool ProtocolCompatible { get; init; } = true;
