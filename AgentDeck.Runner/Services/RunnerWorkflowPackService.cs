@@ -227,16 +227,23 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
 
     private static async Task WriteTextAtomicallyAsync(string path, string contents, CancellationToken cancellationToken)
     {
-        var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("A target file path is required.");
+        var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException($"Path '{path}' has no parent directory.");
         Directory.CreateDirectory(directory);
         var tempPath = Path.Combine(directory, $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
-        await File.WriteAllTextAsync(tempPath, contents, cancellationToken);
-        if (File.Exists(path))
+        try
         {
-            File.Delete(path);
+            await File.WriteAllTextAsync(tempPath, contents, cancellationToken);
+            File.Move(tempPath, path, overwrite: true);
         }
+        catch
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
 
-        File.Move(tempPath, path);
+            throw;
+        }
     }
 
     private static void TryDeleteFile(string path)
