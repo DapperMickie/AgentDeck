@@ -19,6 +19,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         Process Process,
         TaskCompletionSource<int> Completion,
         string ViewerSessionId,
+        string? DeviceViewerSessionId,
         string WorkspaceDirectory,
         string StartupProjectPath);
 
@@ -117,8 +118,11 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             UpdatedAt = createdAt
         };
 
+        RemoteViewerSession? deviceViewer = null;
         try
         {
+            deviceViewer = await TryCreateDeviceViewerAsync(orchestrationSessionId, job, cancellationToken);
+
             _viewers.Update(viewer.Id, new UpdateRemoteViewerSessionRequest
             {
                 Status = RemoteViewerSessionStatus.Preparing,
@@ -155,6 +159,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             {
                 completion.TrySetResult(process.ExitCode);
                 CloseViewer(viewer.Id, "VS Code session closed.");
+                CloseViewer(deviceViewer?.Id, "Device viewer session closed.");
                 UpdateSession(orchestrationSessionId, session => WithStatus(
                     session,
                     VsCodeDebugSessionStatus.Closed,
@@ -167,6 +172,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             {
                 completion.TrySetResult(process.ExitCode);
                 CloseViewer(viewer.Id, "VS Code session closed.");
+                CloseViewer(deviceViewer?.Id, "Device viewer session closed.");
                 UpdateSession(orchestrationSessionId, session => WithStatus(
                     session,
                     VsCodeDebugSessionStatus.Closed,
@@ -175,10 +181,12 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                 process.Dispose();
             }
 
-            var activeSession = new ActiveDebugSession(process, completion, viewer.Id, workspaceDirectory, startupProjectPath);
+            var activeSession = new ActiveDebugSession(process, completion, viewer.Id, deviceViewer?.Id, workspaceDirectory, startupProjectPath);
             if (!_sessions.TryAdd(orchestrationSessionId, activeSession))
             {
                 completion.TrySetResult(-1);
+                CloseViewer(viewer.Id, "VS Code session closed.");
+                CloseViewer(deviceViewer?.Id, "Device viewer session closed.");
                 TryKillProcess(process);
                 throw new InvalidOperationException($"A VS Code debug session is already active for orchestration session '{orchestrationSessionId}'.");
             }
@@ -226,6 +234,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                 Status = RemoteViewerSessionStatus.Failed,
                 Message = ex.Message
             });
+            CloseViewer(deviceViewer?.Id, "Device viewer session closed because VS Code debugging failed.");
             UpdateSession(orchestrationSessionId, session => WithStatus(
                 session,
                 VsCodeDebugSessionStatus.Failed,
@@ -258,6 +267,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         if (_sessions.TryRemove(orchestrationSessionId, out var session))
         {
             CloseViewer(session.ViewerSessionId, "VS Code session cancelled.");
+            CloseViewer(session.DeviceViewerSessionId, "Device viewer session cancelled.");
             session.Completion.TrySetResult(-1);
             TryKillProcess(session.Process);
             UpdateSession(orchestrationSessionId, existing => WithStatus(
@@ -765,6 +775,77 @@ error "Could not focus the VS Code window to start debugging."
             ? VsCodeWindowTitle
             : $"{projectName} - {VsCodeWindowTitle}";
 
+    private async Task<RemoteViewerSession?> TryCreateDeviceViewerAsync(
+        string orchestrationSessionId,
+        OrchestrationJob job,
+        CancellationToken cancellationToken)
+    {
+        if (!TryBuildDeviceViewerRequest(orchestrationSessionId, job, out var request))
+        {
+            return null;
+        }
+
+        var viewer = _viewers.Create(request);
+        try
+        {
+            return await _viewerBootstrap.BootstrapAsync(viewer.Id, cancellationToken: cancellationToken) ?? viewer;
+        }
+        catch
+        {
+            CloseViewer(viewer.Id, "Device viewer bootstrap failed.");
+            throw;
+        }
+    }
+
+    private static bool TryBuildDeviceViewerRequest(
+        string orchestrationSessionId,
+        OrchestrationJob job,
+        out CreateRemoteViewerSessionRequest request)
+    {
+        request = new CreateRemoteViewerSessionRequest();
+
+        if (job.DeviceSelection?.HasTarget != true ||
+            !TryMapDeviceViewerTargetKind(job.Platform, out var targetKind))
+        {
+            return false;
+        }
+
+        var deviceLabel = job.DeviceSelection.DisplayName ?? job.DeviceSelection.DeviceId ?? job.DeviceSelection.ProfileId ?? job.LaunchProfileName;
+        request = new CreateRemoteViewerSessionRequest
+        {
+            MachineId = job.TargetMachineId,
+            MachineName = job.TargetMachineName,
+            JobId = job.Id,
+            Target = new RemoteViewerTarget
+            {
+                Kind = targetKind,
+                DisplayName = $"{job.ProjectName} {deviceLabel}",
+                JobId = job.Id,
+                SessionId = orchestrationSessionId,
+                VirtualDeviceId = job.DeviceSelection.DeviceId,
+                VirtualDeviceProfileId = job.DeviceSelection.ProfileId
+            }
+        };
+
+        return true;
+    }
+
+    private static bool TryMapDeviceViewerTargetKind(ApplicationTargetPlatform platform, out RemoteViewerTargetKind targetKind)
+    {
+        switch (platform)
+        {
+            case ApplicationTargetPlatform.Android:
+                targetKind = RemoteViewerTargetKind.Emulator;
+                return true;
+            case ApplicationTargetPlatform.iOS:
+                targetKind = RemoteViewerTargetKind.Simulator;
+                return true;
+            default:
+                targetKind = default;
+                return false;
+        }
+    }
+
     private static void TryKillProcess(Process process)
     {
         try
@@ -785,8 +866,13 @@ error "Could not focus the VS Code window to start debugging."
         }
     }
 
-    private void CloseViewer(string viewerSessionId, string message)
+    private void CloseViewer(string? viewerSessionId, string message)
     {
+        if (string.IsNullOrWhiteSpace(viewerSessionId))
+        {
+            return;
+        }
+
         _viewers.Close(viewerSessionId, message);
     }
 
