@@ -140,15 +140,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         var accessToken = options.IssueAccessToken
             ? Convert.ToHexString(RandomNumberGenerator.GetBytes(Math.Max(1, options.AccessTokenBytes))).ToLowerInvariant()
             : null;
-        var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["sessionId"] = session.Id,
-            ["port"] = port.ToString(),
-            ["token"] = accessToken ?? string.Empty,
-            ["host"] = connectionHost,
-            ["machineName"] = Environment.MachineName,
-            ["targetKind"] = session.Target.Kind.ToString()
-        };
+        var replacements = BuildManagedBootstrapReplacements(session, connectionHost, port, accessToken);
 
         var startInfo = new ProcessStartInfo
         {
@@ -215,6 +207,29 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
             AccessToken: accessToken,
             Message: $"{GetTargetDisplayName(session)} is ready via AgentDeck-managed transport at {connectionHost}:{port}.",
             Process: process);
+    }
+
+    private static Dictionary<string, string> BuildManagedBootstrapReplacements(
+        RemoteViewerSession session,
+        string connectionHost,
+        int port,
+        string? accessToken)
+    {
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["sessionId"] = session.Id,
+            ["port"] = port.ToString(),
+            ["token"] = accessToken ?? string.Empty,
+            ["host"] = connectionHost,
+            ["machineName"] = Environment.MachineName,
+            ["targetKind"] = session.Target.Kind.ToString(),
+            ["targetDisplayName"] = session.Target.DisplayName,
+            ["targetJobId"] = session.Target.JobId ?? string.Empty,
+            ["targetSessionId"] = session.Target.SessionId ?? string.Empty,
+            ["targetWindowTitle"] = session.Target.WindowTitle ?? string.Empty,
+            ["targetVirtualDeviceId"] = session.Target.VirtualDeviceId ?? string.Empty,
+            ["targetVirtualDeviceProfileId"] = session.Target.VirtualDeviceProfileId ?? string.Empty
+        };
     }
 
     private static BootstrapOutcome BootstrapRdp(RemoteViewerSession session, string connectionHost)
