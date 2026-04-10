@@ -46,6 +46,19 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         }
     }
 
+    public async Task ResetCurrentStatusAsync(CancellationToken cancellationToken = default)
+    {
+        await _reconcileGate.WaitAsync(cancellationToken);
+        try
+        {
+            await UpdateStatusAsync(null, cancellationToken);
+        }
+        finally
+        {
+            _reconcileGate.Release();
+        }
+    }
+
     public async Task<RunnerWorkflowPackStatus?> ReconcileDesiredWorkflowPackAsync(
         HttpClient coordinatorClient,
         RunnerDesiredState desiredState,

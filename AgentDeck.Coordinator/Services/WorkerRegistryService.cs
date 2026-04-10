@@ -115,6 +115,50 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
         }
     }
 
+    public Task<bool> ClearMachineWorkflowPackStatusAsync(string machineId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineId);
+
+        lock (_lock)
+        {
+            RefreshWorkerStates();
+            var normalizedMachineId = Normalize(machineId);
+            if (!_workers.TryGetValue(normalizedMachineId, out var worker))
+            {
+                return Task.FromResult(false);
+            }
+
+            var machine = worker.Machine;
+            _workers[normalizedMachineId] = new WorkerEntry(new RegisteredRunnerMachine
+            {
+                MachineId = machine.MachineId,
+                MachineName = machine.MachineName,
+                Role = machine.Role,
+                AgentVersion = machine.AgentVersion,
+                ProtocolVersion = machine.ProtocolVersion,
+                WorkflowCatalogVersion = machine.WorkflowCatalogVersion,
+                WorkflowCatalogStatus = machine.WorkflowCatalogStatus,
+                SecurityPolicyVersion = machine.SecurityPolicyVersion,
+                DesiredUpdateManifestId = machine.DesiredUpdateManifestId,
+                DesiredWorkflowPackId = machine.DesiredWorkflowPackId,
+                UpdateStatus = machine.UpdateStatus,
+                UpdateRollout = machine.UpdateRollout,
+                WorkflowPackStatus = null,
+                RunnerUrl = machine.RunnerUrl,
+                RegisteredAt = machine.RegisteredAt,
+                LastSeenAt = machine.LastSeenAt,
+                IsOnline = machine.IsOnline,
+                IsCoordinator = machine.IsCoordinator,
+                UpdateAvailable = machine.UpdateAvailable,
+                ProtocolCompatible = machine.ProtocolCompatible,
+                Platform = machine.Platform,
+                SupportedTargets = machine.SupportedTargets
+            });
+
+            return Task.FromResult(true);
+        }
+    }
+
     public RegisterRunnerMachineResponse RegisterOrUpdateWorker(RegisterRunnerMachineRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);

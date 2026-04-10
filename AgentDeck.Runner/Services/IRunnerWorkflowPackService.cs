@@ -6,6 +6,8 @@ public interface IRunnerWorkflowPackService
 {
     Task<RunnerWorkflowPackStatus?> GetCurrentStatusAsync(CancellationToken cancellationToken = default);
 
+    Task ResetCurrentStatusAsync(CancellationToken cancellationToken = default);
+
     Task<RunnerWorkflowPackStatus?> ReconcileDesiredWorkflowPackAsync(
         HttpClient coordinatorClient,
         RunnerDesiredState desiredState,

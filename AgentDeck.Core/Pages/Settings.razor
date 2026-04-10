@@ -358,6 +358,16 @@
                                     <span class="settings-status-row__value">@workflowPackStatus.FetchedAt.Value.ToLocalTime().ToString("g")</span>
                                 </div>
                             }
+                            @if (SelectedMachine is not null && CanRetryWorkflowPack(SelectedRegisteredMachine))
+                            {
+                                <div>
+                                    <button class="btn btn-accent"
+                                            disabled="@(_workflowPackRetryMachineId == SelectedMachine.Id)"
+                                            @onclick="() => RetryWorkflowPackAsync(SelectedMachine.Id)">
+                                        @(_workflowPackRetryMachineId == SelectedMachine.Id ? "Retrying..." : "Retry workflow pack")
+                                    </button>
+                                </div>
+                            }
                         }
                         @if (SelectedRegisteredMachine?.WorkflowCatalogStatus is { } workflowCatalogStatus &&
                              workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
@@ -605,6 +615,7 @@
     private bool _coordinatorReachable;
     private string? _selectedMachineId;
     private string? _updateIntentMachineId;
+    private string? _workflowPackRetryMachineId;
 
     private RunnerMachineSettings? SelectedMachine => _settings.FindMachine(_selectedMachineId);
     private MachineCapabilitiesSnapshot? _machineCapabilities =>
@@ -843,6 +854,9 @@
         _ => "Unknown"
     };
 
+    private static bool CanRetryWorkflowPack(RegisteredRunnerMachine? machine) =>
+        machine?.WorkflowPackStatus?.State is RunnerWorkflowPackState.Blocked or RunnerWorkflowPackState.Failed;
+
     private static string GetWorkflowCatalogStateLabel(RunnerWorkflowCatalogState state) => state switch
     {
         RunnerWorkflowCatalogState.Matched => "Matched",
@@ -942,6 +956,38 @@
         finally
         {
             _updateIntentMachineId = null;
+        }
+    }
+
+    private async Task RetryWorkflowPackAsync(string machineId)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.CoordinatorUrl))
+        {
+            return;
+        }
+
+        _workflowPackRetryMachineId = machineId;
+        try
+        {
+            var retried = await CoordinatorClient.RetryMachineWorkflowPackAsync(_settings.CoordinatorUrl, machineId);
+            if (!retried)
+            {
+                ToastService.Show("The coordinator could no longer find that machine.", ToastKind.Warning);
+                await RefreshCoordinatorDirectoryAsync();
+                return;
+            }
+
+            ToastService.Show("Workflow-pack retry requested. The machine will retry on its next heartbeat.", ToastKind.Success);
+            await RefreshCoordinatorDirectoryAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to retry workflow pack for machine {MachineId}", machineId);
+            ToastService.Show($"Failed to retry workflow pack: {ex.Message}", ToastKind.Error);
+        }
+        finally
+        {
+            _workflowPackRetryMachineId = null;
         }
     }
 

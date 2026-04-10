@@ -15,5 +15,7 @@ public interface IWorkerRegistryService
 
     Task<RunnerUpdateRolloutStatus?> UpdateMachineApplyIntentAsync(string machineId, MachineUpdateApplyIntentMode mode, CancellationToken cancellationToken = default);
 
+    Task<bool> ClearMachineWorkflowPackStatusAsync(string machineId, CancellationToken cancellationToken = default);
+
     RegisterRunnerMachineResponse RegisterOrUpdateWorker(RegisterRunnerMachineRequest request);
 }
