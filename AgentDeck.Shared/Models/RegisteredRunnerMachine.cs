@@ -16,6 +16,7 @@ public sealed class RegisteredRunnerMachine
     public string? DesiredWorkflowPackId { get; init; }
     public RunnerUpdateStatus? UpdateStatus { get; init; }
     public RunnerUpdateRolloutStatus? UpdateRollout { get; init; }
+    public RunnerWorkflowPackStatus? WorkflowPackStatus { get; init; }
     public string? RunnerUrl { get; init; }
     public DateTimeOffset RegisteredAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset LastSeenAt { get; init; } = DateTimeOffset.UtcNow;
