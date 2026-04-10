@@ -323,6 +323,42 @@
                             </div>
                         }
                     }
+                        @if (!string.IsNullOrWhiteSpace(SelectedRegisteredMachine?.DesiredWorkflowPackId))
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Desired workflow pack</span>
+                                <span class="settings-status-row__value">@GetDesiredWorkflowPackLabel(SelectedRegisteredMachine)</span>
+                            </div>
+                        }
+                        @if (SelectedRegisteredMachine?.WorkflowPackStatus is { } workflowPackStatus &&
+                             workflowPackStatus.State != RunnerWorkflowPackState.None)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Workflow pack state</span>
+                                <span class="settings-status-row__value">@GetWorkflowPackStateLabel(workflowPackStatus.State)</span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(workflowPackStatus.StatusMessage))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Workflow pack summary</span>
+                                    <span class="settings-status-row__value">@workflowPackStatus.StatusMessage</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(workflowPackStatus.FailureMessage))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Workflow pack failure</span>
+                                    <span class="settings-status-row__value">@workflowPackStatus.FailureMessage</span>
+                                </div>
+                            }
+                            @if (workflowPackStatus.FetchedAt is not null)
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Workflow pack fetched</span>
+                                    <span class="settings-status-row__value">@workflowPackStatus.FetchedAt.Value.ToLocalTime().ToString("g")</span>
+                                </div>
+                            }
+                        }
                         @if (_machineCapabilities?.Platform is not null)
                         {
                         <div class="settings-status-row">
@@ -752,6 +788,31 @@
         string.IsNullOrWhiteSpace(rollout.DesiredManifestVersion)
             ? rollout.DesiredManifestId ?? string.Empty
             : $"{rollout.DesiredManifestId}@{rollout.DesiredManifestVersion}";
+
+    private static string GetDesiredWorkflowPackLabel(RegisteredRunnerMachine? machine)
+    {
+        if (machine is null || string.IsNullOrWhiteSpace(machine.DesiredWorkflowPackId))
+        {
+            return string.Empty;
+        }
+
+        if (machine.WorkflowPackStatus is { } workflowPackStatus &&
+            string.Equals(workflowPackStatus.PackId, machine.DesiredWorkflowPackId, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(workflowPackStatus.PackVersion))
+        {
+            return $"{machine.DesiredWorkflowPackId}@{workflowPackStatus.PackVersion}";
+        }
+
+        return machine.DesiredWorkflowPackId;
+    }
+
+    private static string GetWorkflowPackStateLabel(RunnerWorkflowPackState state) => state switch
+    {
+        RunnerWorkflowPackState.Ready => "Ready",
+        RunnerWorkflowPackState.Blocked => "Blocked",
+        RunnerWorkflowPackState.Failed => "Failed",
+        _ => "Unknown"
+    };
 
     private static string FormatTargetSummary(MachineTargetSupport target) =>
         $"{target.DisplayName} ({target.Status})";
