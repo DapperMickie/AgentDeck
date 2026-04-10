@@ -90,6 +90,10 @@
                             {
                                 <span> • capabilities @machine.CapabilityCatalogVersion</span>
                             }
+                            @if (!string.IsNullOrWhiteSpace(machine.SetupCatalogVersion))
+                            {
+                                <span> • setup @machine.SetupCatalogVersion</span>
+                            }
                             @if (!string.IsNullOrWhiteSpace(machine.SecurityPolicyVersion))
                             {
                                 <span> • security @machine.SecurityPolicyVersion</span>
@@ -428,6 +432,35 @@
                                 <div class="settings-status-row">
                                     <span class="settings-status-row__label">Capability catalog summary</span>
                                     <span class="settings-status-row__value">@capabilityCatalogStatus.StatusMessage</span>
+                                </div>
+                            }
+                        }
+                        @if (SelectedRegisteredMachine?.SetupCatalogStatus is { } setupCatalogStatus &&
+                             setupCatalogStatus.State != RunnerSetupCatalogState.Unknown)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Setup catalog state</span>
+                                <span class="settings-status-row__value">@GetSetupCatalogStateLabel(setupCatalogStatus.State)</span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(setupCatalogStatus.LocalCatalogVersion))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Local setup catalog</span>
+                                    <span class="settings-status-row__value">@setupCatalogStatus.LocalCatalogVersion</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(setupCatalogStatus.DesiredCatalogVersion))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Desired setup catalog</span>
+                                    <span class="settings-status-row__value">@setupCatalogStatus.DesiredCatalogVersion</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(setupCatalogStatus.StatusMessage))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Setup catalog summary</span>
+                                    <span class="settings-status-row__value">@setupCatalogStatus.StatusMessage</span>
                                 </div>
                             }
                         }
@@ -938,6 +971,13 @@
         RunnerCapabilityCatalogState.Matched => "Matched",
         RunnerCapabilityCatalogState.Mismatched => "Mismatched",
         RunnerCapabilityCatalogState.Failed => "Failed",
+        _ => "Unknown"
+    };
+
+    private static string GetSetupCatalogStateLabel(RunnerSetupCatalogState state) => state switch
+    {
+        RunnerSetupCatalogState.Matched => "Matched",
+        RunnerSetupCatalogState.Failed => "Failed",
         _ => "Unknown"
     };
 

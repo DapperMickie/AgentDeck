@@ -88,6 +88,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                 WorkflowCatalogStatus = machine.WorkflowCatalogStatus,
                 CapabilityCatalogStatus = machine.CapabilityCatalogStatus,
                 CapabilityCatalogVersion = machine.CapabilityCatalogVersion,
+                SetupCatalogStatus = machine.SetupCatalogStatus,
+                SetupCatalogVersion = machine.SetupCatalogVersion,
                 SupportedTargets = machine.SupportedTargets,
                 RemoteViewerProviders = machine.RemoteViewerProviders
             })

@@ -140,10 +140,13 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 WorkflowCatalogStatus = machine.WorkflowCatalogStatus,
                 CapabilityCatalogVersion = machine.CapabilityCatalogVersion,
                 CapabilityCatalogStatus = machine.CapabilityCatalogStatus,
+                SetupCatalogVersion = machine.SetupCatalogVersion,
+                SetupCatalogStatus = machine.SetupCatalogStatus,
                 SecurityPolicyVersion = machine.SecurityPolicyVersion,
                 DesiredUpdateManifestId = machine.DesiredUpdateManifestId,
                 DesiredWorkflowPackId = machine.DesiredWorkflowPackId,
                 DesiredCapabilityCatalogId = machine.DesiredCapabilityCatalogId,
+                DesiredSetupCatalogId = machine.DesiredSetupCatalogId,
                 UpdateStatus = machine.UpdateStatus,
                 UpdateRollout = machine.UpdateRollout,
                 WorkflowPackStatus = null,
@@ -197,10 +200,13 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 WorkflowCatalogStatus = request.WorkflowCatalogStatus,
                 CapabilityCatalogVersion = NormalizeOptional(request.CapabilityCatalogVersion),
                 CapabilityCatalogStatus = request.CapabilityCatalogStatus,
+                SetupCatalogVersion = NormalizeOptional(request.SetupCatalogVersion),
+                SetupCatalogStatus = request.SetupCatalogStatus,
                 SecurityPolicyVersion = desiredState.SecurityPolicy.PolicyVersion,
                 DesiredUpdateManifestId = desiredState.DesiredUpdateManifest?.DefinitionId,
                 DesiredWorkflowPackId = desiredState.DesiredWorkflowPack?.DefinitionId,
                 DesiredCapabilityCatalogId = desiredState.DesiredCapabilityCatalog?.DefinitionId,
+                DesiredSetupCatalogId = desiredState.DesiredSetupCatalog?.DefinitionId,
                 UpdateStatus = request.UpdateStatus,
                 UpdateRollout = updateRollout,
                 WorkflowPackStatus = request.WorkflowPackStatus,
@@ -285,10 +291,13 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 WorkflowCatalogStatus = machine.WorkflowCatalogStatus,
                 CapabilityCatalogVersion = machine.CapabilityCatalogVersion,
                 CapabilityCatalogStatus = machine.CapabilityCatalogStatus,
+                SetupCatalogVersion = machine.SetupCatalogVersion,
+                SetupCatalogStatus = machine.SetupCatalogStatus,
                 SecurityPolicyVersion = desiredState.SecurityPolicy.PolicyVersion,
                 DesiredUpdateManifestId = desiredState.DesiredUpdateManifest?.DefinitionId,
                 DesiredWorkflowPackId = desiredState.DesiredWorkflowPack?.DefinitionId,
                 DesiredCapabilityCatalogId = desiredState.DesiredCapabilityCatalog?.DefinitionId,
+                DesiredSetupCatalogId = desiredState.DesiredSetupCatalog?.DefinitionId,
                 UpdateStatus = machine.UpdateStatus,
                 UpdateRollout = BuildUpdateRollout(
                     machine.MachineId,
@@ -337,11 +346,13 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
         var desiredManifest = _definitions.GetDesiredUpdateManifest();
         var desiredWorkflowPack = _definitions.GetDesiredWorkflowPack();
         var desiredCapabilityCatalog = _definitions.GetDesiredCapabilityCatalog();
+        var desiredSetupCatalog = _definitions.GetDesiredSetupCatalog();
         var desiredVersion = NormalizeOptional(_coordinatorOptions.DesiredRunnerVersion)
             ?? NormalizeOptional(desiredManifest.Version)
             ?? normalizedAgentVersion;
         var workflowCatalogVersion = NormalizeOptional(_coordinatorOptions.WorkflowCatalogVersion);
         var capabilityCatalogVersion = NormalizeOptional(desiredCapabilityCatalog.Version);
+        var setupCatalogVersion = NormalizeOptional(desiredSetupCatalog.Version);
         var protocolCompatible = protocolVersion >= _coordinatorOptions.MinimumSupportedProtocolVersion &&
                                  protocolVersion <= _coordinatorOptions.MaximumSupportedProtocolVersion;
         var securityPolicyAllowsApply = _coordinatorOptions.SecurityPolicy?.AllowUpdateApply ?? false;
@@ -393,8 +404,14 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 DefinitionId = desiredCapabilityCatalog.CatalogId,
                 Version = desiredCapabilityCatalog.Version
             },
+            DesiredSetupCatalog = new RunnerDefinitionReference
+            {
+                DefinitionId = desiredSetupCatalog.CatalogId,
+                Version = desiredSetupCatalog.Version
+            },
             WorkflowCatalogVersion = workflowCatalogVersion,
             CapabilityCatalogVersion = capabilityCatalogVersion,
+            SetupCatalogVersion = setupCatalogVersion,
             UpdateAvailable = updateAvailable,
             ApplyUpdate = applyUpdate,
             ProtocolCompatible = protocolCompatible,

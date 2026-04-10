@@ -229,6 +229,8 @@ Workflow catalog versioning now also has explicit compatibility signaling: worke
 
 Capability detection is now also moving under the coordinator-owned control plane: the coordinator can publish a versioned capability catalog that defines the ordered capability probe list and probe commands for built-in tool/SDK checks, runners persist and reconcile that catalog locally, and machine capability snapshots now execute from the reconciled catalog instead of hardcoding the top-level probe list inside `MachineCapabilityService`. The companion Settings page surfaces the runner's capability-catalog version/status alongside the existing workflow-catalog and workflow-pack control-plane state.
 
+Machine setup behavior is now moving through the same coordinator-owned path: the coordinator can publish a versioned setup catalog that defines install/update recipes per capability and platform, runners persist and reconcile that catalog locally, and `MachineSetupService` now selects catalog-authored recipes instead of hardcoding the built-in `gh`, `copilot`, `node`, `python`, and `dotnet` install/update branches directly in the runner. Both direct machine-setup API calls and workflow-pack `ManageCapability` steps flow through that reconciled setup catalog.
+
 ### Control-plane security model
 
 - Runners only accept a non-HTTPS coordinator URL by default when it targets loopback and `Coordinator:AllowInsecureHttpCoordinatorForLoopback` is enabled for local development.

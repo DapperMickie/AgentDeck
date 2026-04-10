@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
+using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 
 namespace AgentDeck.Runner.Services;
@@ -6,241 +8,182 @@ namespace AgentDeck.Runner.Services;
 /// <inheritdoc />
 public sealed class MachineSetupService : IMachineSetupService
 {
+    private readonly IRunnerSetupCatalogService _setupCatalog;
     private readonly ILogger<MachineSetupService> _logger;
 
-    public MachineSetupService(ILogger<MachineSetupService> logger)
+    public MachineSetupService(
+        IRunnerSetupCatalogService setupCatalog,
+        ILogger<MachineSetupService> logger)
     {
+        _setupCatalog = setupCatalog;
         _logger = logger;
     }
 
-    public async Task<MachineCapabilityInstallResult> InstallCapabilityAsync(string capabilityId, string? version = null, CancellationToken cancellationToken = default)
-    {
-        var request = capabilityId.Trim().ToLowerInvariant();
-        var requestedVersion = NormalizeVersion(version);
+    public Task<MachineCapabilityInstallResult> InstallCapabilityAsync(string capabilityId, string? version = null, CancellationToken cancellationToken = default) =>
+        ExecuteCapabilityActionAsync(capabilityId, "install", version, cancellationToken);
 
-        return request switch
+    public Task<MachineCapabilityInstallResult> UpdateCapabilityAsync(string capabilityId, CancellationToken cancellationToken = default) =>
+        ExecuteCapabilityActionAsync(capabilityId, "update", cancellationToken: cancellationToken);
+
+    private async Task<MachineCapabilityInstallResult> ExecuteCapabilityActionAsync(
+        string capabilityId,
+        string action,
+        string? requestedVersion = null,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedCapabilityId = NormalizeValue(capabilityId);
+        if (normalizedCapabilityId is null)
         {
-            "gh" => await InstallGitHubCliAsync(cancellationToken),
-            "copilot" => await InstallCopilotCliAsync(cancellationToken),
-            "node" => await InstallNodeAsync(requestedVersion, cancellationToken),
-            "python" => await InstallPythonAsync(requestedVersion, cancellationToken),
-            "dotnet" => await InstallDotNetAsync(requestedVersion, cancellationToken),
-            _ => CreateFailureResult(request, capabilityId, "install", requestedVersion, $"Installing '{capabilityId}' is not supported.")
+            return CreateFailureResult("unknown", capabilityId, action, requestedVersion, "Capability id is required.");
+        }
+
+        var catalog = await _setupCatalog.GetCurrentCatalogAsync(cancellationToken);
+        if (catalog is null)
+        {
+            return CreateFailureResult(
+                normalizedCapabilityId,
+                capabilityId,
+                action,
+                requestedVersion,
+                "Runner has not reconciled a setup catalog from the coordinator yet.");
+        }
+
+        var capability = catalog.Capabilities.FirstOrDefault(candidate =>
+            string.Equals(candidate.CapabilityId, normalizedCapabilityId, StringComparison.OrdinalIgnoreCase));
+        if (capability is null)
+        {
+            return CreateFailureResult(
+                normalizedCapabilityId,
+                capabilityId,
+                action,
+                requestedVersion,
+                $"Setup catalog does not define capability '{capabilityId}'.");
+        }
+
+        var actionDefinition = capability.Actions.FirstOrDefault(candidate =>
+            string.Equals(candidate.Action, action, StringComparison.OrdinalIgnoreCase));
+        if (actionDefinition is null)
+        {
+            return CreateFailureResult(
+                normalizedCapabilityId,
+                capability.DisplayName,
+                action,
+                requestedVersion,
+                $"Setup catalog does not define an '{action}' action for '{capability.DisplayName}'.");
+        }
+
+        var platform = GetCurrentPlatform();
+        var normalizedRequestedVersion = NormalizeValue(requestedVersion);
+        var recipe = actionDefinition.Recipes.FirstOrDefault(candidate => RecipeMatches(candidate, platform, normalizedRequestedVersion));
+        if (recipe is null)
+        {
+            return CreateFailureResult(
+                normalizedCapabilityId,
+                capability.DisplayName,
+                action,
+                normalizedRequestedVersion,
+                $"Setup catalog does not define a matching {platform} recipe for '{capability.DisplayName}' {action}.");
+        }
+
+        var effectiveVersion = normalizedRequestedVersion ?? NormalizeValue(recipe.DefaultVersion);
+        var missingCommand = recipe.RequiredCommands
+            .Select(RenderTemplate)
+            .FirstOrDefault(command => !string.IsNullOrWhiteSpace(command) && !CommandExists(command));
+        if (missingCommand is not null)
+        {
+            return CreateFailureResult(
+                normalizedCapabilityId,
+                capability.DisplayName,
+                action,
+                effectiveVersion,
+                BuildMissingCommandMessage(recipe, missingCommand, action));
+        }
+
+        return recipe.ExecutionKind switch
+        {
+            RunnerSetupRecipeExecutionKind.PlatformShell => await ExecutePlatformShellRecipeAsync(
+                normalizedCapabilityId,
+                capability.DisplayName,
+                action,
+                recipe,
+                effectiveVersion,
+                cancellationToken),
+            RunnerSetupRecipeExecutionKind.DirectCommand => await ExecuteDirectRecipeAsync(
+                normalizedCapabilityId,
+                capability.DisplayName,
+                action,
+                recipe,
+                effectiveVersion,
+                cancellationToken),
+            _ => CreateFailureResult(
+                normalizedCapabilityId,
+                capability.DisplayName,
+                action,
+                effectiveVersion,
+                $"Unsupported setup recipe execution kind '{recipe.ExecutionKind}'.")
+        };
+
+        string RenderTemplate(string value) => ApplyTemplate(value, effectiveVersion);
+    }
+
+    private async Task<MachineCapabilityInstallResult> ExecutePlatformShellRecipeAsync(
+        string capabilityId,
+        string capabilityName,
+        string action,
+        RunnerSetupRecipe recipe,
+        string? effectiveVersion,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(recipe.CommandText))
+        {
+            return CreateFailureResult(capabilityId, capabilityName, action, effectiveVersion, "Setup recipe requires command text.");
+        }
+
+        var commandText = ApplyTemplate(recipe.CommandText, effectiveVersion);
+        return GetCurrentPlatform() switch
+        {
+            RunnerHostPlatform.Windows => await RunWindowsShellCommandAsync(capabilityId, capabilityName, commandText, cancellationToken, action, effectiveVersion),
+            RunnerHostPlatform.Linux => await RunLinuxShellCommandAsync(capabilityId, capabilityName, commandText, cancellationToken, action, effectiveVersion),
+            _ => CreateFailureResult(capabilityId, capabilityName, action, effectiveVersion, "Platform shell setup recipes are not supported on this runner platform.")
         };
     }
 
-    public Task<MachineCapabilityInstallResult> UpdateCapabilityAsync(string capabilityId, CancellationToken cancellationToken = default)
+    private async Task<MachineCapabilityInstallResult> ExecuteDirectRecipeAsync(
+        string capabilityId,
+        string capabilityName,
+        string action,
+        RunnerSetupRecipe recipe,
+        string? effectiveVersion,
+        CancellationToken cancellationToken)
     {
-        var request = capabilityId.Trim().ToLowerInvariant();
-
-        return request switch
+        var fileName = NormalizeValue(recipe.FileName);
+        if (fileName is null)
         {
-            "gh" => UpdateGitHubCliAsync(cancellationToken),
-            "copilot" => UpdateCopilotCliAsync(cancellationToken),
-            _ => Task.FromResult(CreateFailureResult(request, capabilityId, "update", null, $"Updating '{capabilityId}' is not supported."))
-        };
-    }
-
-    private Task<MachineCapabilityInstallResult> InstallGitHubCliAsync(CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return RunWindowsCommandAsync(
-                "gh",
-                "GitHub CLI",
-                "winget install --id GitHub.cli -e --accept-package-agreements --accept-source-agreements",
-                cancellationToken,
-                action: "install");
+            return CreateFailureResult(capabilityId, capabilityName, action, effectiveVersion, "Direct-command setup recipe requires a file name.");
         }
 
-        return RunLinuxCommandAsync(
-            "gh",
-            "GitHub CLI",
-            "apt-get update && apt-get install -y gh",
+        var arguments = recipe.Arguments
+            .Select(argument => ApplyTemplate(argument, effectiveVersion))
+            .ToArray();
+        return await RunDirectCommandAsync(
+            capabilityId,
+            capabilityName,
+            fileName,
+            arguments,
             cancellationToken,
-            action: "install");
+            action,
+            null,
+            effectiveVersion);
     }
 
-    private Task<MachineCapabilityInstallResult> InstallCopilotCliAsync(CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            if (!CommandExists("npm"))
-            {
-                return Task.FromResult(CreateFailureResult(
-                    "copilot",
-                    "GitHub Copilot CLI",
-                    "install",
-                    null,
-                    "npm is required to install GitHub Copilot CLI. Install Node.js first."));
-            }
-
-            return RunDirectCommandAsync(
-                "copilot",
-                "GitHub Copilot CLI",
-                "npm",
-                ["install", "-g", "@github/copilot"],
-                cancellationToken,
-                action: "install");
-        }
-
-        return RunLinuxCommandAsync(
-            "copilot",
-            "GitHub Copilot CLI",
-            "if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y curl; fi && curl -fsSL https://gh.io/copilot-install | bash",
-            cancellationToken,
-            action: "install");
-    }
-
-    private Task<MachineCapabilityInstallResult> InstallNodeAsync(string? requestedVersion, CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return RunWindowsCommandAsync(
-                "node",
-                "Node.js",
-                BuildWindowsNodeInstallCommand(requestedVersion),
-                cancellationToken,
-                action: "install",
-                requestedVersion);
-        }
-
-        return RunLinuxCommandAsync(
-            "node",
-            "Node.js",
-            BuildLinuxNodeInstallCommand(requestedVersion),
-            cancellationToken,
-            action: "install",
-            requestedVersion);
-    }
-
-    private Task<MachineCapabilityInstallResult> InstallPythonAsync(string? requestedVersion, CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            var version = requestedVersion ?? "3.12";
-            return RunWindowsCommandAsync(
-                "python",
-                "Python",
-                $"winget install --id Python.Python.{version} -e --accept-package-agreements --accept-source-agreements",
-                cancellationToken,
-                action: "install",
-                version);
-        }
-
-        var commandText = requestedVersion is null
-            ? "apt-get update && apt-get install -y python3 python3-pip python3-venv pipx"
-            : $"apt-get update && apt-get install -y python{requestedVersion} python{requestedVersion}-venv python3-pip";
-
-        return RunLinuxCommandAsync(
-            "python",
-            "Python",
-            commandText,
-            cancellationToken,
-            action: "install",
-            requestedVersion);
-    }
-
-    private Task<MachineCapabilityInstallResult> InstallDotNetAsync(string? requestedVersion, CancellationToken cancellationToken)
-    {
-        var version = requestedVersion ?? "10.0";
-        if (OperatingSystem.IsWindows())
-        {
-            var major = version.Split('.', 2)[0];
-            var commandText = $"winget install --id Microsoft.DotNet.SDK.{major} -e --accept-package-agreements --accept-source-agreements";
-            if (version.Count(ch => ch == '.') >= 2)
-            {
-                commandText += $" --version {QuoteWindowsArgument(version)}";
-            }
-
-            return RunWindowsCommandAsync(
-                "dotnet",
-                ".NET SDK",
-                commandText,
-                cancellationToken,
-                action: "install",
-                version);
-        }
-
-        return RunLinuxCommandAsync(
-            "dotnet",
-            ".NET SDK",
-            $"wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb && dpkg -i /tmp/packages-microsoft-prod.deb && rm /tmp/packages-microsoft-prod.deb && apt-get update && apt-get install -y dotnet-sdk-{version}",
-            cancellationToken,
-            action: "install",
-            version);
-    }
-
-    private Task<MachineCapabilityInstallResult> UpdateGitHubCliAsync(CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return RunWindowsCommandAsync(
-                "gh",
-                "GitHub CLI",
-                "winget upgrade --id GitHub.cli -e --accept-package-agreements --accept-source-agreements",
-                cancellationToken,
-                action: "update");
-        }
-
-        return RunLinuxCommandAsync(
-            "gh",
-            "GitHub CLI",
-            "apt-get update && apt-get install -y --only-upgrade gh",
-            cancellationToken,
-            action: "update");
-    }
-
-    private Task<MachineCapabilityInstallResult> UpdateCopilotCliAsync(CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            if (!CommandExists("npm"))
-            {
-                return Task.FromResult(CreateFailureResult(
-                    "copilot",
-                    "GitHub Copilot CLI",
-                    "update",
-                    null,
-                    "npm is required to update GitHub Copilot CLI. Install Node.js first."));
-            }
-
-            return RunDirectCommandAsync(
-                "copilot",
-                "GitHub Copilot CLI",
-                "npm",
-                ["update", "-g", "@github/copilot"],
-                cancellationToken,
-                action: "update");
-        }
-
-        return RunLinuxCommandAsync(
-            "copilot",
-            "GitHub Copilot CLI",
-            "if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y curl; fi && curl -fsSL https://gh.io/copilot-install | bash",
-            cancellationToken,
-            action: "update");
-    }
-
-    private Task<MachineCapabilityInstallResult> RunWindowsCommandAsync(
+    private Task<MachineCapabilityInstallResult> RunWindowsShellCommandAsync(
         string capabilityId,
         string capabilityName,
         string commandText,
         CancellationToken cancellationToken,
         string action,
-        string? requestedVersion = null)
-    {
-        if (!CommandExists("winget"))
-        {
-            return Task.FromResult(CreateFailureResult(
-                capabilityId,
-                capabilityName,
-                action,
-                requestedVersion,
-                "winget is required for this installation flow but is not available on the machine."));
-        }
-
-        return RunDirectCommandAsync(
+        string? requestedVersion = null) =>
+        RunDirectCommandAsync(
             capabilityId,
             capabilityName,
             "powershell.exe",
@@ -249,9 +192,8 @@ public sealed class MachineSetupService : IMachineSetupService
             action,
             commandText,
             requestedVersion);
-    }
 
-    private Task<MachineCapabilityInstallResult> RunLinuxCommandAsync(
+    private Task<MachineCapabilityInstallResult> RunLinuxShellCommandAsync(
         string capabilityId,
         string capabilityName,
         string commandText,
@@ -259,16 +201,6 @@ public sealed class MachineSetupService : IMachineSetupService
         string action,
         string? requestedVersion = null)
     {
-        if (!CommandExists("apt-get"))
-        {
-            return Task.FromResult(CreateFailureResult(
-                capabilityId,
-                capabilityName,
-                action,
-                requestedVersion,
-                "apt-get is required for this installation flow but is not available on the machine."));
-        }
-
         var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
         var nonInteractiveCommand = $"export DEBIAN_FRONTEND=noninteractive && {commandText}";
         var finalCommand =
@@ -371,38 +303,58 @@ public sealed class MachineSetupService : IMachineSetupService
         };
     }
 
-    private static string BuildWindowsNodeInstallCommand(string? requestedVersion)
+    private static bool RecipeMatches(RunnerSetupRecipe recipe, RunnerHostPlatform platform, string? requestedVersion)
     {
-        var baseCommand = requestedVersion switch
+        if (recipe.Platform != platform)
         {
-            null => "winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements",
-            var version when !version.Contains('.') && version.StartsWith("20", StringComparison.OrdinalIgnoreCase)
-                => "winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements",
-            var version when !version.Contains('.')
-                => "winget install --id OpenJS.NodeJS -e --accept-package-agreements --accept-source-agreements",
-            _ => "winget install --id OpenJS.NodeJS -e --accept-package-agreements --accept-source-agreements"
-        };
-
-        return requestedVersion is not null && requestedVersion.Contains('.')
-            ? $"{baseCommand} --version {QuoteWindowsArgument(requestedVersion)}"
-            : baseCommand;
-    }
-
-    private static string BuildLinuxNodeInstallCommand(string? requestedVersion)
-    {
-        var major = ExtractLeadingMajor(requestedVersion) ?? "22";
-        return $"if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y curl ca-certificates; fi && curl -fsSL https://deb.nodesource.com/setup_{major}.x | bash - && apt-get install -y nodejs";
-    }
-
-    private static string? ExtractLeadingMajor(string? version)
-    {
-        if (string.IsNullOrWhiteSpace(version))
-        {
-            return null;
+            return false;
         }
 
-        var digits = new string(version.Trim().TakeWhile(char.IsDigit).ToArray());
-        return digits.Length > 0 ? digits : null;
+        if (string.IsNullOrWhiteSpace(requestedVersion))
+        {
+            return recipe.MatchWhenVersionMissing || string.IsNullOrWhiteSpace(recipe.MatchVersionPattern);
+        }
+
+        if (string.IsNullOrWhiteSpace(recipe.MatchVersionPattern))
+        {
+            return !recipe.MatchWhenVersionMissing;
+        }
+
+        return Regex.IsMatch(requestedVersion, recipe.MatchVersionPattern, RegexOptions.IgnoreCase);
+    }
+
+    private static string ApplyTemplate(string value, string? requestedVersion)
+    {
+        var normalizedVersion = NormalizeValue(requestedVersion);
+        var major = ExtractLeadingMajor(normalizedVersion) ?? string.Empty;
+        return value
+            .Replace("{requestedVersion}", normalizedVersion ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("{major}", major, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildMissingCommandMessage(RunnerSetupRecipe recipe, string missingCommand, string action) =>
+        NormalizeValue(recipe.RequiredCommandsMessage) is { } configured
+            ? configured.Replace("{command}", missingCommand, StringComparison.OrdinalIgnoreCase)
+            : $"{missingCommand} is required for this {action} flow but is not available on the machine.";
+
+    private static RunnerHostPlatform GetCurrentPlatform()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return RunnerHostPlatform.Windows;
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            return RunnerHostPlatform.Linux;
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return RunnerHostPlatform.MacOS;
+        }
+
+        return RunnerHostPlatform.Unknown;
     }
 
     private static MachineCapabilityInstallResult CreateFailureResult(
@@ -451,14 +403,25 @@ public sealed class MachineSetupService : IMachineSetupService
         return false;
     }
 
-    private static string? NormalizeVersion(string? version)
+    private static string? ExtractLeadingMajor(string? version)
     {
         if (string.IsNullOrWhiteSpace(version))
         {
             return null;
         }
 
-        return version.Trim();
+        var digits = new string(version.Trim().TakeWhile(char.IsDigit).ToArray());
+        return digits.Length > 0 ? digits : null;
+    }
+
+    private static string? NormalizeValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim();
     }
 
     private static string? FirstMeaningfulLine(params string[] values)
@@ -483,5 +446,4 @@ public sealed class MachineSetupService : IMachineSetupService
     }
 
     private static string QuotePosix(string value) => $"'{value.Replace("'", "'\"'\"'")}'";
-    private static string QuoteWindowsArgument(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
 }

@@ -767,6 +767,11 @@ app.MapGet("/api/runner-definitions/capability-catalogs/{catalogId}", (string ca
         ? Results.Ok(capabilityCatalog)
         : Results.NotFound());
 
+app.MapGet("/api/runner-definitions/setup-catalogs/{catalogId}", (string catalogId, IRunnerDefinitionCatalogService catalog) =>
+    catalog.GetSetupCatalog(catalogId) is { } setupCatalog
+        ? Results.Ok(setupCatalog)
+        : Results.NotFound());
+
 app.MapPost("/api/cluster/workers/register", (RegisterRunnerMachineRequest request, IWorkerRegistryService registry) =>
 {
     try
