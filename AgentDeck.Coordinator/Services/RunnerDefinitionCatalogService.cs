@@ -8,6 +8,7 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
 {
     private readonly RunnerUpdateManifest _desiredUpdateManifest;
     private readonly RunnerWorkflowPack _desiredWorkflowPack;
+    private readonly RunnerCapabilityCatalog _desiredCapabilityCatalog;
 
     public RunnerDefinitionCatalogService(
         IOptions<CoordinatorOptions> coordinatorOptions,
@@ -16,6 +17,7 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
         var options = coordinatorOptions.Value;
         var desiredUpdateManifest = options.DesiredUpdateManifest ?? new CoordinatorUpdateManifestOptions();
         var desiredWorkflowPack = options.DesiredWorkflowPack ?? new CoordinatorWorkflowPackOptions();
+        var desiredCapabilityCatalog = options.DesiredCapabilityCatalog ?? new CoordinatorCapabilityCatalogOptions();
         var securityPolicy = options.SecurityPolicy ?? new CoordinatorSecurityPolicyOptions();
         var hostedArtifact = ResolveHostedArtifact(options, desiredUpdateManifest, artifactService);
 
@@ -83,11 +85,42 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
                 })
                 .ToArray()
         };
+
+        _desiredCapabilityCatalog = new RunnerCapabilityCatalog
+        {
+            CatalogId = NormalizeRequired(desiredCapabilityCatalog.CatalogId, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:CatalogId"),
+            Version = NormalizeRequired(desiredCapabilityCatalog.Version, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:Version"),
+            DisplayName = NormalizeRequired(desiredCapabilityCatalog.DisplayName, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:DisplayName"),
+            Description = NormalizeOptional(desiredCapabilityCatalog.Description),
+            Capabilities = (desiredCapabilityCatalog.Capabilities ?? [])
+                .Where(capability => !string.IsNullOrWhiteSpace(capability.CapabilityId))
+                .Select(capability => new RunnerCapabilityDefinition
+                {
+                    CapabilityId = NormalizeRequired(capability.CapabilityId, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:Capabilities:CapabilityId"),
+                    DisplayName = NormalizeRequired(capability.DisplayName, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:Capabilities:DisplayName"),
+                    Category = NormalizeRequired(capability.Category, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:Capabilities:Category"),
+                    ProbeKind = capability.ProbeKind,
+                    ProbeCommands = (capability.ProbeCommands ?? [])
+                        .Where(command => !string.IsNullOrWhiteSpace(command.FileName))
+                        .Select(command => new RunnerCapabilityProbeCommand
+                        {
+                            FileName = NormalizeRequired(command.FileName, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:Capabilities:ProbeCommands:FileName"),
+                            Arguments = (command.Arguments ?? [])
+                                .Where(argument => !string.IsNullOrWhiteSpace(argument))
+                                .Select(argument => argument.Trim())
+                                .ToArray()
+                        })
+                        .ToArray()
+                })
+                .ToArray()
+        };
     }
 
     public RunnerUpdateManifest GetDesiredUpdateManifest() => _desiredUpdateManifest;
 
     public RunnerWorkflowPack GetDesiredWorkflowPack() => _desiredWorkflowPack;
+
+    public RunnerCapabilityCatalog GetDesiredCapabilityCatalog() => _desiredCapabilityCatalog;
 
     public RunnerUpdateManifest? GetUpdateManifest(string manifestId) =>
         string.Equals(_desiredUpdateManifest.ManifestId, manifestId, StringComparison.OrdinalIgnoreCase)
@@ -97,6 +130,11 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
     public RunnerWorkflowPack? GetWorkflowPack(string packId) =>
         string.Equals(_desiredWorkflowPack.PackId, packId, StringComparison.OrdinalIgnoreCase)
             ? _desiredWorkflowPack
+            : null;
+
+    public RunnerCapabilityCatalog? GetCapabilityCatalog(string catalogId) =>
+        string.Equals(_desiredCapabilityCatalog.CatalogId, catalogId, StringComparison.OrdinalIgnoreCase)
+            ? _desiredCapabilityCatalog
             : null;
 
     private static string? NormalizeOptional(string? value) =>

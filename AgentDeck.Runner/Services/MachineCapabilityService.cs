@@ -9,15 +9,18 @@ namespace AgentDeck.Runner.Services;
 /// <inheritdoc />
 public sealed partial class MachineCapabilityService : IMachineCapabilityService
 {
+    private readonly IRunnerCapabilityCatalogService _capabilityCatalog;
     private readonly ILogger<MachineCapabilityService> _logger;
     private readonly IVirtualDeviceCatalogService _virtualDevices;
     private readonly IRemoteViewerSessionService _viewers;
 
     public MachineCapabilityService(
+        IRunnerCapabilityCatalogService capabilityCatalog,
         IVirtualDeviceCatalogService virtualDevices,
         IRemoteViewerSessionService viewers,
         ILogger<MachineCapabilityService> logger)
     {
+        _capabilityCatalog = capabilityCatalog;
         _virtualDevices = virtualDevices;
         _viewers = viewers;
         _logger = logger;
@@ -25,14 +28,10 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 
     public async Task<MachineCapabilitiesSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
     {
-        var capabilities = new List<MachineCapability>
-        {
-            await DetectCliAsync("gh", "GitHub CLI", [new ProbeCommand("gh", ["--version"])], ParseFirstLineVersion, cancellationToken),
-            await DetectCliAsync("copilot", "GitHub Copilot CLI", [new ProbeCommand("copilot", ["--version"])], ParseFirstLineVersion, cancellationToken),
-            await DetectNodeAsync(cancellationToken),
-            await DetectPythonAsync(cancellationToken),
-            await DetectDotNetAsync(cancellationToken)
-        };
+        var catalog = await _capabilityCatalog.GetCurrentCatalogAsync(cancellationToken);
+        var capabilities = catalog is null
+            ? []
+            : await DetectCapabilitiesAsync(catalog, cancellationToken);
         var catalogs = await _virtualDevices.GetCatalogsAsync(cancellationToken);
 
         return new MachineCapabilitiesSnapshot
@@ -43,6 +42,19 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
             RemoteViewerProviders = _viewers.GetAvailableProviders(),
             Capabilities = capabilities
         };
+    }
+
+    private async Task<IReadOnlyList<MachineCapability>> DetectCapabilitiesAsync(
+        RunnerCapabilityCatalog catalog,
+        CancellationToken cancellationToken)
+    {
+        var capabilities = new List<MachineCapability>(catalog.Capabilities.Count);
+        foreach (var definition in catalog.Capabilities)
+        {
+            capabilities.Add(await DetectCapabilityAsync(definition, cancellationToken));
+        }
+
+        return capabilities;
     }
 
     private static MachinePlatformProfile BuildPlatformProfile()
@@ -200,13 +212,31 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
         return RunnerHostPlatform.Unknown;
     }
 
+    private async Task<MachineCapability> DetectCapabilityAsync(
+        RunnerCapabilityDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        return definition.ProbeKind switch
+        {
+            RunnerCapabilityProbeKind.GenericCliVersion => await DetectCliAsync(definition, definition.ProbeCommands, ParseFirstLineVersion, cancellationToken),
+            RunnerCapabilityProbeKind.NodeVersion => await DetectSingleCommandVersionAsync(definition, ParseTrimmedOutput, "Detected via {0}", cancellationToken),
+            RunnerCapabilityProbeKind.PythonVersion => await DetectPythonAsync(definition, cancellationToken),
+            RunnerCapabilityProbeKind.DotNetSdk => await DetectDotNetAsync(definition, cancellationToken),
+            _ => CreateErrorCapability(definition.CapabilityId, definition.DisplayName, definition.Category, $"Unsupported probe kind '{definition.ProbeKind}'.")
+        };
+    }
+
     private async Task<MachineCapability> DetectCliAsync(
-        string id,
-        string name,
-        IReadOnlyList<ProbeCommand> commands,
+        RunnerCapabilityDefinition definition,
+        IReadOnlyList<RunnerCapabilityProbeCommand> commands,
         Func<string, string, string?> versionParser,
         CancellationToken cancellationToken)
     {
+        if (commands.Count == 0)
+        {
+            return CreateErrorCapability(definition.CapabilityId, definition.DisplayName, definition.Category, "Capability catalog did not define any probe commands.");
+        }
+
         string? lastError = null;
         var sawExecutionFailure = false;
 
@@ -230,9 +260,9 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
             var installedVersions = string.IsNullOrWhiteSpace(version) ? [] : new[] { version };
             return new MachineCapability
             {
-                Id = id,
-                Name = name,
-                Category = "cli",
+                Id = definition.CapabilityId,
+                Name = definition.DisplayName,
+                Category = definition.Category,
                 Status = MachineCapabilityStatus.Installed,
                 Version = version,
                 InstalledVersions = installedVersions,
@@ -242,48 +272,63 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 
         return new MachineCapability
         {
-            Id = id,
-            Name = name,
-            Category = "cli",
+            Id = definition.CapabilityId,
+            Name = definition.DisplayName,
+            Category = definition.Category,
             Status = sawExecutionFailure ? MachineCapabilityStatus.Error : MachineCapabilityStatus.Missing,
             Message = lastError ?? "Not installed."
         };
     }
 
-    private async Task<MachineCapability> DetectNodeAsync(CancellationToken cancellationToken)
+    private async Task<MachineCapability> DetectSingleCommandVersionAsync(
+        RunnerCapabilityDefinition definition,
+        Func<string, string, string?> versionParser,
+        string successMessageFormat,
+        CancellationToken cancellationToken)
     {
-        var result = await RunCommandAsync("node", ["--version"], cancellationToken);
+        var command = definition.ProbeCommands.FirstOrDefault();
+        if (command is null)
+        {
+            return CreateErrorCapability(definition.CapabilityId, definition.DisplayName, definition.Category, "Capability catalog did not define any probe commands.");
+        }
+
+        var result = await RunCommandAsync(command.FileName, command.Arguments, cancellationToken);
         if (result.StartFailed)
         {
-            return CreateMissingCapability("node", "Node.js", "sdk", result.ErrorMessage);
+            return CreateMissingCapability(definition.CapabilityId, definition.DisplayName, definition.Category, result.ErrorMessage);
         }
 
         if (!result.Succeeded)
         {
-            return CreateErrorCapability("node", "Node.js", "sdk", result.StandardError, result.StandardOutput);
+            return CreateErrorCapability(definition.CapabilityId, definition.DisplayName, definition.Category, result.StandardError, result.StandardOutput);
         }
 
-        var version = NormalizeVersion(ParseTrimmedOutput(result.StandardOutput, result.StandardError));
+        var version = NormalizeVersion(versionParser(result.StandardOutput, result.StandardError));
         return new MachineCapability
         {
-            Id = "node",
-            Name = "Node.js",
-            Category = "sdk",
+            Id = definition.CapabilityId,
+            Name = definition.DisplayName,
+            Category = definition.Category,
             Status = MachineCapabilityStatus.Installed,
             Version = version,
             InstalledVersions = version is null ? [] : [version],
-            Message = "Detected via node"
+            Message = string.Format(successMessageFormat, command.FileName)
         };
     }
 
-    private async Task<MachineCapability> DetectPythonAsync(CancellationToken cancellationToken)
+    private async Task<MachineCapability> DetectPythonAsync(RunnerCapabilityDefinition definition, CancellationToken cancellationToken)
     {
+        if (definition.ProbeCommands.Count == 0)
+        {
+            return CreateErrorCapability(definition.CapabilityId, definition.DisplayName, definition.Category, "Capability catalog did not define any probe commands.");
+        }
+
         var installedVersions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? primaryVersion = null;
         string? lastError = null;
         var sawExecutionFailure = false;
 
-        foreach (var command in new[] { new ProbeCommand("python", ["--version"]), new ProbeCommand("python3", ["--version"]) })
+        foreach (var command in definition.ProbeCommands)
         {
             var result = await RunCommandAsync(command.FileName, command.Arguments, cancellationToken);
             if (result.StartFailed)
@@ -343,9 +388,9 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
             var sortedVersions = SortVersionsDescending(installedVersions);
             return new MachineCapability
             {
-                Id = "python",
-                Name = "Python",
-                Category = "sdk",
+                Id = definition.CapabilityId,
+                Name = definition.DisplayName,
+                Category = definition.Category,
                 Status = MachineCapabilityStatus.Installed,
                 Version = primaryVersion ?? sortedVersions.FirstOrDefault(),
                 InstalledVersions = sortedVersions,
@@ -357,25 +402,32 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 
         return new MachineCapability
         {
-            Id = "python",
-            Name = "Python",
-            Category = "sdk",
+            Id = definition.CapabilityId,
+            Name = definition.DisplayName,
+            Category = definition.Category,
             Status = sawExecutionFailure ? MachineCapabilityStatus.Error : MachineCapabilityStatus.Missing,
             Message = lastError ?? "Not installed."
         };
     }
 
-    private async Task<MachineCapability> DetectDotNetAsync(CancellationToken cancellationToken)
+    private async Task<MachineCapability> DetectDotNetAsync(RunnerCapabilityDefinition definition, CancellationToken cancellationToken)
     {
-        var currentResult = await RunCommandAsync("dotnet", ["--version"], cancellationToken);
+        var commands = definition.ProbeCommands;
+        if (commands.Count == 0)
+        {
+            return CreateErrorCapability(definition.CapabilityId, definition.DisplayName, definition.Category, "Capability catalog did not define any probe commands.");
+        }
+
+        var currentCommand = commands[0];
+        var currentResult = await RunCommandAsync(currentCommand.FileName, currentCommand.Arguments, cancellationToken);
         if (currentResult.StartFailed)
         {
-            return CreateMissingCapability("dotnet", ".NET SDK", "sdk", currentResult.ErrorMessage);
+            return CreateMissingCapability(definition.CapabilityId, definition.DisplayName, definition.Category, currentResult.ErrorMessage);
         }
 
         if (!currentResult.Succeeded)
         {
-            return CreateErrorCapability("dotnet", ".NET SDK", "sdk", currentResult.StandardError, currentResult.StandardOutput);
+            return CreateErrorCapability(definition.CapabilityId, definition.DisplayName, definition.Category, currentResult.StandardError, currentResult.StandardOutput);
         }
 
         var currentVersion = NormalizeVersion(ParseTrimmedOutput(currentResult.StandardOutput, currentResult.StandardError));
@@ -385,21 +437,25 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
             installedVersions.Add(currentVersion);
         }
 
-        var listResult = await RunCommandAsync("dotnet", ["--list-sdks"], cancellationToken);
-        if (!listResult.StartFailed && listResult.Succeeded)
+        if (commands.Count > 1)
         {
-            foreach (var version in ParseVersions(listResult.StandardOutput))
+            var listCommand = commands[1];
+            var listResult = await RunCommandAsync(listCommand.FileName, listCommand.Arguments, cancellationToken);
+            if (!listResult.StartFailed && listResult.Succeeded)
             {
-                installedVersions.Add(version);
+                foreach (var version in ParseVersions(listResult.StandardOutput))
+                {
+                    installedVersions.Add(version);
+                }
             }
         }
 
         var sortedVersions = SortVersionsDescending(installedVersions);
         return new MachineCapability
         {
-            Id = "dotnet",
-            Name = ".NET SDK",
-            Category = "sdk",
+            Id = definition.CapabilityId,
+            Name = definition.DisplayName,
+            Category = definition.Category,
             Status = MachineCapabilityStatus.Installed,
             Version = currentVersion ?? sortedVersions.FirstOrDefault(),
             InstalledVersions = sortedVersions,
@@ -602,8 +658,6 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 
     [GeneratedRegex(@"^python(?:3\.\d+)?(?:\.exe)?$", RegexOptions.IgnoreCase)]
     private static partial Regex PythonCommandPattern();
-
-    private sealed record ProbeCommand(string FileName, IReadOnlyList<string> Arguments);
 
     private sealed class ProbeResult
     {

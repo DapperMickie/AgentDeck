@@ -86,6 +86,10 @@
                             {
                                 <span> • workflow @machine.WorkflowCatalogVersion</span>
                             }
+                            @if (!string.IsNullOrWhiteSpace(machine.CapabilityCatalogVersion))
+                            {
+                                <span> • capabilities @machine.CapabilityCatalogVersion</span>
+                            }
                             @if (!string.IsNullOrWhiteSpace(machine.SecurityPolicyVersion))
                             {
                                 <span> • security @machine.SecurityPolicyVersion</span>
@@ -395,6 +399,35 @@
                                 <div class="settings-status-row">
                                     <span class="settings-status-row__label">Workflow catalog summary</span>
                                     <span class="settings-status-row__value">@workflowCatalogStatus.StatusMessage</span>
+                                </div>
+                            }
+                        }
+                        @if (SelectedRegisteredMachine?.CapabilityCatalogStatus is { } capabilityCatalogStatus &&
+                             capabilityCatalogStatus.State != RunnerCapabilityCatalogState.Unknown)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Capability catalog state</span>
+                                <span class="settings-status-row__value">@GetCapabilityCatalogStateLabel(capabilityCatalogStatus.State)</span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(capabilityCatalogStatus.LocalCatalogVersion))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Local capability catalog</span>
+                                    <span class="settings-status-row__value">@capabilityCatalogStatus.LocalCatalogVersion</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(capabilityCatalogStatus.DesiredCatalogVersion))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Desired capability catalog</span>
+                                    <span class="settings-status-row__value">@capabilityCatalogStatus.DesiredCatalogVersion</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(capabilityCatalogStatus.StatusMessage))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Capability catalog summary</span>
+                                    <span class="settings-status-row__value">@capabilityCatalogStatus.StatusMessage</span>
                                 </div>
                             }
                         }
@@ -897,6 +930,14 @@
     {
         RunnerWorkflowCatalogState.Matched => "Matched",
         RunnerWorkflowCatalogState.Mismatched => "Mismatched",
+        _ => "Unknown"
+    };
+
+    private static string GetCapabilityCatalogStateLabel(RunnerCapabilityCatalogState state) => state switch
+    {
+        RunnerCapabilityCatalogState.Matched => "Matched",
+        RunnerCapabilityCatalogState.Mismatched => "Mismatched",
+        RunnerCapabilityCatalogState.Failed => "Failed",
         _ => "Unknown"
     };
 

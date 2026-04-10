@@ -227,6 +227,8 @@ Workflow packs now also have a first-pass runner execution path: worker runners 
 
 Workflow catalog versioning now also has explicit compatibility signaling: worker runners advertise a configured local workflow catalog version, reconcile it against the coordinator's desired catalog version, and report `Matched`, `Mismatched`, or `Unknown` catalog status through the machine directory.
 
+Capability detection is now also moving under the coordinator-owned control plane: the coordinator can publish a versioned capability catalog that defines the ordered capability probe list and probe commands for built-in tool/SDK checks, runners persist and reconcile that catalog locally, and machine capability snapshots now execute from the reconciled catalog instead of hardcoding the top-level probe list inside `MachineCapabilityService`. The companion Settings page surfaces the runner's capability-catalog version/status alongside the existing workflow-catalog and workflow-pack control-plane state.
+
 ### Control-plane security model
 
 - Runners only accept a non-HTTPS coordinator URL by default when it targets loopback and `Coordinator:AllowInsecureHttpCoordinatorForLoopback` is enabled for local development.

@@ -8,7 +8,11 @@ public interface IRunnerDefinitionCatalogService
 
     RunnerWorkflowPack GetDesiredWorkflowPack();
 
+    RunnerCapabilityCatalog GetDesiredCapabilityCatalog();
+
     RunnerUpdateManifest? GetUpdateManifest(string manifestId);
 
     RunnerWorkflowPack? GetWorkflowPack(string packId);
+
+    RunnerCapabilityCatalog? GetCapabilityCatalog(string catalogId);
 }
