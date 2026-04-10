@@ -13,6 +13,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
     private readonly IMachineCapabilityService _capabilities;
     private readonly IRunnerUpdateStagingService _updateStaging;
     private readonly IRunnerWorkflowCatalogService _workflowCatalog;
+    private readonly IRunnerCapabilityCatalogService _capabilityCatalog;
     private readonly IRunnerWorkflowPackService _workflowPacks;
     private readonly ILogger<WorkerCoordinatorRegistrationService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -22,6 +23,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         IMachineCapabilityService capabilities,
         IRunnerUpdateStagingService updateStaging,
         IRunnerWorkflowCatalogService workflowCatalog,
+        IRunnerCapabilityCatalogService capabilityCatalog,
         IRunnerWorkflowPackService workflowPacks,
         IHttpClientFactory httpClientFactory,
         ILogger<WorkerCoordinatorRegistrationService> logger)
@@ -30,6 +32,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         _capabilities = capabilities;
         _updateStaging = updateStaging;
         _workflowCatalog = workflowCatalog;
+        _capabilityCatalog = capabilityCatalog;
         _workflowPacks = workflowPacks;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
@@ -73,6 +76,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
 
                 var snapshot = await _capabilities.GetSnapshotAsync(stoppingToken);
                 var workflowCatalogStatus = await _workflowCatalog.GetCurrentStatusAsync(stoppingToken);
+                var capabilityCatalogStatus = await _capabilityCatalog.GetCurrentStatusAsync(stoppingToken);
                 var updateStatus = await _updateStaging.GetCurrentStatusAsync(stoppingToken);
                 var workflowPackStatus = await _workflowPacks.GetCurrentStatusAsync(stoppingToken);
                 var request = new RegisterRunnerMachineRequest
@@ -86,6 +90,8 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                         ? "1"
                         : _coordinatorOptions.WorkflowCatalogVersion.Trim(),
                     WorkflowCatalogStatus = workflowCatalogStatus,
+                    CapabilityCatalogVersion = capabilityCatalogStatus?.LocalCatalogVersion,
+                    CapabilityCatalogStatus = capabilityCatalogStatus,
                     UpdateStatus = updateStatus,
                     WorkflowPackStatus = workflowPackStatus,
                     RunnerUrl = string.IsNullOrWhiteSpace(_coordinatorOptions.AdvertisedRunnerUrl)
@@ -106,6 +112,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                 if (registration?.DesiredState is { } desiredState)
                 {
                     var catalogStatus = await _workflowCatalog.ReconcileDesiredWorkflowCatalogAsync(desiredState, stoppingToken);
+                    var capabilityCatalogStatusAfterReconcile = await _capabilityCatalog.ReconcileDesiredCapabilityCatalogAsync(httpClient, desiredState, stoppingToken);
                     if (!desiredState.ProtocolCompatible)
                     {
                         _logger.LogWarning(
@@ -125,6 +132,15 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                             catalogStatus.DesiredCatalogVersion,
                             request.MachineName,
                             catalogStatus.LocalCatalogVersion);
+                    }
+
+                    if (capabilityCatalogStatusAfterReconcile.State == RunnerCapabilityCatalogState.Failed)
+                    {
+                        _logger.LogWarning(
+                            "Coordinator {CoordinatorUrl} capability catalog reconcile failed for runner {MachineName}: {StatusMessage}",
+                            coordinatorUrl,
+                            request.MachineName,
+                            capabilityCatalogStatusAfterReconcile.StatusMessage);
                     }
 
                     if (desiredState.UpdateAvailable)

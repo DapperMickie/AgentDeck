@@ -762,6 +762,11 @@ app.MapGet("/api/runner-definitions/workflow-packs/{packId}", (string packId, IR
         ? Results.Ok(pack)
         : Results.NotFound());
 
+app.MapGet("/api/runner-definitions/capability-catalogs/{catalogId}", (string catalogId, IRunnerDefinitionCatalogService catalog) =>
+    catalog.GetCapabilityCatalog(catalogId) is { } capabilityCatalog
+        ? Results.Ok(capabilityCatalog)
+        : Results.NotFound());
+
 app.MapPost("/api/cluster/workers/register", (RegisterRunnerMachineRequest request, IWorkerRegistryService registry) =>
 {
     try

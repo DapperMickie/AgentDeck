@@ -9,7 +9,9 @@ public sealed class RunnerDesiredState
     public required RunnerControlPlaneSecurityPolicy SecurityPolicy { get; init; }
     public RunnerDefinitionReference? DesiredUpdateManifest { get; init; }
     public RunnerDefinitionReference? DesiredWorkflowPack { get; init; }
+    public RunnerDefinitionReference? DesiredCapabilityCatalog { get; init; }
     public string? WorkflowCatalogVersion { get; init; }
+    public string? CapabilityCatalogVersion { get; init; }
     public bool UpdateAvailable { get; init; }
     public bool ApplyUpdate { get; init; }
     public bool ProtocolCompatible { get; init; } = true;
