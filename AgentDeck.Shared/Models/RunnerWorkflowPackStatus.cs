@@ -6,6 +6,7 @@ namespace AgentDeck.Shared.Models;
 public sealed class RunnerWorkflowPackStatus
 {
     public RunnerWorkflowPackState State { get; init; } = RunnerWorkflowPackState.None;
+    public bool ExecutionAttempted { get; init; }
     public string? PackId { get; init; }
     public string? PackVersion { get; init; }
     public string? LocalPackPath { get; init; }
