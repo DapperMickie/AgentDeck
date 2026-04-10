@@ -16,6 +16,8 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
     private readonly IOrchestrationJobService _jobs;
     private readonly IPtyProcessManager _ptyManager;
+    private readonly IRemoteViewerSessionService _viewers;
+    private readonly IDesktopViewerBootstrapService _viewerBootstrap;
     private readonly IVsCodeDebugSessionService _vsCodeDebug;
     private readonly IWorkspaceService _workspace;
     private readonly ILogger<OrchestrationExecutionService> _logger;
@@ -26,12 +28,16 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     public OrchestrationExecutionService(
         IOrchestrationJobService jobs,
         IPtyProcessManager ptyManager,
+        IRemoteViewerSessionService viewers,
+        IDesktopViewerBootstrapService viewerBootstrap,
         IVsCodeDebugSessionService vsCodeDebug,
         IWorkspaceService workspace,
         ILogger<OrchestrationExecutionService> logger)
     {
         _jobs = jobs;
         _ptyManager = ptyManager;
+        _viewers = viewers;
+        _viewerBootstrap = viewerBootstrap;
         _vsCodeDebug = vsCodeDebug;
         _workspace = workspace;
         _logger = logger;
@@ -199,7 +205,8 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
                 command: launchCommand,
                 status: OrchestrationJobStatus.Running,
                 statusMessage: "Launching application.",
-                fallbackMachineId: job.TargetMachineId);
+                fallbackMachineId: job.TargetMachineId,
+                attachDeviceViewer: true);
 
             await FinishIfTerminalAsync(jobId, launchExitCode, "Launch");
         }
@@ -216,6 +223,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
                 Status = OrchestrationJobStatus.Failed,
                 Message = $"Execution failed: {ex.Message}"
             });
+            await CloseJobViewerIfPresentAsync(jobId, $"Job failed: {ex.Message}");
         }
         finally
         {
@@ -313,7 +321,8 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         string command,
         OrchestrationJobStatus status,
         string statusMessage,
-        string? fallbackMachineId)
+        string? fallbackMachineId,
+        bool attachDeviceViewer = false)
     {
         if (string.IsNullOrWhiteSpace(command))
         {
@@ -346,6 +355,11 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         try
         {
             await _ptyManager.StartAsync(sessionId, shellCommand, shellArguments, workingDirectory, 120, 40);
+            if (attachDeviceViewer)
+            {
+                await TryAttachDeviceViewerAsync(job, sessionId);
+            }
+
             return await completion.Task;
         }
         finally
@@ -365,6 +379,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         if (job.Status is OrchestrationJobStatus.CancelRequested or OrchestrationJobStatus.Cancelled)
         {
+            await CloseJobViewerIfPresentAsync(jobId, "Viewer session closed because the job was cancelled.");
             _jobs.UpdateStatus(jobId, new UpdateOrchestrationJobStatusRequest
             {
                 Status = OrchestrationJobStatus.Cancelled,
@@ -376,6 +391,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         if (exitCode != 0)
         {
+            await CloseJobViewerIfPresentAsync(jobId, $"{phaseName} failed with exit code {exitCode}.");
             _jobs.UpdateStatus(jobId, new UpdateOrchestrationJobStatusRequest
             {
                 Status = OrchestrationJobStatus.Failed,
@@ -387,6 +403,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         if (phaseName == "Launch")
         {
+            await CloseJobViewerIfPresentAsync(jobId, "Viewer session closed because the launch completed.");
             _jobs.UpdateStatus(jobId, new UpdateOrchestrationJobStatusRequest
             {
                 Status = OrchestrationJobStatus.Completed,
@@ -405,6 +422,114 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         await Task.CompletedTask;
         return false;
+    }
+
+    private async Task TryAttachDeviceViewerAsync(OrchestrationJob job, string sessionId)
+    {
+        if (!TryBuildDeviceViewerRequest(job, sessionId, out var request, out var targetKind))
+        {
+            return;
+        }
+
+        RemoteViewerSession? viewer = null;
+        try
+        {
+            viewer = _viewers.Create(request);
+            _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
+            {
+                Status = OrchestrationJobStatus.Running,
+                SessionId = sessionId,
+                ViewerSessionId = viewer.Id
+            });
+
+            viewer = await _viewerBootstrap.BootstrapAsync(viewer.Id) ?? viewer;
+
+            var targetLabel = targetKind == RemoteViewerTargetKind.Emulator ? "Emulator" : "Simulator";
+            var viewerMessage = viewer.Status switch
+            {
+                RemoteViewerSessionStatus.Ready => $"{targetLabel} viewer session '{viewer.Id}' is ready.",
+                RemoteViewerSessionStatus.Failed => $"{targetLabel} viewer session '{viewer.Id}' failed: {viewer.StatusMessage}",
+                _ => $"{targetLabel} viewer session '{viewer.Id}' is {viewer.Status}."
+            };
+
+            _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
+            {
+                Level = viewer.Status == RemoteViewerSessionStatus.Failed ? OrchestrationLogLevel.Warning : OrchestrationLogLevel.Information,
+                Message = viewerMessage,
+                MachineId = job.TargetMachineId
+            });
+        }
+        catch
+        {
+            if (viewer is not null)
+            {
+                await _viewerBootstrap.CloseAsync(viewer.Id, "Viewer session closed because device viewer attachment failed.");
+            }
+
+            throw;
+        }
+    }
+
+    private bool TryBuildDeviceViewerRequest(
+        OrchestrationJob job,
+        string sessionId,
+        out CreateRemoteViewerSessionRequest request,
+        out RemoteViewerTargetKind targetKind)
+    {
+        request = new CreateRemoteViewerSessionRequest();
+        targetKind = default;
+
+        if (job.DeviceSelection?.HasTarget != true ||
+            !TryMapDeviceViewerTargetKind(job.Platform, out targetKind))
+        {
+            return false;
+        }
+
+        var deviceLabel = job.DeviceSelection.DisplayName ?? job.DeviceSelection.DeviceId ?? job.DeviceSelection.ProfileId ?? job.LaunchProfileName;
+        request = new CreateRemoteViewerSessionRequest
+        {
+            MachineId = job.TargetMachineId,
+            MachineName = job.TargetMachineName,
+            JobId = job.Id,
+            Target = new RemoteViewerTarget
+            {
+                Kind = targetKind,
+                DisplayName = $"{job.ProjectName} {deviceLabel}",
+                JobId = job.Id,
+                SessionId = sessionId,
+                VirtualDeviceId = job.DeviceSelection.DeviceId,
+                VirtualDeviceProfileId = job.DeviceSelection.ProfileId
+            }
+        };
+
+        return true;
+    }
+
+    private async Task CloseJobViewerIfPresentAsync(string jobId, string message)
+    {
+        var viewerSessionId = _jobs.Get(jobId)?.ViewerSessionId;
+        if (string.IsNullOrWhiteSpace(viewerSessionId))
+        {
+            return;
+        }
+
+        await _viewerBootstrap.CloseAsync(viewerSessionId, message);
+    }
+
+    private static bool TryMapDeviceViewerTargetKind(ApplicationTargetPlatform platform, out RemoteViewerTargetKind targetKind)
+    {
+        switch (platform)
+        {
+            case ApplicationTargetPlatform.Android:
+                targetKind = RemoteViewerTargetKind.Emulator;
+                return true;
+            case ApplicationTargetPlatform.iOS:
+                targetKind = RemoteViewerTargetKind.Simulator;
+                return true;
+            default:
+                targetKind = default;
+                return false;
+        }
     }
 
     private void OnOutputReceived(object? sender, (string SessionId, string Data) e)
