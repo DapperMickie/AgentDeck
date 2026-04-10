@@ -16,6 +16,7 @@ public sealed class ManagedDesktopViewerTransportOptions
     public string[] Arguments { get; set; } = [];
     public string? WorkingDirectory { get; set; }
     public string? ConnectionUriTemplate { get; set; }
+    public string? ReadySignalPathTemplate { get; set; }
     public TimeSpan StartupTimeout { get; set; } = TimeSpan.FromSeconds(10);
     public bool IssueAccessToken { get; set; } = true;
     public int AccessTokenBytes { get; set; } = 12;

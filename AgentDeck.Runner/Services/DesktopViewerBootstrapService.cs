@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
@@ -16,12 +17,26 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 {
     private sealed record ActiveDesktopTransport(Process Process);
 
+    private sealed class ManagedViewerReadySignal
+    {
+        public string? ConnectionUri { get; init; }
+        public string? AccessToken { get; init; }
+        public string? Message { get; init; }
+        public string? TargetKind { get; init; }
+        public string? TargetDisplayName { get; init; }
+        public string? TargetSessionId { get; init; }
+        public string? TargetWindowTitle { get; init; }
+        public string? TargetVirtualDeviceId { get; init; }
+        public string? TargetVirtualDeviceProfileId { get; init; }
+    }
+
     private sealed record BootstrapOutcome(
         string ConnectionUri,
         string? AccessToken,
         string Message,
         Process? Process = null);
 
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly ConcurrentDictionary<string, ActiveDesktopTransport> _activeTransports = new();
     private readonly IRemoteViewerSessionService _viewers;
     private readonly DesktopViewerTransportOptions _transportOptions;
@@ -140,7 +155,10 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         var accessToken = options.IssueAccessToken
             ? Convert.ToHexString(RandomNumberGenerator.GetBytes(Math.Max(1, options.AccessTokenBytes))).ToLowerInvariant()
             : null;
-        var replacements = BuildManagedBootstrapReplacements(session, connectionHost, port, accessToken);
+        var baseReplacements = BuildManagedBootstrapReplacements(session, connectionHost, port, accessToken);
+        var readySignalPath = ResolveReadySignalPath(options.ReadySignalPathTemplate, baseReplacements);
+        var replacements = BuildManagedBootstrapReplacements(session, connectionHost, port, accessToken, readySignalPath);
+        DeleteReadySignalFile(readySignalPath);
 
         var startInfo = new ProcessStartInfo
         {
@@ -169,16 +187,23 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Managed viewer transport helper did not start.");
 
-        if (!await WaitForPortOrExitAsync(process, port, options.StartupTimeout, cancellationToken))
+        ManagedViewerReadySignal? readySignal = null;
+        try
         {
-            var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-            var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(readySignalPath))
+            {
+                readySignal = await WaitForReadySignalOrExitAsync(process, readySignalPath, options.StartupTimeout, cancellationToken);
+                ValidateReadySignal(session, readySignal);
+            }
+            else if (!await WaitForPortOrExitAsync(process, port, options.StartupTimeout, cancellationToken))
+            {
+                throw await BuildManagedBootstrapFailureAsync(process, cancellationToken);
+            }
+        }
+        catch
+        {
             TryKillProcess(process);
-
-            var detail = FirstMeaningfulLine(error, output);
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
-                ? "Managed viewer transport exited before it became ready."
-                : detail);
+            throw;
         }
 
         process.EnableRaisingEvents = true;
@@ -203,9 +228,13 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
 
         return new BootstrapOutcome(
-            ConnectionUri: ApplyTemplate(options.ConnectionUriTemplate!, replacements),
-            AccessToken: accessToken,
-            Message: $"{GetTargetDisplayName(session)} is ready via AgentDeck-managed transport at {connectionHost}:{port}.",
+            ConnectionUri: string.IsNullOrWhiteSpace(readySignal?.ConnectionUri)
+                ? ApplyTemplate(options.ConnectionUriTemplate!, replacements)
+                : readySignal.ConnectionUri,
+            AccessToken: string.IsNullOrWhiteSpace(readySignal?.AccessToken) ? accessToken : readySignal.AccessToken,
+            Message: string.IsNullOrWhiteSpace(readySignal?.Message)
+                ? $"{GetTargetDisplayName(session)} is ready via AgentDeck-managed transport at {connectionHost}:{port}."
+                : readySignal.Message,
             Process: process);
     }
 
@@ -213,7 +242,8 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         RemoteViewerSession session,
         string connectionHost,
         int port,
-        string? accessToken)
+        string? accessToken,
+        string? readySignalPath = null)
     {
         return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -228,8 +258,151 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
             ["targetSessionId"] = session.Target.SessionId ?? string.Empty,
             ["targetWindowTitle"] = session.Target.WindowTitle ?? string.Empty,
             ["targetVirtualDeviceId"] = session.Target.VirtualDeviceId ?? string.Empty,
-            ["targetVirtualDeviceProfileId"] = session.Target.VirtualDeviceProfileId ?? string.Empty
+            ["targetVirtualDeviceProfileId"] = session.Target.VirtualDeviceProfileId ?? string.Empty,
+            ["readySignalPath"] = readySignalPath ?? string.Empty
         };
+    }
+
+    private static string? ResolveReadySignalPath(string? template, IReadOnlyDictionary<string, string> replacements) =>
+        string.IsNullOrWhiteSpace(template) ? null : ApplyTemplate(template, replacements);
+
+    private static void DeleteReadySignalFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task<ManagedViewerReadySignal> WaitForReadySignalOrExitAsync(
+        Process process,
+        string readySignalPath,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = DateTimeOffset.UtcNow;
+        string? lastError = null;
+
+        while (DateTimeOffset.UtcNow - startedAt < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (TryReadReadySignal(readySignalPath, out var signal, out var error))
+            {
+                return signal!;
+            }
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                lastError = error;
+            }
+
+            if (process.HasExited)
+            {
+                throw new InvalidOperationException(lastError ?? $"Managed viewer transport exited before publishing ready signal '{readySignalPath}'.");
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        if (TryReadReadySignal(readySignalPath, out var finalSignal, out var finalError))
+        {
+            return finalSignal!;
+        }
+
+        throw new InvalidOperationException(
+            !string.IsNullOrWhiteSpace(finalError)
+                ? finalError
+                : $"Managed viewer transport did not publish ready signal '{readySignalPath}' within {timeout}.");
+    }
+
+    private static bool TryReadReadySignal(
+        string readySignalPath,
+        out ManagedViewerReadySignal? signal,
+        out string? error)
+    {
+        signal = null;
+        error = null;
+
+        if (!File.Exists(readySignalPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = new FileStream(readySignalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var json = reader.ReadToEnd();
+            signal = JsonSerializer.Deserialize<ManagedViewerReadySignal>(json, JsonOptions)
+                ?? throw new InvalidOperationException("Ready signal file was empty.");
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            error = $"Managed viewer transport wrote an invalid ready signal at '{readySignalPath}': {ex.Message}";
+            return false;
+        }
+    }
+
+    private static void ValidateReadySignal(RemoteViewerSession session, ManagedViewerReadySignal signal)
+    {
+        if (string.IsNullOrWhiteSpace(signal.TargetKind) ||
+            !Enum.TryParse<RemoteViewerTargetKind>(signal.TargetKind, ignoreCase: true, out var signaledTargetKind))
+        {
+            throw new InvalidOperationException("Managed viewer ready signal did not report a valid target kind.");
+        }
+
+        if (signaledTargetKind != session.Target.Kind)
+        {
+            throw new InvalidOperationException(
+                $"Managed viewer ready signal reported target kind '{signaledTargetKind}', but the session requested '{session.Target.Kind}'.");
+        }
+
+        ValidateReadySignalField("target display name", session.Target.DisplayName, signal.TargetDisplayName);
+        ValidateReadySignalField("target session id", session.Target.SessionId, signal.TargetSessionId);
+        ValidateReadySignalField("target window title", session.Target.WindowTitle, signal.TargetWindowTitle);
+        ValidateReadySignalField("target virtual device id", session.Target.VirtualDeviceId, signal.TargetVirtualDeviceId);
+        ValidateReadySignalField("target virtual device profile id", session.Target.VirtualDeviceProfileId, signal.TargetVirtualDeviceProfileId);
+    }
+
+    private static void ValidateReadySignalField(string fieldName, string? requestedValue, string? signaledValue)
+    {
+        if (string.IsNullOrWhiteSpace(signaledValue))
+        {
+            return;
+        }
+
+        var expectedValue = requestedValue ?? string.Empty;
+        if (!string.Equals(expectedValue, signaledValue, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Managed viewer ready signal reported {fieldName} '{signaledValue}', but the session requested '{expectedValue}'.");
+        }
+    }
+
+    private static async Task<InvalidOperationException> BuildManagedBootstrapFailureAsync(Process process, CancellationToken cancellationToken)
+    {
+        var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+        var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+        TryKillProcess(process);
+
+        var detail = FirstMeaningfulLine(error, output);
+        return new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+            ? "Managed viewer transport exited before it became ready."
+            : detail);
     }
 
     private static BootstrapOutcome BootstrapRdp(RemoteViewerSession session, string connectionHost)
