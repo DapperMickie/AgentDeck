@@ -32,6 +32,7 @@ public sealed class CompanionMachineSummary
     public RunnerWorkflowPackStatus? WorkflowPackStatus { get; init; }
     public RunnerWorkflowCatalogStatus? WorkflowCatalogStatus { get; init; }
     public IReadOnlyList<MachineTargetSupport> SupportedTargets { get; init; } = [];
+    public IReadOnlyList<RemoteViewerProviderCapability> RemoteViewerProviders { get; init; } = [];
 }
 
 public sealed class CompanionProjectSummary
