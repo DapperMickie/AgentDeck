@@ -298,10 +298,17 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
         return new RemoteViewerProviderCapability
         {
             Provider = RemoteViewerProviderKind.Managed,
-            DisplayName = "AgentDeck-managed desktop transport",
-            SupportedTargets = [RemoteViewerTargetKind.Desktop],
+            DisplayName = "AgentDeck-managed viewer transport",
+            SupportedTargets =
+            [
+                RemoteViewerTargetKind.Desktop,
+                RemoteViewerTargetKind.Window,
+                RemoteViewerTargetKind.Emulator,
+                RemoteViewerTargetKind.Simulator,
+                RemoteViewerTargetKind.VsCode
+            ],
             RequiresInteractiveDesktop = true,
-            Notes = "Runner launches a configured AgentDeck-managed helper and advertises its connection URI."
+            Notes = "Runner launches a configured AgentDeck-managed helper and advertises its connection URI for supported viewer targets."
         };
     }
 

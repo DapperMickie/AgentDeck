@@ -48,15 +48,10 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
             return null;
         }
 
-        if (session.Target.Kind != RemoteViewerTargetKind.Desktop)
-        {
-            return session;
-        }
-
         var preparingResult = _viewers.Update(sessionId, new UpdateRemoteViewerSessionRequest
         {
             Status = RemoteViewerSessionStatus.Preparing,
-            Message = BuildPreparingMessage(session.Provider)
+            Message = BuildPreparingMessage(session)
         });
 
         session = preparingResult.Session ?? session;
@@ -88,7 +83,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Desktop viewer bootstrap failed for session {SessionId}", sessionId);
+            _logger.LogWarning(ex, "Viewer bootstrap failed for session {SessionId}", sessionId);
             var failedResult = _viewers.Update(sessionId, new UpdateRemoteViewerSessionRequest
             {
                 Status = RemoteViewerSessionStatus.Failed,
@@ -119,18 +114,18 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
     {
         return session.Provider switch
         {
-            RemoteViewerProviderKind.Managed => await BootstrapManagedAsync(session.Id, connectionHost, cancellationToken),
-            RemoteViewerProviderKind.Rdp => BootstrapRdp(connectionHost),
-            RemoteViewerProviderKind.ScreenSharing => BootstrapScreenSharing(connectionHost),
-            RemoteViewerProviderKind.Vnc => await BootstrapVncAsync(session.Id, connectionHost, cancellationToken),
-            RemoteViewerProviderKind.X11 => throw new InvalidOperationException("X11 window streaming is not part of the first desktop bootstrap slice."),
-            RemoteViewerProviderKind.Wayland => throw new InvalidOperationException("Wayland capture bootstrap is not part of the first desktop bootstrap slice."),
-            _ => throw new InvalidOperationException($"Viewer provider '{session.Provider}' is not supported for desktop bootstrap.")
+            RemoteViewerProviderKind.Managed => await BootstrapManagedAsync(session, connectionHost, cancellationToken),
+            RemoteViewerProviderKind.Rdp => BootstrapRdp(session, connectionHost),
+            RemoteViewerProviderKind.ScreenSharing => BootstrapScreenSharing(session, connectionHost),
+            RemoteViewerProviderKind.Vnc => await BootstrapVncAsync(session, connectionHost, cancellationToken),
+            RemoteViewerProviderKind.X11 => throw new InvalidOperationException("X11 window streaming is not part of the first viewer bootstrap slice."),
+            RemoteViewerProviderKind.Wayland => throw new InvalidOperationException("Wayland capture bootstrap is not part of the first viewer bootstrap slice."),
+            _ => throw new InvalidOperationException($"Viewer provider '{session.Provider}' is not supported for viewer bootstrap.")
         };
     }
 
     private async Task<BootstrapOutcome> BootstrapManagedAsync(
-        string sessionId,
+        RemoteViewerSession session,
         string connectionHost,
         CancellationToken cancellationToken)
     {
@@ -138,7 +133,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         if (!options.IsConfigured)
         {
             throw new InvalidOperationException(
-                "AgentDeck-managed desktop transport is not configured on this runner. Set DesktopViewerTransport:Managed options before requesting the managed provider.");
+                "AgentDeck-managed viewer transport is not configured on this runner. Set DesktopViewerTransport:Managed options before requesting the managed provider.");
         }
 
         var port = ReserveTcpPort();
@@ -147,12 +142,12 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
             : null;
         var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["sessionId"] = sessionId,
+            ["sessionId"] = session.Id,
             ["port"] = port.ToString(),
             ["token"] = accessToken ?? string.Empty,
             ["host"] = connectionHost,
             ["machineName"] = Environment.MachineName,
-            ["targetKind"] = RemoteViewerTargetKind.Desktop.ToString()
+            ["targetKind"] = session.Target.Kind.ToString()
         };
 
         var startInfo = new ProcessStartInfo
@@ -180,7 +175,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
 
         var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Managed desktop transport helper did not start.");
+            ?? throw new InvalidOperationException("Managed viewer transport helper did not start.");
 
         if (!await WaitForPortOrExitAsync(process, port, options.StartupTimeout, cancellationToken))
         {
@@ -190,19 +185,19 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
             var detail = FirstMeaningfulLine(error, output);
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
-                ? "Managed desktop transport exited before it became ready."
+                ? "Managed viewer transport exited before it became ready."
                 : detail);
         }
 
         process.EnableRaisingEvents = true;
         process.Exited += (_, _) =>
         {
-            if (_activeTransports.TryRemove(sessionId, out _))
+            if (_activeTransports.TryRemove(session.Id, out _))
             {
-                _viewers.Update(sessionId, new UpdateRemoteViewerSessionRequest
+                _viewers.Update(session.Id, new UpdateRemoteViewerSessionRequest
                 {
                     Status = RemoteViewerSessionStatus.Failed,
-                    Message = "Managed desktop transport exited unexpectedly."
+                    Message = $"Managed {GetTargetLabel(session.Target.Kind)} transport exited unexpectedly."
                 });
             }
 
@@ -212,18 +207,23 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         if (process.HasExited)
         {
             process.Dispose();
-            throw new InvalidOperationException("Managed desktop transport exited before it could be retained.");
+            throw new InvalidOperationException("Managed viewer transport exited before it could be retained.");
         }
 
         return new BootstrapOutcome(
             ConnectionUri: ApplyTemplate(options.ConnectionUriTemplate!, replacements),
             AccessToken: accessToken,
-            Message: $"Desktop viewer is ready via AgentDeck-managed transport at {connectionHost}:{port}.",
+            Message: $"{GetTargetDisplayName(session)} is ready via AgentDeck-managed transport at {connectionHost}:{port}.",
             Process: process);
     }
 
-    private static BootstrapOutcome BootstrapRdp(string connectionHost)
+    private static BootstrapOutcome BootstrapRdp(RemoteViewerSession session, string connectionHost)
     {
+        if (session.Target.Kind != RemoteViewerTargetKind.Desktop)
+        {
+            throw new InvalidOperationException($"RDP only supports desktop targets, but this session requested '{session.Target.Kind}'.");
+        }
+
         if (!OperatingSystem.IsWindows())
         {
             throw new InvalidOperationException("RDP desktop bootstrap is only supported on Windows runners.");
@@ -239,10 +239,10 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         return new BootstrapOutcome(
             ConnectionUri: $"rdp://{connectionHost}:{rdpPort}",
             AccessToken: null,
-            Message: $"Desktop viewer is ready via RDP at {connectionHost}:{rdpPort}.");
+            Message: $"{GetTargetDisplayName(session)} is ready via RDP at {connectionHost}:{rdpPort}.");
     }
 
-    private static BootstrapOutcome BootstrapScreenSharing(string connectionHost)
+    private static BootstrapOutcome BootstrapScreenSharing(RemoteViewerSession session, string connectionHost)
     {
         if (!OperatingSystem.IsMacOS())
         {
@@ -259,11 +259,11 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         return new BootstrapOutcome(
             ConnectionUri: $"vnc://{connectionHost}:{vncPort}",
             AccessToken: null,
-            Message: $"Desktop viewer is ready via Screen Sharing at {connectionHost}:{vncPort}.");
+            Message: $"{GetTargetDisplayName(session)} is ready via Screen Sharing at {connectionHost}:{vncPort}.");
     }
 
     private async Task<BootstrapOutcome> BootstrapVncAsync(
-        string sessionId,
+        RemoteViewerSession session,
         string connectionHost,
         CancellationToken cancellationToken)
     {
@@ -273,25 +273,25 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
             if (!IsTcpPortListening(defaultVncPort))
             {
                 throw new InvalidOperationException(
-                    "A VNC server is not listening on this runner. Start a VNC server before bootstrapping a desktop viewer.");
+                    $"A VNC server is not listening on this runner. Start a VNC server before bootstrapping {GetTargetLabel(session.Target.Kind)}.");
             }
 
             return new BootstrapOutcome(
                 ConnectionUri: $"vnc://{connectionHost}:{defaultVncPort}",
                 AccessToken: null,
-                Message: $"Desktop viewer is ready via VNC at {connectionHost}:{defaultVncPort}.");
+                Message: $"{GetTargetDisplayName(session)} is ready via VNC at {connectionHost}:{defaultVncPort}.");
         }
 
         var display = Environment.GetEnvironmentVariable("DISPLAY");
         if (string.IsNullOrWhiteSpace(display))
         {
-            throw new InvalidOperationException("Linux desktop bootstrap requires DISPLAY to be set.");
+            throw new InvalidOperationException($"Linux {GetTargetLabel(session.Target.Kind)} bootstrap requires DISPLAY to be set.");
         }
 
         var x11vncPath = ResolveExecutableOnPath("x11vnc");
         if (x11vncPath is null)
         {
-            throw new InvalidOperationException("Linux desktop bootstrap requires x11vnc to be installed on the runner.");
+            throw new InvalidOperationException($"Linux {GetTargetLabel(session.Target.Kind)} bootstrap requires x11vnc to be installed on the runner.");
         }
 
         var port = ReserveTcpPort();
@@ -314,7 +314,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         startInfo.ArgumentList.Add(accessToken);
 
         var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("x11vnc did not start a desktop transport process.");
+            ?? throw new InvalidOperationException($"x11vnc did not start a {GetTargetLabel(session.Target.Kind)} transport process.");
 
         if (!await WaitForPortOrExitAsync(process, port, TimeSpan.FromSeconds(10), cancellationToken))
         {
@@ -324,19 +324,19 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
             var detail = FirstMeaningfulLine(error, output);
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
-                ? "x11vnc exited before the desktop viewer transport became ready."
+                ? $"x11vnc exited before the {GetTargetLabel(session.Target.Kind)} transport became ready."
                 : detail);
         }
 
         process.EnableRaisingEvents = true;
         process.Exited += (_, _) =>
         {
-            if (_activeTransports.TryRemove(sessionId, out _))
+            if (_activeTransports.TryRemove(session.Id, out _))
             {
-                _viewers.Update(sessionId, new UpdateRemoteViewerSessionRequest
+                _viewers.Update(session.Id, new UpdateRemoteViewerSessionRequest
                 {
                     Status = RemoteViewerSessionStatus.Failed,
-                    Message = "Desktop viewer transport exited unexpectedly."
+                    Message = $"{GetTargetDisplayName(session)} transport exited unexpectedly."
                 });
             }
 
@@ -346,13 +346,13 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         if (process.HasExited)
         {
             process.Dispose();
-            throw new InvalidOperationException("x11vnc exited before the desktop viewer transport could be retained.");
+            throw new InvalidOperationException($"x11vnc exited before the {GetTargetLabel(session.Target.Kind)} transport could be retained.");
         }
 
         return new BootstrapOutcome(
             ConnectionUri: $"vnc://{connectionHost}:{port}",
             AccessToken: accessToken,
-            Message: $"Desktop viewer is ready via x11vnc at {connectionHost}:{port}.",
+            Message: $"{GetTargetDisplayName(session)} is ready via x11vnc at {connectionHost}:{port}.",
             Process: process);
     }
 
@@ -365,7 +365,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
 
         TryKillProcess(process);
-        throw new InvalidOperationException($"A desktop viewer transport is already active for session '{sessionId}'.");
+        throw new InvalidOperationException($"A viewer transport is already active for session '{sessionId}'.");
     }
 
     private static bool IsTcpPortListening(int port)
@@ -467,13 +467,28 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         return null;
     }
 
-    private static string BuildPreparingMessage(RemoteViewerProviderKind provider) => provider switch
+    private static string GetTargetDisplayName(RemoteViewerSession session) =>
+        string.IsNullOrWhiteSpace(session.Target.DisplayName)
+            ? GetTargetLabel(session.Target.Kind)
+            : session.Target.DisplayName;
+
+    private static string GetTargetLabel(RemoteViewerTargetKind targetKind) => targetKind switch
     {
-        RemoteViewerProviderKind.Managed => "Preparing AgentDeck-managed desktop transport.",
+        RemoteViewerTargetKind.Desktop => "desktop viewer",
+        RemoteViewerTargetKind.Window => "window viewer",
+        RemoteViewerTargetKind.VsCode => "VS Code viewer",
+        RemoteViewerTargetKind.Emulator => "emulator viewer",
+        RemoteViewerTargetKind.Simulator => "simulator viewer",
+        _ => "viewer"
+    };
+
+    private static string BuildPreparingMessage(RemoteViewerSession session) => session.Provider switch
+    {
+        RemoteViewerProviderKind.Managed => $"Preparing AgentDeck-managed {GetTargetLabel(session.Target.Kind)} transport.",
         RemoteViewerProviderKind.Rdp => "Preparing Remote Desktop transport.",
         RemoteViewerProviderKind.ScreenSharing => "Preparing Screen Sharing transport.",
         RemoteViewerProviderKind.Vnc => "Preparing VNC desktop transport.",
-        _ => "Preparing desktop viewer transport."
+        _ => "Preparing viewer transport."
     };
 
     private static string? FirstMeaningfulLine(params string[] values)

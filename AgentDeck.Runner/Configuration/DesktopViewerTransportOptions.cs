@@ -8,7 +8,7 @@ public sealed class DesktopViewerTransportOptions
     public ManagedDesktopViewerTransportOptions Managed { get; set; } = new();
 }
 
-/// <summary>Configures the first AgentDeck-managed desktop transport helper.</summary>
+/// <summary>Configures the first AgentDeck-managed viewer transport helper.</summary>
 public sealed class ManagedDesktopViewerTransportOptions
 {
     public bool Enabled { get; set; }
