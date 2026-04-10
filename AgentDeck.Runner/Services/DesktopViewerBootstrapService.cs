@@ -262,6 +262,13 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         string connectionHost,
         CancellationToken cancellationToken)
     {
+        if (session.Provider != RemoteViewerProviderKind.Managed &&
+            !_transportOptions.AllowNativeFallbackProviders)
+        {
+            throw new InvalidOperationException(
+                $"Viewer provider '{session.Provider}' is not available in the default managed-remoting policy on this runner. Configure DesktopViewerTransport:Managed or explicitly enable DesktopViewerTransport:AllowNativeFallbackProviders for compatibility-only fallback behavior.");
+        }
+
         return session.Provider switch
         {
             RemoteViewerProviderKind.Managed => await BootstrapManagedAsync(session, connectionHost, cancellationToken),
