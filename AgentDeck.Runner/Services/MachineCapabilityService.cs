@@ -11,12 +11,15 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
 {
     private readonly ILogger<MachineCapabilityService> _logger;
     private readonly IVirtualDeviceCatalogService _virtualDevices;
+    private readonly IRemoteViewerSessionService _viewers;
 
     public MachineCapabilityService(
         IVirtualDeviceCatalogService virtualDevices,
+        IRemoteViewerSessionService viewers,
         ILogger<MachineCapabilityService> logger)
     {
         _virtualDevices = virtualDevices;
+        _viewers = viewers;
         _logger = logger;
     }
 
@@ -37,6 +40,7 @@ public sealed partial class MachineCapabilityService : IMachineCapabilityService
             CapturedAt = DateTimeOffset.UtcNow,
             Platform = BuildPlatformProfile(),
             SupportedTargets = BuildSupportedTargets(capabilities, catalogs),
+            RemoteViewerProviders = _viewers.GetAvailableProviders(),
             Capabilities = capabilities
         };
     }

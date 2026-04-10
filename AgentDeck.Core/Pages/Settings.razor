@@ -425,6 +425,13 @@
                                 <span class="settings-status-row__value">@string.Join(", ", _machineCapabilities.SupportedTargets.Select(FormatTargetSummary))</span>
                             </div>
                         }
+                        @if (_machineCapabilities.RemoteViewerProviders.Count > 0)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Viewer transports</span>
+                                <span class="settings-status-row__value">@string.Join(", ", _machineCapabilities.RemoteViewerProviders.Select(GetViewerProviderSummary))</span>
+                            </div>
+                        }
                         }
                     </div>
                 </div>
@@ -474,6 +481,35 @@
                             <strong>@GetCapabilityCount(MachineCapabilityStatus.Error)</strong>
                         </div>
                     </div>
+
+                    @if (_machineCapabilities.RemoteViewerProviders.Count > 0)
+                    {
+                        <div class="capability-grid capability-grid--settings">
+                            @foreach (var provider in _machineCapabilities.RemoteViewerProviders.OrderBy(provider => provider.Provider))
+                            {
+                                <article class="capability-card">
+                                    <div class="capability-card__header">
+                                        <div>
+                                            <h3>@provider.DisplayName</h3>
+                                            <p>VIEWER TRANSPORT</p>
+                                        </div>
+                                        <span class="capability-status capability-status--installed">
+                                            @provider.Provider
+                                        </span>
+                                    </div>
+                                    <p><strong>Targets:</strong> @string.Join(", ", provider.SupportedTargets.Select(GetViewerTargetLabel))</p>
+                                    @if (provider.RequiresInteractiveDesktop)
+                                    {
+                                        <p class="capability-card__message">Requires an interactive desktop session.</p>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(provider.Notes))
+                                    {
+                                        <p class="capability-card__message">@provider.Notes</p>
+                                    }
+                                </article>
+                            }
+                        </div>
+                    }
 
                     <div class="capability-grid capability-grid--settings">
                         @foreach (var capability in _machineCapabilities.Capabilities.OrderBy(capability => capability.Category).ThenBy(capability => capability.Name))
@@ -866,6 +902,21 @@
 
     private static string FormatTargetSummary(MachineTargetSupport target) =>
         $"{target.DisplayName} ({target.Status})";
+
+    private static string GetViewerProviderSummary(RemoteViewerProviderCapability provider) =>
+        provider.Provider == RemoteViewerProviderKind.Managed
+            ? $"{provider.DisplayName} (AgentDeck-managed)"
+            : provider.DisplayName;
+
+    private static string GetViewerTargetLabel(RemoteViewerTargetKind kind) => kind switch
+    {
+        RemoteViewerTargetKind.Desktop => "Desktop",
+        RemoteViewerTargetKind.Window => "Window",
+        RemoteViewerTargetKind.Emulator => "Emulator",
+        RemoteViewerTargetKind.Simulator => "Simulator",
+        RemoteViewerTargetKind.VsCode => "VS Code",
+        _ => kind.ToString()
+    };
 
     private string GetHubUrl(RunnerMachineSettings machine) =>
         string.IsNullOrWhiteSpace(_settings.CoordinatorUrl)
