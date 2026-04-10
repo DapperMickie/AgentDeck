@@ -12,6 +12,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
     private readonly WorkerCoordinatorOptions _coordinatorOptions;
     private readonly IMachineCapabilityService _capabilities;
     private readonly IRunnerUpdateStagingService _updateStaging;
+    private readonly IRunnerWorkflowPackService _workflowPacks;
     private readonly ILogger<WorkerCoordinatorRegistrationService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
 
@@ -19,12 +20,14 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
         IOptions<WorkerCoordinatorOptions> coordinatorOptions,
         IMachineCapabilityService capabilities,
         IRunnerUpdateStagingService updateStaging,
+        IRunnerWorkflowPackService workflowPacks,
         IHttpClientFactory httpClientFactory,
         ILogger<WorkerCoordinatorRegistrationService> logger)
     {
         _coordinatorOptions = coordinatorOptions.Value;
         _capabilities = capabilities;
         _updateStaging = updateStaging;
+        _workflowPacks = workflowPacks;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
@@ -67,6 +70,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
 
                 var snapshot = await _capabilities.GetSnapshotAsync(stoppingToken);
                 var updateStatus = await _updateStaging.GetCurrentStatusAsync(stoppingToken);
+                var workflowPackStatus = await _workflowPacks.GetCurrentStatusAsync(stoppingToken);
                 var request = new RegisterRunnerMachineRequest
                 {
                     MachineId = _coordinatorOptions.MachineId.Trim(),
@@ -76,6 +80,7 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                     ProtocolVersion = _coordinatorOptions.ProtocolVersion,
                     WorkflowCatalogVersion = "1",
                     UpdateStatus = updateStatus,
+                    WorkflowPackStatus = workflowPackStatus,
                     RunnerUrl = string.IsNullOrWhiteSpace(_coordinatorOptions.AdvertisedRunnerUrl)
                         ? null
                         : _coordinatorOptions.AdvertisedRunnerUrl.Trim(),
@@ -122,30 +127,8 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
                         }
                     }
 
-                    if (desiredState.DesiredWorkflowPack is { } desiredWorkflowPack)
-                    {
-                        if (desiredState.SecurityPolicy.AllowWorkflowPackExecution)
-                        {
-                            _logger.LogInformation(
-                                "Coordinator {CoordinatorUrl} assigned workflow pack {WorkflowPackId}@{WorkflowPackVersion} to runner {MachineName}",
-                                coordinatorUrl,
-                                desiredWorkflowPack.DefinitionId,
-                                desiredWorkflowPack.Version,
-                                request.MachineName);
-                        }
-                        else
-                        {
-                            _logger.LogInformation(
-                                "Coordinator {CoordinatorUrl} assigned workflow pack {WorkflowPackId}@{WorkflowPackVersion} to runner {MachineName}, but workflow execution remains disabled by security policy {PolicyVersion}",
-                                coordinatorUrl,
-                                desiredWorkflowPack.DefinitionId,
-                                desiredWorkflowPack.Version,
-                                request.MachineName,
-                                desiredState.SecurityPolicy.PolicyVersion);
-                        }
-                    }
-
                     await _updateStaging.ReconcileDesiredUpdateAsync(httpClient, desiredState, stoppingToken);
+                    await _workflowPacks.ReconcileDesiredWorkflowPackAsync(httpClient, desiredState, stoppingToken);
                 }
 
                 _logger.LogInformation(

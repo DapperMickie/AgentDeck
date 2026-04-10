@@ -223,6 +223,8 @@ Coordinators can now also host runner artifacts directly from a local artifact r
 
 The coordinator also computes an explicit rollout/apply summary for each worker and exposes it through the machine directory plus `/api/updates/rollouts` and `/api/machines/{machineId}/updates/rollout`. It now also accepts per-machine apply-intent overrides at `/api/machines/{machineId}/updates/apply-intent`, so the companion Settings page can request apply, force stage-only behavior, or restore coordinator-default apply intent per runner. The rollout summary makes it clear whether a runner is up to date, merely update-available, manifest-staged, payload-staged, ready to apply, applying, applied, failed, or blocked, along with the coordinator's apply intent and any blocking reason.
 
+Workflow packs now also have a first-pass runner status path: worker runners reconcile the desired workflow pack reference from coordinator desired state, persist the fetched pack metadata locally, and report a `Ready`, `Blocked`, or `Failed` workflow-pack status back through the machine directory without executing the pack yet.
+
 ### Control-plane security model
 
 - Runners only accept a non-HTTPS coordinator URL by default when it targets loopback and `Coordinator:AllowInsecureHttpCoordinatorForLoopback` is enabled for local development.

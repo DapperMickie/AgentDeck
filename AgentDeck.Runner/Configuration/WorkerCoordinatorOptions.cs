@@ -28,6 +28,9 @@ public sealed class WorkerCoordinatorOptions
     /// <summary>Optional local root for staged update manifests and payloads.</summary>
     public string? UpdateStagingRoot { get; set; }
 
+    /// <summary>Optional local root for coordinator-assigned workflow pack metadata.</summary>
+    public string? WorkflowPackRoot { get; set; }
+
     /// <summary>Allow plain HTTP only when the configured coordinator resolves to a loopback host.</summary>
     public bool AllowInsecureHttpCoordinatorForLoopback { get; set; } = true;
 
