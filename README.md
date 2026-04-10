@@ -275,6 +275,8 @@ The coordinator now also keeps a first-pass project-session surface registry at 
 
 Project sessions now also model single-controller plus multi-viewer collaboration. The coordinator tracks attached companions, the active controller, and control-handoff state so only one companion can send terminal control input for a project-backed terminal at a time while other companions stay view-only until they request, force, or yield control through `/api/project-sessions/{projectSessionId}/attachments`, `/detach`, and `/control`.
 
+The coordinator now also brokers machine-level remote viewer ownership through `/api/machines/{machineId}/viewers/control` plus coordinator-owned viewer create/close endpoints. Desktop viewer requests now go through the coordinator instead of direct runner access, the coordinator records which companion currently controls remoting on that machine, and conflicting interactive viewer requests are rejected with a clear conflict unless the caller explicitly forces takeover.
+
 The runner also now exposes a first-pass orchestration job API, separate from terminal sessions, so coordinator-managed run/debug work can be queued, tracked by lifecycle status, associated with a target machine, and enriched with step/log data before full cross-machine dispatch is implemented.
 
 That orchestration layer now has real local execution paths for both direct-command run jobs and the first VS Code-backed debug jobs. Direct-command jobs build and launch on the runner, stream PTY output into job logs, and let cancellation stop the underlying process.

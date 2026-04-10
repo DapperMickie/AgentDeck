@@ -234,6 +234,44 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         return await entry.HttpClient!.GetFromJsonAsync<IReadOnlyList<RemoteViewerSession>>("api/viewers/sessions", cancellationToken) ?? [];
     }
 
+    public async Task<RemoteViewerSession> CreateViewerSessionAsync(string machineId, CreateRemoteViewerSessionRequest request, string actorId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering viewer create for machine {MachineName} ({MachineId}) target {TargetKind} requested by {ActorId}",
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            request.Target.Kind,
+            actorId);
+        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, "api/viewers/sessions", actorId)
+            .WithJsonContent(request)
+            .SendAsync(entry.HttpClient!, cancellationToken);
+        await EnsureBrokerSuccessAsync(response, "create viewer session", cancellationToken);
+        return (await response.Content.ReadFromJsonAsync<RemoteViewerSession>(cancellationToken: cancellationToken))!;
+    }
+
+    public async Task<RemoteViewerSession?> CloseViewerSessionAsync(string machineId, string viewerSessionId, string actorId, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering viewer close for session {ViewerSessionId} on machine {MachineName} ({MachineId}) requested by {ActorId}",
+            viewerSessionId,
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            actorId);
+        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, $"api/viewers/sessions/{Uri.EscapeDataString(viewerSessionId)}/close", actorId)
+            .SendAsync(entry.HttpClient!, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await EnsureBrokerSuccessAsync(response, "close viewer session", cancellationToken);
+        return await response.Content.ReadFromJsonAsync<RemoteViewerSession>(cancellationToken: cancellationToken);
+    }
+
     public async Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetVirtualDeviceCatalogsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);

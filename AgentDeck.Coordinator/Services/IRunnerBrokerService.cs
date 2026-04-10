@@ -20,6 +20,8 @@ public interface IRunnerBrokerService
     Task<OrchestrationJob?> QueueOrchestrationJobAsync(string machineId, CreateOrchestrationJobRequest request, string actorId, CancellationToken cancellationToken = default);
     Task<OrchestrationJob?> CancelOrchestrationJobAsync(string machineId, string jobId, string actorId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<RemoteViewerSession>> GetViewerSessionsAsync(string machineId, CancellationToken cancellationToken = default);
+    Task<RemoteViewerSession> CreateViewerSessionAsync(string machineId, CreateRemoteViewerSessionRequest request, string actorId, CancellationToken cancellationToken = default);
+    Task<RemoteViewerSession?> CloseViewerSessionAsync(string machineId, string viewerSessionId, string actorId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetVirtualDeviceCatalogsAsync(string machineId, CancellationToken cancellationToken = default);
     Task<VirtualDeviceLaunchResolution?> ResolveVirtualDeviceAsync(string machineId, VirtualDeviceLaunchSelection selection, CancellationToken cancellationToken = default);
 }
