@@ -270,41 +270,6 @@
                             <span class="settings-status-row__label">Rollout summary</span>
                             <span class="settings-status-row__value">@rollout.StatusMessage</span>
                         </div>
-                        @if (!string.IsNullOrWhiteSpace(SelectedRegisteredMachine?.DesiredWorkflowPackId))
-                        {
-                            <div class="settings-status-row">
-                                <span class="settings-status-row__label">Desired workflow pack</span>
-                                <span class="settings-status-row__value">@GetDesiredWorkflowPackLabel(SelectedRegisteredMachine)</span>
-                            </div>
-                        }
-                        @if (SelectedRegisteredMachine?.WorkflowPackStatus is { } workflowPackStatus)
-                        {
-                            <div class="settings-status-row">
-                                <span class="settings-status-row__label">Workflow pack state</span>
-                                <span class="settings-status-row__value">@GetWorkflowPackStateLabel(workflowPackStatus.State)</span>
-                            </div>
-                            @if (!string.IsNullOrWhiteSpace(workflowPackStatus.StatusMessage))
-                            {
-                                <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Workflow pack summary</span>
-                                    <span class="settings-status-row__value">@workflowPackStatus.StatusMessage</span>
-                                </div>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(workflowPackStatus.FailureMessage))
-                            {
-                                <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Workflow pack failure</span>
-                                    <span class="settings-status-row__value">@workflowPackStatus.FailureMessage</span>
-                                </div>
-                            }
-                            @if (workflowPackStatus.FetchedAt is not null)
-                            {
-                                <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Workflow pack fetched</span>
-                                    <span class="settings-status-row__value">@workflowPackStatus.FetchedAt.Value.ToLocalTime().ToString("g")</span>
-                                </div>
-                            }
-                        }
                         <div class="form-actions form-actions--settings">
                             <button class="btn btn-accent"
                                     disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
@@ -358,6 +323,42 @@
                             </div>
                         }
                     }
+                        @if (!string.IsNullOrWhiteSpace(SelectedRegisteredMachine?.DesiredWorkflowPackId))
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Desired workflow pack</span>
+                                <span class="settings-status-row__value">@GetDesiredWorkflowPackLabel(SelectedRegisteredMachine)</span>
+                            </div>
+                        }
+                        @if (SelectedRegisteredMachine?.WorkflowPackStatus is { } workflowPackStatus &&
+                             workflowPackStatus.State != RunnerWorkflowPackState.None)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Workflow pack state</span>
+                                <span class="settings-status-row__value">@GetWorkflowPackStateLabel(workflowPackStatus.State)</span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(workflowPackStatus.StatusMessage))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Workflow pack summary</span>
+                                    <span class="settings-status-row__value">@workflowPackStatus.StatusMessage</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(workflowPackStatus.FailureMessage))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Workflow pack failure</span>
+                                    <span class="settings-status-row__value">@workflowPackStatus.FailureMessage</span>
+                                </div>
+                            }
+                            @if (workflowPackStatus.FetchedAt is not null)
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Workflow pack fetched</span>
+                                    <span class="settings-status-row__value">@workflowPackStatus.FetchedAt.Value.ToLocalTime().ToString("g")</span>
+                                </div>
+                            }
+                        }
                         @if (_machineCapabilities?.Platform is not null)
                         {
                         <div class="settings-status-row">
@@ -810,7 +811,7 @@
         RunnerWorkflowPackState.Ready => "Ready",
         RunnerWorkflowPackState.Blocked => "Blocked",
         RunnerWorkflowPackState.Failed => "Failed",
-        _ => "Not assigned"
+        _ => "Unknown"
     };
 
     private static string FormatTargetSummary(MachineTargetSupport target) =>
