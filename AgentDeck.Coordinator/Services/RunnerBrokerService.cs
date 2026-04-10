@@ -183,6 +183,20 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         return await response.Content.ReadFromJsonAsync<MachineCapabilityInstallResult>(cancellationToken: cancellationToken);
     }
 
+    public async Task<bool> RetryMachineWorkflowPackAsync(string machineId, string actorId, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Brokering workflow-pack retry for machine {MachineName} ({MachineId}) requested by {ActorId}",
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            actorId);
+        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, "api/workflow-packs/current/retry", actorId)
+            .SendAsync(entry.HttpClient!, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return true;
+    }
+
     public async Task<IReadOnlyList<OrchestrationJob>> GetOrchestrationJobsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);

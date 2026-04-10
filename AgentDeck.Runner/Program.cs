@@ -335,6 +335,24 @@ app.MapPost("/api/capabilities/{capabilityId}/update", async (string capabilityI
     return Results.Ok(result);
 });
 
+app.MapPost("/api/workflow-packs/current/retry", async (HttpContext httpContext, IRunnerWorkflowPackService workflowPacks, IRunnerTrustPolicy trustPolicy, IRunnerAuditService audit, CancellationToken cancellationToken) =>
+{
+    var currentStatus = await workflowPacks.GetCurrentStatusAsync(cancellationToken);
+    var targetId = currentStatus?.PackId ?? "current";
+    var targetDisplayName = currentStatus?.PackVersion is { Length: > 0 }
+        ? $"{targetId}@{currentStatus.PackVersion}"
+        : targetId;
+    var decision = trustPolicy.Evaluate(httpContext, "workflow-pack.retry", "workflow-pack", targetId, targetDisplayName);
+    if (!decision.Allowed)
+    {
+        return Deny(decision, audit);
+    }
+
+    await workflowPacks.ResetCurrentStatusAsync(cancellationToken);
+    audit.Record(decision, RunnerAuditOutcome.Succeeded, $"Cleared workflow pack state for {targetDisplayName}.");
+    return Results.NoContent();
+});
+
 app.MapHub<AgentHub>("/hubs/agent");
 
 app.Lifetime.ApplicationStarted.Register(() =>

@@ -43,4 +43,6 @@ public interface ICoordinatorApiClient
     Task<VirtualDeviceLaunchResolution?> ResolveMachineVirtualDeviceAsync(string coordinatorUrl, string machineId, VirtualDeviceLaunchSelection selection, CancellationToken cancellationToken = default);
 
     Task<RunnerUpdateRolloutStatus?> UpdateMachineApplyIntentAsync(string coordinatorUrl, string machineId, MachineUpdateApplyIntentMode mode, CancellationToken cancellationToken = default);
+
+    Task<bool> RetryMachineWorkflowPackAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default);
 }

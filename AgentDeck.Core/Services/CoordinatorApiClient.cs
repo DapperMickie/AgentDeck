@@ -508,6 +508,31 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         }
     }
 
+    public async Task<bool> RetryMachineWorkflowPackAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsync(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/workflow-pack/retry",
+                null,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return false;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator workflow-pack retry failed for machine {MachineId}", machineId);
+            throw;
+        }
+    }
+
     private HttpClient CreateClient(string coordinatorUrl)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(coordinatorUrl);

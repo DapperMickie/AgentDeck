@@ -732,6 +732,26 @@ app.MapPost("/api/machines/{machineId}/capabilities/{capabilityId}/update", asyn
     }
 });
 
+app.MapPost("/api/machines/{machineId}/workflow-pack/retry", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, IWorkerRegistryService workers, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        TrackMachineAttachment(httpContext, companions, machineId);
+        var retried = await runners.RetryMachineWorkflowPackAsync(machineId, GetActorId(httpContext), cancellationToken);
+        if (!retried)
+        {
+            return Results.NotFound();
+        }
+
+        await workers.ClearMachineWorkflowPackStatusAsync(machineId, cancellationToken);
+        return Results.NoContent();
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
 app.MapGet("/api/runner-definitions/update-manifests/{manifestId}", (string manifestId, IRunnerDefinitionCatalogService catalog) =>
     catalog.GetUpdateManifest(manifestId) is { } manifest
         ? Results.Ok(manifest)
