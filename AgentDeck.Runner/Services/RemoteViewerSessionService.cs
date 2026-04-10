@@ -21,6 +21,11 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
     public IReadOnlyList<RemoteViewerProviderCapability> GetAvailableProviders()
     {
         var managedProvider = GetManagedProviderCapability();
+        if (!_desktopTransportOptions.AllowNativeFallbackProviders)
+        {
+            return managedProvider is null ? [] : [managedProvider];
+        }
+
         if (OperatingSystem.IsWindows())
         {
             var providers = new List<RemoteViewerProviderCapability>();

@@ -6,6 +6,7 @@ public sealed class DesktopViewerTransportOptions
     public const string SectionName = "DesktopViewerTransport";
 
     public ManagedDesktopViewerTransportOptions Managed { get; set; } = new();
+    public bool AllowNativeFallbackProviders { get; set; }
 }
 
 /// <summary>Configures the first AgentDeck-managed viewer transport helper.</summary>
