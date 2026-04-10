@@ -41,4 +41,6 @@ public interface ICoordinatorApiClient
     Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetMachineVirtualDeviceCatalogsAsync(string coordinatorUrl, string machineId, CancellationToken cancellationToken = default);
 
     Task<VirtualDeviceLaunchResolution?> ResolveMachineVirtualDeviceAsync(string coordinatorUrl, string machineId, VirtualDeviceLaunchSelection selection, CancellationToken cancellationToken = default);
+
+    Task<RunnerUpdateRolloutStatus?> UpdateMachineApplyIntentAsync(string coordinatorUrl, string machineId, MachineUpdateApplyIntentMode mode, CancellationToken cancellationToken = default);
 }

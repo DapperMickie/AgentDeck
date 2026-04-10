@@ -355,6 +355,11 @@ app.MapGet("/api/machines/{machineId}/updates/rollout", async (string machineId,
         ? Results.Ok(rollout)
         : Results.NotFound());
 
+app.MapPost("/api/machines/{machineId}/updates/apply-intent", async (string machineId, UpdateMachineUpdateApplyIntentRequest? request, IWorkerRegistryService registry, CancellationToken cancellationToken) =>
+    await registry.UpdateMachineApplyIntentAsync(machineId, (request ?? new UpdateMachineUpdateApplyIntentRequest()).Mode, cancellationToken) is { } rollout
+        ? Results.Ok(rollout)
+        : Results.NotFound());
+
 app.MapGet("/api/machines/{machineId}/workspace", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
 {
     try
