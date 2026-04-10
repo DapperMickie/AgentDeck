@@ -202,6 +202,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
 
             if (openedWorkspace is null)
             {
+                projectSessions.RemoveSession(projectSession.Id);
                 return Results.NotFound();
             }
 
