@@ -359,6 +359,35 @@
                                 </div>
                             }
                         }
+                        @if (SelectedRegisteredMachine?.WorkflowCatalogStatus is { } workflowCatalogStatus &&
+                             workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
+                        {
+                            <div class="settings-status-row">
+                                <span class="settings-status-row__label">Workflow catalog state</span>
+                                <span class="settings-status-row__value">@GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)</span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(workflowCatalogStatus.LocalCatalogVersion))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Local workflow catalog</span>
+                                    <span class="settings-status-row__value">@workflowCatalogStatus.LocalCatalogVersion</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(workflowCatalogStatus.DesiredCatalogVersion))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Desired workflow catalog</span>
+                                    <span class="settings-status-row__value">@workflowCatalogStatus.DesiredCatalogVersion</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(workflowCatalogStatus.StatusMessage))
+                            {
+                                <div class="settings-status-row">
+                                    <span class="settings-status-row__label">Workflow catalog summary</span>
+                                    <span class="settings-status-row__value">@workflowCatalogStatus.StatusMessage</span>
+                                </div>
+                            }
+                        }
                         @if (_machineCapabilities?.Platform is not null)
                         {
                         <div class="settings-status-row">
@@ -811,6 +840,13 @@
         RunnerWorkflowPackState.Ready => "Ready",
         RunnerWorkflowPackState.Blocked => "Blocked",
         RunnerWorkflowPackState.Failed => "Failed",
+        _ => "Unknown"
+    };
+
+    private static string GetWorkflowCatalogStateLabel(RunnerWorkflowCatalogState state) => state switch
+    {
+        RunnerWorkflowCatalogState.Matched => "Matched",
+        RunnerWorkflowCatalogState.Mismatched => "Mismatched",
         _ => "Unknown"
     };
 
