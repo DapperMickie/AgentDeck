@@ -399,7 +399,7 @@ app.MapPost("/api/machines/{machineId}/orchestration/jobs", async (string machin
     }
     catch (InvalidOperationException ex)
     {
-        return Results.BadRequest(new { message = ex.Message });
+        return Results.Conflict(new { message = ex.Message });
     }
 });
 
@@ -425,7 +425,7 @@ app.MapPost("/api/machines/{machineId}/orchestration/jobs/{jobId}/cancel", async
     }
     catch (InvalidOperationException ex)
     {
-        return Results.BadRequest(new { message = ex.Message });
+        return Results.Conflict(new { message = ex.Message });
     }
 });
 
