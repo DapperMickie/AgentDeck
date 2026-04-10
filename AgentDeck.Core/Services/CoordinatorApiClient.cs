@@ -480,6 +480,34 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         }
     }
 
+    public async Task<RunnerUpdateRolloutStatus?> UpdateMachineApplyIntentAsync(string coordinatorUrl, string machineId, MachineUpdateApplyIntentMode mode, CancellationToken cancellationToken = default)
+    {
+        await EnsureCompanionIdentityAsync(coordinatorUrl, cancellationToken);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync(
+                $"api/machines/{Uri.EscapeDataString(machineId)}/updates/apply-intent",
+                new UpdateMachineUpdateApplyIntentRequest
+                {
+                    Mode = mode
+                },
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<RunnerUpdateRolloutStatus>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator update apply intent change failed for machine {MachineId}", machineId);
+            throw;
+        }
+    }
+
     private HttpClient CreateClient(string coordinatorUrl)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(coordinatorUrl);

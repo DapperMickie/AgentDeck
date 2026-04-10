@@ -16,6 +16,7 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<WorkerRegistryService> _logger;
     private readonly ConcurrentDictionary<string, WorkerEntry> _workers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, MachineUpdateApplyIntentMode> _machineApplyIntentOverrides = new(StringComparer.OrdinalIgnoreCase);
 
     public WorkerRegistryService(
         IOptions<CoordinatorOptions> coordinatorOptions,
@@ -84,6 +85,36 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
         }
     }
 
+    public Task<RunnerUpdateRolloutStatus?> UpdateMachineApplyIntentAsync(string machineId, MachineUpdateApplyIntentMode mode, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineId);
+
+        lock (_lock)
+        {
+            RefreshWorkerStates();
+            var normalizedMachineId = Normalize(machineId);
+            if (!_workers.ContainsKey(normalizedMachineId))
+            {
+                return Task.FromResult<RunnerUpdateRolloutStatus?>(null);
+            }
+
+            if (mode == MachineUpdateApplyIntentMode.Inherit)
+            {
+                _machineApplyIntentOverrides.TryRemove(normalizedMachineId, out _);
+            }
+            else
+            {
+                _machineApplyIntentOverrides[normalizedMachineId] = mode;
+            }
+
+            RefreshWorkerStates();
+            var rollout = _workers.TryGetValue(normalizedMachineId, out var worker)
+                ? worker.Machine.UpdateRollout
+                : null;
+            return Task.FromResult(rollout);
+        }
+    }
+
     public RegisterRunnerMachineResponse RegisterOrUpdateWorker(RegisterRunnerMachineRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -96,7 +127,7 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             var now = _timeProvider.GetUtcNow();
             var machineId = Normalize(request.MachineId);
             var existing = _workers.TryGetValue(machineId, out var current) ? current.Machine : null;
-            var desiredState = BuildDesiredState(request.AgentVersion, request.ProtocolVersion);
+            var desiredState = BuildDesiredState(request.MachineId, request.AgentVersion, request.ProtocolVersion);
             var normalizedMachineName = Normalize(request.MachineName);
             var normalizedAgentVersion = Normalize(request.AgentVersion);
             var normalizedRunnerUrl = string.IsNullOrWhiteSpace(request.RunnerUrl) ? null : request.RunnerUrl.Trim();
@@ -181,11 +212,12 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
             {
                 _logger.LogWarning("Removing expired worker {MachineName} ({MachineId}) last seen at {LastSeenAt}", machine.MachineName, machine.MachineId, machine.LastSeenAt);
                 _workers.TryRemove(worker.Key, out _);
+                _machineApplyIntentOverrides.TryRemove(worker.Key, out _);
                 continue;
             }
 
             var isOnline = machine.LastSeenAt >= onlineThreshold;
-            var desiredState = BuildDesiredState(machine.AgentVersion, machine.ProtocolVersion);
+            var desiredState = BuildDesiredState(machine.MachineId, machine.AgentVersion, machine.ProtocolVersion);
             var refreshedMachine = new RegisteredRunnerMachine
             {
                 MachineId = machine.MachineId,
@@ -236,8 +268,9 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private RunnerDesiredState BuildDesiredState(string agentVersion, int protocolVersion)
+    private RunnerDesiredState BuildDesiredState(string machineId, string agentVersion, int protocolVersion)
     {
+        var normalizedMachineId = Normalize(machineId);
         var normalizedAgentVersion = Normalize(agentVersion);
         var desiredManifest = _definitions.GetDesiredUpdateManifest();
         var desiredWorkflowPack = _definitions.GetDesiredWorkflowPack();
@@ -247,6 +280,17 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
         var workflowCatalogVersion = NormalizeOptional(_coordinatorOptions.WorkflowCatalogVersion);
         var protocolCompatible = protocolVersion >= _coordinatorOptions.MinimumSupportedProtocolVersion &&
                                  protocolVersion <= _coordinatorOptions.MaximumSupportedProtocolVersion;
+        var updateAvailable = !string.Equals(normalizedAgentVersion, desiredVersion, StringComparison.OrdinalIgnoreCase);
+        var applyUpdate = _coordinatorOptions.ApplyStagedUpdate && updateAvailable;
+        if (_machineApplyIntentOverrides.TryGetValue(normalizedMachineId, out var applyIntentOverride))
+        {
+            applyUpdate = applyIntentOverride switch
+            {
+                MachineUpdateApplyIntentMode.RequestApply => updateAvailable,
+                MachineUpdateApplyIntentMode.StageOnly => false,
+                _ => applyUpdate
+            };
+        }
 
         return new RunnerDesiredState
         {
@@ -280,10 +324,8 @@ public sealed class WorkerRegistryService : IWorkerRegistryService
                 Version = desiredWorkflowPack.Version
             },
             WorkflowCatalogVersion = workflowCatalogVersion,
-            UpdateAvailable = !string.Equals(normalizedAgentVersion, desiredVersion, StringComparison.OrdinalIgnoreCase),
-            ApplyUpdate = (_coordinatorOptions.SecurityPolicy?.AllowUpdateApply ?? false) &&
-                _coordinatorOptions.ApplyStagedUpdate &&
-                !string.Equals(normalizedAgentVersion, desiredVersion, StringComparison.OrdinalIgnoreCase),
+            UpdateAvailable = updateAvailable,
+            ApplyUpdate = applyUpdate,
             ProtocolCompatible = protocolCompatible,
             StatusMessage = protocolCompatible
                 ? null

@@ -229,21 +229,21 @@
                 <div class="settings-card__header settings-page__section-header">
                     <div>
                         <h2>Connection Status</h2>
-                        <p class="settings-card__description">@SelectedMachine.Name</p>
+                        <p class="settings-card__description">@SelectedMachine?.Name</p>
                     </div>
                 </div>
                     <div class="settings-status-list">
                     <div class="settings-status-row">
                         <span class="settings-status-row__label">State</span>
-                        <strong class="status-text-@GetStatusClass(SelectedMachine)">@GetStatusLabel(SelectedMachine)</strong>
+                        <strong class="status-text-@GetStatusClass(SelectedMachine!)">@GetStatusLabel(SelectedMachine!)</strong>
                     </div>
                     <div class="settings-status-row">
                         <span class="settings-status-row__label">Role</span>
-                        <strong class="settings-status-row__value">@GetMachineRoleLabel(SelectedMachine.Role)</strong>
+                        <strong class="settings-status-row__value">@GetMachineRoleLabel(SelectedMachine!.Role)</strong>
                     </div>
                     <div class="settings-status-row">
                         <span class="settings-status-row__label">Coordinator hub</span>
-                        <code class="settings-status-row__value">@GetHubUrl(SelectedMachine)</code>
+                        <code class="settings-status-row__value">@GetHubUrl(SelectedMachine!)</code>
                     </div>
                     @if (SelectedRegisteredMachine?.UpdateRollout is { } rollout)
                     {
@@ -269,6 +269,23 @@
                         <div class="settings-status-row">
                             <span class="settings-status-row__label">Rollout summary</span>
                             <span class="settings-status-row__value">@rollout.StatusMessage</span>
+                        </div>
+                        <div class="form-actions form-actions--settings">
+                            <button class="btn btn-accent"
+                                    disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
+                                    @onclick="() => UpdateMachineApplyIntentAsync(SelectedMachine!.Id, MachineUpdateApplyIntentMode.RequestApply)">
+                                Request Apply
+                            </button>
+                            <button class="btn btn-primary"
+                                    disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
+                                    @onclick="() => UpdateMachineApplyIntentAsync(SelectedMachine!.Id, MachineUpdateApplyIntentMode.StageOnly)">
+                                Stage Only
+                            </button>
+                            <button class="btn"
+                                    disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
+                                    @onclick="() => UpdateMachineApplyIntentAsync(SelectedMachine!.Id, MachineUpdateApplyIntentMode.Inherit)">
+                                Use Coordinator Default
+                            </button>
                         </div>
                         @if (!string.IsNullOrWhiteSpace(rollout.BlockingReason))
                         {
@@ -341,7 +358,7 @@
                 <div class="settings-card__header settings-page__section-header">
                     <div>
                         <h2>Machine Setup</h2>
-                        <p class="settings-card__description">@SelectedMachine.Name</p>
+                        <p class="settings-card__description">@SelectedMachine!.Name</p>
                     </div>
                     <div class="form-actions form-actions--toolbar">
                         <button class="btn btn-accent" @onclick="RefreshMachineCapabilitiesAsync" disabled="@_capabilitiesBusy">
@@ -522,6 +539,7 @@
     private string? _registeredMachinesErrorMessage;
     private bool _coordinatorReachable;
     private string? _selectedMachineId;
+    private string? _updateIntentMachineId;
 
     private RunnerMachineSettings? SelectedMachine => _settings.FindMachine(_selectedMachineId);
     private MachineCapabilitiesSnapshot? _machineCapabilities =>
@@ -789,6 +807,44 @@
         finally
         {
             _registeredMachinesBusy = false;
+        }
+    }
+
+    private async Task UpdateMachineApplyIntentAsync(string machineId, MachineUpdateApplyIntentMode mode)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.CoordinatorUrl))
+        {
+            return;
+        }
+
+        _updateIntentMachineId = machineId;
+        try
+        {
+            var rollout = await CoordinatorClient.UpdateMachineApplyIntentAsync(_settings.CoordinatorUrl, machineId, mode);
+            if (rollout is null)
+            {
+                ToastService.Show("The coordinator could no longer find that machine.", ToastKind.Warning);
+                await RefreshCoordinatorDirectoryAsync();
+                return;
+            }
+
+            var actionLabel = mode switch
+            {
+                MachineUpdateApplyIntentMode.RequestApply => "requested apply",
+                MachineUpdateApplyIntentMode.StageOnly => "switched to stage-only",
+                _ => "restored the coordinator default"
+            };
+            ToastService.Show($"Coordinator {actionLabel} for {rollout.MachineName}.", ToastKind.Success);
+            await RefreshCoordinatorDirectoryAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to update coordinator apply intent for machine {MachineId}", machineId);
+            ToastService.Show($"Failed to update coordinator apply intent: {ex.Message}", ToastKind.Error);
+        }
+        finally
+        {
+            _updateIntentMachineId = null;
         }
     }
 
