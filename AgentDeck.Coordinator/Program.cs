@@ -175,57 +175,54 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             return Results.NotFound(new { message = $"Coordinator does not know runner machine '{machineId}'." });
         }
 
-        if (RejectProjectMutationIfViewer(httpContext, projectSessions, projectId, machineId) is { } rejection)
-        {
-            return rejection;
-        }
-
         var existingWorkspace = project.Workspaces.FirstOrDefault(workspace =>
             string.Equals(workspace.MachineId, machineId, StringComparison.OrdinalIgnoreCase));
-        var openedWorkspace = await runners.OpenProjectAsync(
-            machineId,
-            new OpenProjectOnRunnerRequest
-            {
-                ProjectId = project.Id,
-                ProjectName = project.Name,
-                Repository = project.Repository,
-                ExistingWorkspacePath = existingWorkspace?.ProjectPath
-            },
-            GetActorId(httpContext),
-            cancellationToken);
-
-        if (openedWorkspace is null)
-        {
-            return Results.NotFound();
-        }
-
-        var workspaceMapping = new ProjectWorkspaceMapping
-        {
-            MachineId = machine.MachineId,
-            MachineName = machine.MachineName,
-            ProjectPath = openedWorkspace.ProjectPath,
-            IsPrimary = existingWorkspace?.IsPrimary ?? false
-        };
-
-        var session = await runners.CreateSessionAsync(machineId, new CreateTerminalRequest
-        {
-            Name = $"{project.Name} ({machine.MachineName})",
-            WorkingDirectory = openedWorkspace.ProjectPath
-        }, cancellationToken);
-        ProjectSessionRecord? projectSession = null;
+        var projectSession = projectSessions.CreateSession(
+            project.Id,
+            project.Name,
+            machine.MachineId,
+            machine.MachineName,
+            companionId);
+        OpenProjectOnRunnerResult? openedWorkspace = null;
+        ProjectWorkspaceMapping? workspaceMapping = null;
+        TerminalSession? session = null;
         try
         {
+            openedWorkspace = await runners.OpenProjectAsync(
+                machineId,
+                new OpenProjectOnRunnerRequest
+                {
+                    ProjectId = project.Id,
+                    ProjectName = project.Name,
+                    Repository = project.Repository,
+                    ExistingWorkspacePath = existingWorkspace?.ProjectPath
+                },
+                GetActorId(httpContext),
+                cancellationToken);
+
+            if (openedWorkspace is null)
+            {
+                return Results.NotFound();
+            }
+
+            workspaceMapping = new ProjectWorkspaceMapping
+            {
+                MachineId = machine.MachineId,
+                MachineName = machine.MachineName,
+                ProjectPath = openedWorkspace.ProjectPath,
+                IsPrimary = existingWorkspace?.IsPrimary ?? false
+            };
+
+            session = await runners.CreateSessionAsync(machineId, new CreateTerminalRequest
+            {
+                Name = $"{project.Name} ({machine.MachineName})",
+                WorkingDirectory = openedWorkspace.ProjectPath
+            }, cancellationToken);
             if (!string.IsNullOrWhiteSpace(companionId))
             {
                 companions.AttachSession(companionId, session.Id);
             }
 
-            projectSession = projectSessions.CreateSession(
-                project.Id,
-                project.Name,
-                machine.MachineId,
-                machine.MachineName,
-                companionId);
             projectSession = projectSessions.RegisterSurface(projectSession.Id, new RegisterProjectSessionSurfaceRequest
             {
                 Kind = ProjectSessionSurfaceKind.Terminal,
@@ -252,17 +249,26 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
         {
             try
             {
-                if (projectSession is not null)
-                {
-                    projectSessions.RemoveSession(projectSession.Id);
-                }
+                projectSessions.RemoveSession(projectSession.Id);
             }
             catch (Exception cleanupEx)
             {
                 logger.LogWarning(cleanupEx, "Failed to remove project session during open-project cleanup");
             }
 
-            if (!string.IsNullOrWhiteSpace(companionId))
+            if (workspaceMapping is not null)
+            {
+                try
+                {
+                    projects.UpsertWorkspace(projectId, workspaceMapping);
+                }
+                catch (Exception cleanupEx)
+                {
+                    logger.LogWarning(cleanupEx, "Failed to persist workspace mapping for project {ProjectId} during open-project cleanup", projectId);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(companionId) && session is not null)
             {
                 try
                 {
@@ -276,11 +282,14 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
 
             try
             {
-                await runners.CloseSessionAsync(session.Id, cancellationToken);
+                if (session is not null)
+                {
+                    await runners.CloseSessionAsync(session.Id, cancellationToken);
+                }
             }
             catch (Exception cleanupEx)
             {
-                logger.LogWarning(cleanupEx, "Failed to close terminal session {SessionId} during open-project cleanup", session.Id);
+                logger.LogWarning(cleanupEx, "Failed to close terminal session during open-project cleanup");
             }
 
             ExceptionDispatchInfo.Capture(ex).Throw();
