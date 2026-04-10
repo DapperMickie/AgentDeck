@@ -187,10 +187,7 @@ app.MapPost("/api/viewers/sessions", async (CreateRemoteViewerSessionRequest req
     }
 
     var session = viewers.Create(request);
-    if (session.Target.Kind == RemoteViewerTargetKind.Desktop)
-    {
-        session = await desktopBootstrap.BootstrapAsync(session.Id, httpContext.Request.Host.Host, cancellationToken) ?? session;
-    }
+    session = await desktopBootstrap.BootstrapAsync(session.Id, httpContext.Request.Host.Host, cancellationToken) ?? session;
 
     audit.Record(
         decision,

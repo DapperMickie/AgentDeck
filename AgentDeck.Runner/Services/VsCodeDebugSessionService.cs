@@ -30,13 +30,16 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
     private readonly ConcurrentDictionary<string, ActiveDebugSession> _sessions = new();
     private readonly ConcurrentDictionary<string, VsCodeDebugSession> _sessionRecords = new();
     private readonly IRemoteViewerSessionService _viewers;
+    private readonly IDesktopViewerBootstrapService _viewerBootstrap;
     private readonly ILogger<VsCodeDebugSessionService> _logger;
 
     public VsCodeDebugSessionService(
         IRemoteViewerSessionService viewers,
+        IDesktopViewerBootstrapService viewerBootstrap,
         ILogger<VsCodeDebugSessionService> logger)
     {
         _viewers = viewers;
+        _viewerBootstrap = viewerBootstrap;
         _logger = logger;
     }
 
@@ -73,6 +76,8 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                 WindowTitle = BuildWindowTitle(job.ProjectName)
             }
         });
+
+        viewer = await _viewerBootstrap.BootstrapAsync(viewer.Id, cancellationToken: cancellationToken) ?? viewer;
 
         var debugSessionId = Guid.NewGuid().ToString("N");
         var createdAt = DateTimeOffset.UtcNow;
