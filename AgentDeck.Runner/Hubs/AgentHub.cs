@@ -1,10 +1,8 @@
-using AgentDeck.Runner.Configuration;
 using AgentDeck.Runner.Services;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.Options;
 
 namespace AgentDeck.Runner.Hubs;
 
@@ -13,21 +11,18 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
 {
     private readonly IPtyProcessManager _ptyManager;
     private readonly IAgentSessionStore _sessionStore;
-    private readonly IWorkspaceService _workspaceService;
-    private readonly RunnerOptions _options;
+    private readonly ITerminalSessionService _terminalSessions;
     private readonly ILogger<AgentHub> _logger;
 
     public AgentHub(
         IPtyProcessManager ptyManager,
         IAgentSessionStore sessionStore,
-        IWorkspaceService workspaceService,
-        IOptions<RunnerOptions> options,
+        ITerminalSessionService terminalSessions,
         ILogger<AgentHub> logger)
     {
         _ptyManager = ptyManager;
         _sessionStore = sessionStore;
-        _workspaceService = workspaceService;
-        _options = options.Value;
+        _terminalSessions = terminalSessions;
         _logger = logger;
     }
 
@@ -55,62 +50,33 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
 
     public async Task<TerminalSession> CreateSessionAsync(CreateTerminalRequest request)
     {
-        var sessionId = Guid.NewGuid().ToString("N");
-        var workingDir = ResolveWorkingDirectory(request.WorkingDirectory);
-        var command = ResolveCommand(request.Command);
-        var arguments = request.Arguments;
-        var commandWasSpecified = !string.IsNullOrWhiteSpace(request.Command);
-        var (launchCommand, launchArguments) = ResolveLaunch(command, arguments, workingDir, commandWasSpecified);
-
-        var session = new TerminalSession
-        {
-            Id = sessionId,
-            Name = request.Name,
-            WorkingDirectory = workingDir,
-            Command = command,
-            Arguments = arguments,
-            Status = TerminalStatus.Running
-        };
-
-        _sessionStore.Add(session);
-
         try
         {
-            _logger.LogInformation(
-                "Creating session {SessionId} ({Name}): requestedCommand={RequestedCommand}, resolvedCommand={ResolvedCommand}, arguments={Arguments}, workingDirectory={WorkingDirectory}, launchCommand={LaunchCommand}, launchArguments={LaunchArguments}, commandWasSpecified={CommandWasSpecified}",
-                sessionId,
+            var session = await _terminalSessions.CreateSessionAsync(request, Context.ConnectionAborted);
+            await Clients.All.SessionCreatedAsync(session);
+            return session;
+        }
+        catch (TerminalSessionStartException ex)
+        {
+            _logger.LogError(
+                ex.InnerException ?? ex,
+                "Failed to create terminal session ({Name}) via hub: requestedCommand={RequestedCommand}, workingDirectory={WorkingDirectory}",
                 request.Name,
                 request.Command ?? "<default>",
-                command,
-                FormatArguments(arguments),
-                workingDir,
-                launchCommand,
-                FormatArguments(launchArguments),
-                commandWasSpecified);
-            await _ptyManager.StartAsync(sessionId, launchCommand, launchArguments, workingDir, request.Cols, request.Rows);
+                request.WorkingDirectory);
+            await Clients.All.SessionCreatedAsync(ex.Session);
+            throw new HubException($"Failed to start terminal process: {ex.Message}");
         }
         catch (Exception ex)
         {
             _logger.LogError(
                 ex,
-                "Failed to start PTY for session {SessionId} ({Name}): requestedCommand={RequestedCommand}, resolvedCommand={ResolvedCommand}, arguments={Arguments}, workingDirectory={WorkingDirectory}, launchCommand={LaunchCommand}, launchArguments={LaunchArguments}",
-                sessionId,
+                "Failed to create terminal session ({Name}) via hub: requestedCommand={RequestedCommand}, workingDirectory={WorkingDirectory}",
                 request.Name,
                 request.Command ?? "<default>",
-                command,
-                FormatArguments(arguments),
-                workingDir,
-                launchCommand,
-                FormatArguments(launchArguments));
-            session.Status = TerminalStatus.Error;
-            _sessionStore.Update(session);
-            await Clients.All.SessionCreatedAsync(session);
-            throw new HubException($"Failed to start terminal process: {ex.Message}");
+                request.WorkingDirectory);
+            throw new HubException(ex.Message);
         }
-
-        _logger.LogInformation("Created session {SessionId} ({Name})", sessionId, request.Name);
-        await Clients.All.SessionCreatedAsync(session);
-        return session;
     }
 
     public async Task CloseSessionAsync(string sessionId)
@@ -131,27 +97,4 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
         return Task.FromResult(_sessionStore.GetAll());
     }
 
-    private string ResolveWorkingDirectory(string workingDirectory)
-    {
-        return _workspaceService.ResolvePath(workingDirectory);
-    }
-
-    private string ResolveCommand(string? command)
-    {
-        return !string.IsNullOrWhiteSpace(command)
-            ? command
-            : ShellLaunchBuilder.ResolveDefaultShell(_options.DefaultShell);
-    }
-
-    private static (string Command, IReadOnlyList<string> Arguments) ResolveLaunch(
-        string command,
-        IReadOnlyList<string> arguments,
-        string workingDirectory,
-        bool commandWasSpecified)
-    {
-        return ShellLaunchBuilder.BuildInteractiveLaunch(command, arguments, workingDirectory, commandWasSpecified);
-    }
-
-    private static string FormatArguments(IReadOnlyList<string> arguments) =>
-        arguments.Count == 0 ? "<none>" : string.Join(" ", arguments);
 }
