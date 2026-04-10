@@ -123,6 +123,34 @@
                                         <span>• companion connected</span>
                                     }
                                 </p>
+                                @if (HasControlPlaneSignals(machine))
+                                {
+                                    <div class="project-machine-card__targets">
+                                        @if (machine.UpdateRollout is { } rollout)
+                                        {
+                                            @if (ShouldShowUpdateRolloutChip(rollout.State))
+                                            {
+                                                <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetUpdateRolloutChipClass(rollout.State))">
+                                                Update @GetUpdateRolloutLabel(rollout.State)
+                                                </span>
+                                            }
+                                        }
+                                        @if (machine.WorkflowPackStatus is { } workflowPackStatus &&
+                                             workflowPackStatus.State != RunnerWorkflowPackState.None)
+                                        {
+                                            <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowPackChipClass(workflowPackStatus.State))">
+                                                Workflow pack @GetWorkflowPackStateLabel(workflowPackStatus.State)
+                                            </span>
+                                        }
+                                        @if (machine.WorkflowCatalogStatus is { } workflowCatalogStatus &&
+                                             workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
+                                        {
+                                            <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowCatalogChipClass(workflowCatalogStatus.State))">
+                                                Catalog @GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)
+                                            </span>
+                                        }
+                                    </div>
+                                }
                                 <div class="project-machine-card__targets">
                                     @foreach (var target in machine.SupportedTargets.OrderBy(target => target.DisplayName))
                                     {
@@ -298,6 +326,71 @@
         MachineTargetSupportStatus.Supported => "supported",
         MachineTargetSupportStatus.RequiresSetup => "setup",
         _ => "unsupported"
+    };
+
+    private static bool HasControlPlaneSignals(CompanionMachineSummary machine) =>
+        (machine.UpdateRollout is not null && ShouldShowUpdateRolloutChip(machine.UpdateRollout.State)) ||
+        (machine.WorkflowPackStatus is not null && machine.WorkflowPackStatus.State != RunnerWorkflowPackState.None) ||
+        (machine.WorkflowCatalogStatus is not null && machine.WorkflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown);
+
+    private static string GetControlPlaneChipClass(string stateClass) => stateClass;
+
+    private static bool ShouldShowUpdateRolloutChip(RunnerUpdateRolloutState state) =>
+        state is not (RunnerUpdateRolloutState.UpToDate or RunnerUpdateRolloutState.Applied);
+
+    private static string GetUpdateRolloutLabel(RunnerUpdateRolloutState state) => state switch
+    {
+        RunnerUpdateRolloutState.UpToDate => "Up to date",
+        RunnerUpdateRolloutState.UpdateAvailable => "Update available",
+        RunnerUpdateRolloutState.ManifestStaged => "Manifest staged",
+        RunnerUpdateRolloutState.PayloadStaged => "Payload staged",
+        RunnerUpdateRolloutState.ReadyToApply => "Ready to apply",
+        RunnerUpdateRolloutState.Applying => "Applying",
+        RunnerUpdateRolloutState.Applied => "Applied",
+        RunnerUpdateRolloutState.Failed => "Failed",
+        RunnerUpdateRolloutState.Blocked => "Blocked",
+        _ => state.ToString()
+    };
+
+    private static string GetUpdateRolloutChipClass(RunnerUpdateRolloutState state) => state switch
+    {
+        RunnerUpdateRolloutState.UpToDate or RunnerUpdateRolloutState.Applied => "supported",
+        RunnerUpdateRolloutState.UpdateAvailable or
+        RunnerUpdateRolloutState.ManifestStaged or
+        RunnerUpdateRolloutState.PayloadStaged or
+        RunnerUpdateRolloutState.ReadyToApply or
+        RunnerUpdateRolloutState.Applying => "setup",
+        _ => "unsupported"
+    };
+
+    private static string GetWorkflowPackStateLabel(RunnerWorkflowPackState state) => state switch
+    {
+        RunnerWorkflowPackState.Ready => "Ready",
+        RunnerWorkflowPackState.Blocked => "Blocked",
+        RunnerWorkflowPackState.Failed => "Failed",
+        _ => "Unknown"
+    };
+
+    private static string GetWorkflowPackChipClass(RunnerWorkflowPackState state) => state switch
+    {
+        RunnerWorkflowPackState.Ready => "supported",
+        RunnerWorkflowPackState.Blocked => "setup",
+        RunnerWorkflowPackState.Failed => "unsupported",
+        _ => "setup"
+    };
+
+    private static string GetWorkflowCatalogStateLabel(RunnerWorkflowCatalogState state) => state switch
+    {
+        RunnerWorkflowCatalogState.Matched => "Matched",
+        RunnerWorkflowCatalogState.Mismatched => "Mismatched",
+        _ => "Unknown"
+    };
+
+    private static string GetWorkflowCatalogChipClass(RunnerWorkflowCatalogState state) => state switch
+    {
+        RunnerWorkflowCatalogState.Matched => "supported",
+        RunnerWorkflowCatalogState.Mismatched => "unsupported",
+        _ => "setup"
     };
 
     private static string GetRepositoryLabel(ProjectDefinition definition)
