@@ -608,8 +608,8 @@ app.MapPost("/api/machines/{machineId}/viewers/sessions/{viewerSessionId}/contro
         try
         {
             var mode = (request ?? new UpdateProjectSessionControlRequest()).Mode;
-            var existingState = await ReconcileMachineRemoteControlAsync(machineId, remoteControl, runners, cancellationToken);
             var viewers = await runners.GetViewerSessionsAsync(machineId, cancellationToken);
+            var existingState = await ReconcileMachineRemoteControlAsync(machineId, remoteControl, runners, cancellationToken, viewers);
             var targetViewer = viewers.FirstOrDefault(viewer =>
                 string.Equals(viewer.Id, viewerSessionId.Trim(), StringComparison.OrdinalIgnoreCase));
             if (targetViewer is null || targetViewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
@@ -841,7 +841,8 @@ static async Task<MachineRemoteControlState?> ReconcileMachineRemoteControlAsync
     string machineId,
     IMachineRemoteControlRegistryService remoteControl,
     IRunnerBrokerService runners,
-    CancellationToken cancellationToken)
+    CancellationToken cancellationToken,
+    IReadOnlyList<RemoteViewerSession>? viewers = null)
 {
     var state = remoteControl.GetState(machineId);
     if (state is null)
@@ -849,7 +850,7 @@ static async Task<MachineRemoteControlState?> ReconcileMachineRemoteControlAsync
         return null;
     }
 
-    var viewers = await runners.GetViewerSessionsAsync(machineId, cancellationToken);
+    viewers ??= await runners.GetViewerSessionsAsync(machineId, cancellationToken);
     var activeViewer = viewers.FirstOrDefault(viewer =>
         string.Equals(viewer.Id, state.ViewerSessionId, StringComparison.OrdinalIgnoreCase));
     if (activeViewer is null || activeViewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
