@@ -373,10 +373,10 @@
             return;
         }
 
+        _saving = true;
         try
         {
             var project = BuildProjectDefinition();
-            _saving = true;
             var saved = await CoordinatorClient.UpsertProjectAsync(_coordinatorUrl, project);
             Toasts.Show($"Saved {saved.Name}.", ToastKind.Success);
             Nav.NavigateTo($"/projects/{Uri.EscapeDataString(saved.Id)}");
