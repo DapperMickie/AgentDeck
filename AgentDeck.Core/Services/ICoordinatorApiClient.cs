@@ -12,6 +12,8 @@ public interface ICoordinatorApiClient
 
     Task<IReadOnlyList<ProjectDefinition>> GetProjectsAsync(string coordinatorUrl, CancellationToken cancellationToken = default);
 
+    Task<ProjectDefinition> UpsertProjectAsync(string coordinatorUrl, ProjectDefinition project, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ProjectSessionRecord>> GetProjectSessionsAsync(string coordinatorUrl, string? projectId = null, CancellationToken cancellationToken = default);
 
     Task<OpenProjectOnMachineResult?> OpenProjectOnMachineAsync(string coordinatorUrl, string projectId, string machineId, CancellationToken cancellationToken = default);

@@ -1,0 +1,685 @@
+@page "/projects/new"
+@page "/projects/{ProjectId}/edit"
+@inject IConnectionSettingsService SettingsService
+@inject ICoordinatorApiClient CoordinatorClient
+@inject IToastService Toasts
+@inject NavigationManager Nav
+
+<div class="project-editor">
+    @if (_loading)
+    {
+        <div class="project-editor__content">
+            <div class="empty-state">
+                <div class="empty-icon">◌</div>
+                <h2>Loading project editor</h2>
+            </div>
+        </div>
+    }
+    else if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+    {
+        <div class="project-editor__content">
+            <div class="dashboard-section-card">
+                <h2>Coordinator required</h2>
+                <p>Set a coordinator URL in <a href="/settings">Settings</a> before editing projects.</p>
+            </div>
+        </div>
+    }
+    else if (_projectNotFound)
+    {
+        <div class="project-editor__content">
+            <div class="dashboard-section-card">
+                <h2>Project not found</h2>
+                <p>The coordinator does not currently expose project <code>@ProjectId</code>.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="page-header project-editor__header">
+            <div>
+                <h1>@(_isExistingProject ? "Edit project" : "New project")</h1>
+                <p>Manage coordinator-backed project metadata and launch profiles without dropping to manual API calls.</p>
+            </div>
+            <div class="project-page__actions">
+                @if (_isExistingProject)
+                {
+                    <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_editor.ProjectId)">Back to project</a>
+                }
+                else
+                {
+                    <a class="btn btn-accent" href="/">Dashboard</a>
+                }
+                <button class="btn btn-primary" disabled="@_saving" @onclick="SaveAsync">
+                    @(_saving ? "Saving..." : "Save project")
+                </button>
+            </div>
+        </div>
+
+        <div class="project-editor__content">
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Project basics</h2>
+                        <p>These values become the coordinator-managed project record that the dashboard and project pages consume.</p>
+                    </div>
+                </div>
+
+                <div class="project-editor__grid">
+                    <div class="form-field">
+                        <label for="project-id">Project ID</label>
+                        <input id="project-id" class="input" @bind="_editor.ProjectId" disabled="@_isExistingProject" />
+                    </div>
+                    <div class="form-field">
+                        <label for="project-name">Project name</label>
+                        <input id="project-name" class="input" @bind="_editor.Name" />
+                    </div>
+                    <div class="form-field">
+                        <label for="project-workload">Workload</label>
+                        <select id="project-workload" class="input" @bind="_editor.Workload">
+                            @foreach (var workload in WorkloadOptions)
+                            {
+                                <option value="@workload">@workload</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="project-default-branch">Default branch</label>
+                        <input id="project-default-branch" class="input" @bind="_editor.RepositoryDefaultBranch" />
+                    </div>
+                </div>
+            </section>
+
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Repository</h2>
+                        <p>Leave the repository URL empty for a blank workspace bootstrap; set it to clone the repo automatically when the project is opened on a machine.</p>
+                    </div>
+                </div>
+
+                <div class="project-editor__grid">
+                    <div class="form-field">
+                        <label for="repo-name">Repository name</label>
+                        <input id="repo-name" class="input" @bind="_editor.RepositoryName" />
+                    </div>
+                    <div class="form-field">
+                        <label for="repo-owner">Repository owner</label>
+                        <input id="repo-owner" class="input" @bind="_editor.RepositoryOwner" />
+                    </div>
+                    <div class="form-field project-editor__field--full">
+                        <label for="repo-url">Repository URL</label>
+                        <input id="repo-url" class="input" @bind="_editor.RepositoryUrl" />
+                    </div>
+                </div>
+            </section>
+
+            <section class="dashboard-section-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Launch profiles</h2>
+                        <p>Add, edit, or delete the exact run/debug profiles the coordinator should expose for this project.</p>
+                    </div>
+                    <button class="btn btn-accent" disabled="@_saving" @onclick="AddProfile">Add launch profile</button>
+                </div>
+
+                @if (_editor.LaunchProfiles.Count == 0)
+                {
+                    <p>No launch profiles are configured yet.</p>
+                }
+                else
+                {
+                    <div class="project-list">
+                        @for (var index = 0; index < _editor.LaunchProfiles.Count; index++)
+                        {
+                            var profileIndex = index;
+                            var profile = _editor.LaunchProfiles[index];
+                            <article class="project-list-card project-editor__profile-card">
+                                <div class="project-editor__profile-body">
+                                    <div class="project-session-card__header">
+                                        <div>
+                                            <h3>@(string.IsNullOrWhiteSpace(profile.DisplayName) ? "Launch profile" : profile.DisplayName)</h3>
+                                            <p>@profile.Mode • @profile.Platform • @profile.LaunchDriver</p>
+                                        </div>
+                                        <button class="btn btn-danger" disabled="@_saving" @onclick="() => RemoveProfile(profileIndex)">Delete profile</button>
+                                    </div>
+
+                                    <div class="project-editor__grid">
+                                        <div class="form-field">
+                                            <label>Profile ID</label>
+                                            <input class="input" @bind="profile.Id" />
+                                        </div>
+                                        <div class="form-field">
+                                            <label>Display name</label>
+                                            <input class="input" @bind="profile.DisplayName" />
+                                        </div>
+                                        <div class="form-field">
+                                            <label>Platform</label>
+                                            <select class="input" @bind="profile.Platform">
+                                                @foreach (var platform in PlatformOptions)
+                                                {
+                                                    <option value="@platform">@platform</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="form-field">
+                                            <label>Mode</label>
+                                            <select class="input" @bind="profile.Mode">
+                                                @foreach (var mode in LaunchModeOptions)
+                                                {
+                                                    <option value="@mode">@mode</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="form-field">
+                                            <label>Driver</label>
+                                            <select class="input" @bind="profile.LaunchDriver">
+                                                @foreach (var driver in LaunchDriverOptions)
+                                                {
+                                                    <option value="@driver">@driver</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="form-field">
+                                            <label>Preferred machine role</label>
+                                            <select class="input" @bind="profile.PreferredMachineRole">
+                                                @foreach (var role in MachineRoleOptions)
+                                                {
+                                                    <option value="@role">@role</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="form-field">
+                                            <label>Preferred machine ID</label>
+                                            <input class="input" @bind="profile.PreferredMachineId" />
+                                        </div>
+                                        <div class="form-field">
+                                            <label>Default device profile ID</label>
+                                            <input class="input" @bind="profile.DefaultDeviceProfileId" />
+                                        </div>
+                                        <div class="form-field project-editor__field--full">
+                                            <label>Build command</label>
+                                            <input class="input" @bind="profile.BuildCommand" />
+                                        </div>
+                                        <div class="form-field project-editor__field--full">
+                                            <label>Launch command</label>
+                                            <input class="input" @bind="profile.LaunchCommand" />
+                                        </div>
+                                        <div class="form-field project-editor__field--full">
+                                            <label>Bootstrap command</label>
+                                            <input class="input" @bind="profile.BootstrapCommand" />
+                                        </div>
+                                        <div class="form-field project-editor__field--full">
+                                            <label>Debug configuration name</label>
+                                            <input class="input" @bind="profile.DebugConfigurationName" />
+                                        </div>
+                                        <div class="form-field">
+                                            <label>Device catalog</label>
+                                            <select class="input" @bind="profile.DeviceCatalogText">
+                                                <option value="">None</option>
+                                                @foreach (var catalogKind in DeviceCatalogOptions)
+                                                {
+                                                    <option value="@catalogKind.ToString()">@catalogKind</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="form-field project-editor__field--full">
+                                            <label>Notes</label>
+                                            <textarea class="input input--multiline" @bind="profile.Notes"></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div class="project-editor__toggles">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" @bind="profile.RequiresVsCode" />
+                                            <span>Requires VS Code viewer</span>
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" @bind="profile.RequiresEmulator" />
+                                            <span>Requires emulator</span>
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" @bind="profile.RequiresSimulator" />
+                                            <span>Requires simulator</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
+            </section>
+
+            @if (_editor.Workspaces.Count > 0)
+            {
+                <section class="dashboard-section-card">
+                    <div class="dashboard-section-card__header">
+                        <div>
+                            <h2>Existing workspaces</h2>
+                            <p>Workspace mappings stay attached to the project when you save metadata/profile changes.</p>
+                        </div>
+                    </div>
+
+                    <div class="project-list">
+                        @foreach (var workspace in _editor.Workspaces.OrderBy(workspace => workspace.MachineName ?? workspace.MachineId, StringComparer.OrdinalIgnoreCase))
+                        {
+                            <article class="project-list-card">
+                                <div>
+                                    <h3>@(workspace.MachineName ?? workspace.MachineId)</h3>
+                                    <p><code>@workspace.ProjectPath</code></p>
+                                </div>
+                                @if (workspace.IsPrimary)
+                                {
+                                    <span class="machine-badge">Primary</span>
+                                }
+                            </article>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? ProjectId { get; set; }
+
+    private static readonly ProjectWorkloadKind[] WorkloadOptions = Enum.GetValues<ProjectWorkloadKind>();
+    private static readonly ApplicationTargetPlatform[] PlatformOptions = Enum.GetValues<ApplicationTargetPlatform>();
+    private static readonly ProjectLaunchMode[] LaunchModeOptions = Enum.GetValues<ProjectLaunchMode>();
+    private static readonly ProjectLaunchDriver[] LaunchDriverOptions = Enum.GetValues<ProjectLaunchDriver>();
+    private static readonly RunnerMachineRole[] MachineRoleOptions = Enum.GetValues<RunnerMachineRole>();
+    private static readonly VirtualDeviceCatalogKind[] DeviceCatalogOptions = Enum.GetValues<VirtualDeviceCatalogKind>();
+
+    private bool _loading = true;
+    private bool _saving;
+    private bool _projectNotFound;
+    private bool _isExistingProject;
+    private string? _coordinatorUrl;
+    private ProjectEditorModel _editor = ProjectEditorModel.CreateDefault();
+    private IReadOnlyList<ProjectTargetDefinition> _existingTargets = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _projectNotFound = false;
+
+        try
+        {
+            var settings = await SettingsService.LoadAsync();
+            _coordinatorUrl = settings.CoordinatorUrl;
+            if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+            {
+                _editor = ProjectEditorModel.CreateDefault();
+                _existingTargets = [];
+                _isExistingProject = false;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(ProjectId))
+            {
+                _editor = ProjectEditorModel.CreateDefault();
+                _existingTargets = [];
+                _isExistingProject = false;
+                return;
+            }
+
+            var project = (await CoordinatorClient.GetProjectsAsync(_coordinatorUrl))
+                .FirstOrDefault(candidate => string.Equals(candidate.Id, ProjectId, StringComparison.OrdinalIgnoreCase));
+            if (project is null)
+            {
+                _projectNotFound = true;
+                _editor = ProjectEditorModel.CreateDefault();
+                _existingTargets = [];
+                _isExistingProject = false;
+                return;
+            }
+
+            _editor = ProjectEditorModel.FromDefinition(project);
+            _existingTargets = project.Targets;
+            _isExistingProject = true;
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void AddProfile()
+    {
+        _editor.LaunchProfiles.Add(ProjectLaunchProfileEditor.CreateDefault(_editor.Workload, _editor.LaunchProfiles.Count + 1));
+    }
+
+    private void RemoveProfile(int index)
+    {
+        if (index >= 0 && index < _editor.LaunchProfiles.Count)
+        {
+            _editor.LaunchProfiles.RemoveAt(index);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_saving || string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        try
+        {
+            var project = BuildProjectDefinition();
+            _saving = true;
+            var saved = await CoordinatorClient.UpsertProjectAsync(_coordinatorUrl, project);
+            Toasts.Show($"Saved {saved.Name}.", ToastKind.Success);
+            Nav.NavigateTo($"/projects/{Uri.EscapeDataString(saved.Id)}");
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private ProjectDefinition BuildProjectDefinition()
+    {
+        var projectId = NormalizeProjectId(_editor.ProjectId, _editor.Name);
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            throw new InvalidOperationException("Project ID is required.");
+        }
+
+        var projectName = NormalizeText(_editor.Name) ?? projectId;
+        var repositoryName = NormalizeText(_editor.RepositoryName) ?? projectName;
+        var defaultBranch = NormalizeText(_editor.RepositoryDefaultBranch) ?? "main";
+        var profiles = _editor.LaunchProfiles
+            .Select(BuildLaunchProfile)
+            .ToArray();
+        if (profiles.Length == 0)
+        {
+            throw new InvalidOperationException("At least one launch profile is required.");
+        }
+
+        var duplicateProfileId = profiles
+            .GroupBy(profile => profile.Id, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1)?.Key;
+        if (!string.IsNullOrWhiteSpace(duplicateProfileId))
+        {
+            throw new InvalidOperationException($"Launch profile ID '{duplicateProfileId}' must be unique.");
+        }
+
+        return new ProjectDefinition
+        {
+            Id = projectId,
+            Name = projectName,
+            Workload = _editor.Workload,
+            Repository = new ProjectRepositoryReference
+            {
+                Name = repositoryName,
+                Owner = NormalizeText(_editor.RepositoryOwner),
+                Url = NormalizeText(_editor.RepositoryUrl),
+                DefaultBranch = defaultBranch
+            },
+            Workspaces = _editor.Workspaces.ToArray(),
+            Targets = BuildTargets(_editor.Workload, profiles, _existingTargets),
+            LaunchProfiles = profiles
+        };
+    }
+
+    private static ProjectLaunchProfile BuildLaunchProfile(ProjectLaunchProfileEditor editor)
+    {
+        var profileId = NormalizeProjectId(editor.Id, editor.DisplayName);
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            throw new InvalidOperationException("Each launch profile needs an ID or display name.");
+        }
+
+        var requiresEmulator = editor.RequiresEmulator;
+        var requiresSimulator = editor.RequiresSimulator;
+        var deviceCatalog = requiresEmulator
+            ? VirtualDeviceCatalogKind.AndroidEmulator
+            : requiresSimulator
+                ? VirtualDeviceCatalogKind.AppleSimulator
+                : editor.DeviceCatalog;
+
+        return new ProjectLaunchProfile
+        {
+            Id = profileId,
+            DisplayName = NormalizeText(editor.DisplayName) ?? profileId,
+            Platform = editor.Platform,
+            Mode = editor.Mode,
+            LaunchDriver = editor.LaunchDriver,
+            PreferredMachineRole = editor.PreferredMachineRole,
+            PreferredMachineId = NormalizeText(editor.PreferredMachineId),
+            BuildCommand = NormalizeText(editor.BuildCommand) ?? "dotnet build",
+            LaunchCommand = NormalizeText(editor.LaunchCommand),
+            BootstrapCommand = NormalizeText(editor.BootstrapCommand),
+            DebugConfigurationName = NormalizeText(editor.DebugConfigurationName),
+            RequiresVsCode = editor.RequiresVsCode,
+            RequiresEmulator = requiresEmulator,
+            RequiresSimulator = requiresSimulator,
+            DeviceCatalog = deviceCatalog,
+            DefaultDeviceProfileId = NormalizeText(editor.DefaultDeviceProfileId),
+            Notes = NormalizeText(editor.Notes)
+        };
+    }
+
+    private static IReadOnlyList<ProjectTargetDefinition> BuildTargets(
+        ProjectWorkloadKind workload,
+        IReadOnlyList<ProjectLaunchProfile> profiles,
+        IReadOnlyList<ProjectTargetDefinition> existingTargets)
+    {
+        var defaults = ProjectTargetCatalog.GetTargets(workload)
+            .ToDictionary(target => target.Platform);
+        var existingByPlatform = existingTargets
+            .GroupBy(target => target.Platform)
+            .ToDictionary(group => group.Key, group => group.Last());
+
+        return profiles
+            .Select(profile => profile.Platform)
+            .Distinct()
+            .Select(platform =>
+            {
+                existingByPlatform.TryGetValue(platform, out var existingTarget);
+                defaults.TryGetValue(platform, out var defaultTarget);
+                var seed = existingTarget is not null && existingTarget.Workload == workload
+                    ? existingTarget
+                    : defaultTarget;
+                var requiresVsCode = profiles.Any(profile =>
+                    profile.Platform == platform &&
+                    (profile.RequiresVsCode || profile.LaunchDriver == ProjectLaunchDriver.VsCode));
+
+                return new ProjectTargetDefinition
+                {
+                    Workload = workload,
+                    Platform = platform,
+                    DisplayName = seed?.DisplayName ?? BuildFallbackTargetDisplayName(workload, platform),
+                    CapabilityId = seed?.CapabilityId ?? "dotnet",
+                    RequiresVsCodeForDebugging = requiresVsCode || (seed?.RequiresVsCodeForDebugging ?? false),
+                    PackageRequirement = seed?.PackageRequirement,
+                    Notes = seed?.Notes
+                };
+            })
+            .ToArray();
+    }
+
+    private static string BuildFallbackTargetDisplayName(ProjectWorkloadKind workload, ApplicationTargetPlatform platform) =>
+        workload == ProjectWorkloadKind.Blazor
+            ? $"Blazor on {platform}"
+            : platform.ToString();
+
+    private static string? NormalizeText(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string NormalizeProjectId(string? id, string? fallbackName)
+    {
+        var source = NormalizeText(id) ?? NormalizeText(fallbackName);
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return string.Empty;
+        }
+
+        var builder = new System.Text.StringBuilder(source.Length);
+        var lastWasSeparator = false;
+        foreach (var character in source.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(character);
+                lastWasSeparator = false;
+            }
+            else if (!lastWasSeparator)
+            {
+                builder.Append('-');
+                lastWasSeparator = true;
+            }
+        }
+
+        return builder.ToString().Trim('-');
+    }
+
+    private sealed class ProjectEditorModel
+    {
+        public string ProjectId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public ProjectWorkloadKind Workload { get; set; } = ProjectWorkloadKind.Blazor;
+        public string RepositoryName { get; set; } = string.Empty;
+        public string? RepositoryOwner { get; set; }
+        public string? RepositoryUrl { get; set; }
+        public string RepositoryDefaultBranch { get; set; } = "main";
+        public List<ProjectWorkspaceMapping> Workspaces { get; set; } = [];
+        public List<ProjectLaunchProfileEditor> LaunchProfiles { get; set; } = [];
+
+        public static ProjectEditorModel CreateDefault()
+        {
+            var template = ProjectTemplateCatalog.CreateDefault(ProjectWorkloadKind.Blazor, "New Project");
+            return FromDefinition(new ProjectDefinition
+            {
+                Id = string.Empty,
+                Name = template.Name,
+                Workload = template.Workload,
+                Repository = new ProjectRepositoryReference
+                {
+                    Name = string.Empty,
+                    DefaultBranch = "main"
+                },
+                Targets = template.Targets,
+                LaunchProfiles = template.LaunchProfiles,
+                Workspaces = []
+            });
+        }
+
+        public static ProjectEditorModel FromDefinition(ProjectDefinition project)
+        {
+            return new ProjectEditorModel
+            {
+                ProjectId = project.Id,
+                Name = project.Name,
+                Workload = project.Workload,
+                RepositoryName = project.Repository.Name,
+                RepositoryOwner = project.Repository.Owner,
+                RepositoryUrl = project.Repository.Url,
+                RepositoryDefaultBranch = project.Repository.DefaultBranch,
+                Workspaces = project.Workspaces
+                    .Select(workspace => new ProjectWorkspaceMapping
+                    {
+                        MachineId = workspace.MachineId,
+                        MachineName = workspace.MachineName,
+                        ProjectPath = workspace.ProjectPath,
+                        IsPrimary = workspace.IsPrimary
+                    })
+                    .ToList(),
+                LaunchProfiles = project.LaunchProfiles
+                    .Select(ProjectLaunchProfileEditor.FromDefinition)
+                    .ToList()
+            };
+        }
+    }
+
+    private sealed class ProjectLaunchProfileEditor
+    {
+        public string Id { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public ApplicationTargetPlatform Platform { get; set; }
+        public ProjectLaunchMode Mode { get; set; }
+        public ProjectLaunchDriver LaunchDriver { get; set; } = ProjectLaunchDriver.DirectCommand;
+        public RunnerMachineRole PreferredMachineRole { get; set; } = RunnerMachineRole.Worker;
+        public string? PreferredMachineId { get; set; }
+        public string BuildCommand { get; set; } = "dotnet build";
+        public string? LaunchCommand { get; set; }
+        public string? BootstrapCommand { get; set; }
+        public string? DebugConfigurationName { get; set; }
+        public bool RequiresVsCode { get; set; }
+        public bool RequiresEmulator { get; set; }
+        public bool RequiresSimulator { get; set; }
+        public string DeviceCatalogText { get; set; } = string.Empty;
+        public string? DefaultDeviceProfileId { get; set; }
+        public string? Notes { get; set; }
+
+        public VirtualDeviceCatalogKind? DeviceCatalog =>
+            Enum.TryParse<VirtualDeviceCatalogKind>(DeviceCatalogText, ignoreCase: true, out var catalog)
+                ? catalog
+                : null;
+
+        public static ProjectLaunchProfileEditor CreateDefault(ProjectWorkloadKind workload, int index)
+        {
+            var defaultTarget = ProjectTargetCatalog.GetTargets(workload).FirstOrDefault()
+                ?? new ProjectTargetDefinition
+                {
+                    Workload = workload,
+                    Platform = ApplicationTargetPlatform.MacOS,
+                    DisplayName = workload == ProjectWorkloadKind.Blazor ? "Blazor on macOS" : "macOS",
+                    RequiresVsCodeForDebugging = true
+                };
+            var template = ProjectTemplateCatalog.CreateDefault(workload, "Template").LaunchProfiles
+                .FirstOrDefault(profile => profile.Platform == defaultTarget.Platform && profile.Mode == ProjectLaunchMode.Run);
+
+            return template is null
+                ? new ProjectLaunchProfileEditor
+                {
+                    Id = $"{workload.ToString().ToLowerInvariant()}-profile-{index}",
+                    DisplayName = $"Launch profile {index}",
+                    Platform = defaultTarget.Platform,
+                    Mode = ProjectLaunchMode.Run,
+                    LaunchDriver = ProjectLaunchDriver.DirectCommand,
+                    PreferredMachineRole = RunnerMachineRole.Worker,
+                    BuildCommand = "dotnet build"
+                }
+                : FromDefinition(template);
+        }
+
+        public static ProjectLaunchProfileEditor FromDefinition(ProjectLaunchProfile profile)
+        {
+            return new ProjectLaunchProfileEditor
+            {
+                Id = profile.Id,
+                DisplayName = profile.DisplayName,
+                Platform = profile.Platform,
+                Mode = profile.Mode,
+                LaunchDriver = profile.LaunchDriver,
+                PreferredMachineRole = profile.PreferredMachineRole,
+                PreferredMachineId = profile.PreferredMachineId,
+                BuildCommand = profile.BuildCommand,
+                LaunchCommand = profile.LaunchCommand,
+                BootstrapCommand = profile.BootstrapCommand,
+                DebugConfigurationName = profile.DebugConfigurationName,
+                RequiresVsCode = profile.RequiresVsCode,
+                RequiresEmulator = profile.RequiresEmulator,
+                RequiresSimulator = profile.RequiresSimulator,
+                DeviceCatalogText = profile.DeviceCatalog?.ToString() ?? string.Empty,
+                DefaultDeviceProfileId = profile.DefaultDeviceProfileId,
+                Notes = profile.Notes
+            };
+        }
+    }
+}
