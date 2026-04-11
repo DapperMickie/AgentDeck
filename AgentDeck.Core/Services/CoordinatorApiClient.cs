@@ -66,6 +66,36 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         }
     }
 
+    public async Task<ProjectDefinition> UpsertProjectAsync(string coordinatorUrl, ProjectDefinition project, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentException.ThrowIfNullOrWhiteSpace(project.Id);
+
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PutAsJsonAsync(
+                $"api/projects/{Uri.EscapeDataString(project.Id)}",
+                project,
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(
+                    message ?? $"Coordinator rejected project '{project.Id}' with HTTP {(int)response.StatusCode}.");
+            }
+
+            return await response.Content.ReadFromJsonAsync<ProjectDefinition>(cancellationToken: cancellationToken)
+                ?? throw new InvalidOperationException($"Coordinator returned an empty project payload for '{project.Id}'.");
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            _logger.LogError(ex, "Coordinator project upsert failed for {ProjectId}", project.Id);
+            throw;
+        }
+    }
+
     public async Task<IReadOnlyList<ProjectSessionRecord>> GetProjectSessionsAsync(string coordinatorUrl, string? projectId = null, CancellationToken cancellationToken = default)
     {
         using var httpClient = CreateClient(coordinatorUrl);
