@@ -403,12 +403,14 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         if (phaseName == "Launch")
         {
-            await CloseJobViewerIfPresentAsync(jobId, "Viewer session closed because the launch completed.");
+            var launchCompletedMessage = string.IsNullOrWhiteSpace(job.ViewerSessionId)
+                ? "Launch completed successfully."
+                : "Launch completed successfully. Runtime viewer remains available.";
             _jobs.UpdateStatus(jobId, new UpdateOrchestrationJobStatusRequest
             {
                 Status = OrchestrationJobStatus.Completed,
                 ExitCode = exitCode,
-                Message = "Launch completed successfully."
+                Message = launchCompletedMessage
             });
             return true;
         }
