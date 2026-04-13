@@ -35,21 +35,44 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
 
     public string StatusMessage { get; private set; } = "Idle";
 
-    public bool IsWatching =>
-        _connection is not null &&
-        _connection.State.Equals(HubConnectionState.Connected) &&
-        CurrentSession is not null &&
-        !string.IsNullOrWhiteSpace(_viewerAccessToken);
+    public bool IsWatching
+    {
+        get
+        {
+            var connection = _connection;
+            var currentSession = CurrentSession;
+            var viewerAccessToken = _viewerAccessToken;
+            return connection is not null &&
+                   connection.State.Equals(HubConnectionState.Connected) &&
+                   currentSession is not null &&
+                   !string.IsNullOrWhiteSpace(viewerAccessToken);
+        }
+    }
 
-    public bool SupportsInAppViewer =>
-        CurrentSession?.Provider == RemoteViewerProviderKind.Managed &&
-        !string.IsNullOrWhiteSpace(CurrentSession.ConnectionUri) &&
-        !string.IsNullOrWhiteSpace(CurrentSession.AccessToken);
+    public bool SupportsInAppViewer
+    {
+        get
+        {
+            var currentSession = CurrentSession;
+            return currentSession?.Provider == RemoteViewerProviderKind.Managed &&
+                   !string.IsNullOrWhiteSpace(currentSession.ConnectionUri) &&
+                   !string.IsNullOrWhiteSpace(currentSession.AccessToken);
+        }
+    }
 
-    public bool CanSendInput =>
-        CurrentSession?.Status == RemoteViewerSessionStatus.Ready &&
-        SupportsInAppViewer &&
-        (RemoteControlState is null || IsCurrentCompanionController(RemoteControlState, CurrentSession.Id));
+    public bool CanSendInput
+    {
+        get
+        {
+            var currentSession = CurrentSession;
+            var remoteControlState = RemoteControlState;
+            return currentSession?.Status == RemoteViewerSessionStatus.Ready &&
+                   currentSession.Provider == RemoteViewerProviderKind.Managed &&
+                   !string.IsNullOrWhiteSpace(currentSession.ConnectionUri) &&
+                   !string.IsNullOrWhiteSpace(currentSession.AccessToken) &&
+                   (remoteControlState is null || IsCurrentCompanionController(remoteControlState, currentSession.Id));
+        }
+    }
 
     public async Task LoadAsync(
         string coordinatorUrl,
