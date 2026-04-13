@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO;
 using AgentDeck.Coordinator.Hubs;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Hubs;
@@ -154,7 +155,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
         _logger.LogInformation("Brokering terminal session creation '{SessionName}' on machine {MachineName} ({MachineId})", request.Name, entry.Machine?.MachineName ?? machineId, machineId);
-        var session = await GetRunnerClient(entry).CreateSessionAsync(request);
+        var session = await InvokeRunnerAsync(entry, "create terminal session", client => client.CreateSessionAsync(request), retryOnReconnect: false, cancellationToken);
         var annotated = AnnotateSession(session, entry.Machine!);
         await _agentHubContext.Clients.All.SessionCreatedAsync(annotated);
         return annotated;
@@ -164,7 +165,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
         _logger.LogInformation("Brokering terminal session close {SessionId} on machine {MachineName} ({MachineId})", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId);
-        await GetRunnerClient(entry).CloseSessionAsync(sessionId);
+        await InvokeRunnerAsync(entry, "close terminal session", client => client.CloseSessionAsync(sessionId), retryOnReconnect: false, cancellationToken);
         _sessionMachineMap.TryRemove(sessionId, out _);
         _companions.RemoveSessionFromAll(sessionId);
         await _agentHubContext.Clients.All.SessionClosedAsync(sessionId);
@@ -173,7 +174,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     public async Task<IReadOnlyList<TerminalSession>> GetSessionsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        var sessions = await GetRunnerClient(entry).GetSessionsAsync();
+        var sessions = await InvokeRunnerAsync(entry, "list terminal sessions", client => client.GetSessionsAsync(), retryOnReconnect: true, cancellationToken);
         return sessions.Select(session => AnnotateSession(session, entry.Machine!)).ToArray();
     }
 
@@ -184,74 +185,74 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     public async Task ResizeTerminalAsync(string sessionId, int cols, int rows, CancellationToken cancellationToken = default)
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
-        await GetRunnerClient(entry).ResizeTerminalAsync(sessionId, cols, rows);
+        await InvokeRunnerAsync(entry, "resize terminal session", client => client.ResizeTerminalAsync(sessionId, cols, rows), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task SendInputAsync(string sessionId, string data, CancellationToken cancellationToken = default)
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
-        await GetRunnerClient(entry).SendInputAsync(sessionId, data);
+        await InvokeRunnerAsync(entry, "send terminal input", client => client.SendInputAsync(sessionId, data), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task<WorkspaceInfo?> GetWorkspaceAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).GetWorkspaceAsync();
+        return await InvokeRunnerAsync(entry, "read workspace info", client => client.GetWorkspaceAsync(), retryOnReconnect: true, cancellationToken);
     }
 
     public async Task<OpenProjectOnRunnerResult?> OpenProjectAsync(string machineId, OpenProjectOnRunnerRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).OpenProjectAsync(request, NormalizeActorId(actorId));
+        return await InvokeRunnerAsync(entry, "open project", client => client.OpenProjectAsync(request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).GetMachineCapabilitiesAsync();
+        return await InvokeRunnerAsync(entry, "read machine capabilities", client => client.GetMachineCapabilitiesAsync(), retryOnReconnect: true, cancellationToken);
     }
 
     public async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string machineId, string capabilityId, MachineCapabilityInstallRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).InstallMachineCapabilityAsync(capabilityId, request, NormalizeActorId(actorId));
+        return await InvokeRunnerAsync(entry, "install machine capability", client => client.InstallMachineCapabilityAsync(capabilityId, request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string machineId, string capabilityId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).UpdateMachineCapabilityAsync(capabilityId, NormalizeActorId(actorId));
+        return await InvokeRunnerAsync(entry, "update machine capability", client => client.UpdateMachineCapabilityAsync(capabilityId, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task<bool> RetryMachineWorkflowPackAsync(string machineId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        await GetRunnerClient(entry).RetryMachineWorkflowPackAsync(NormalizeActorId(actorId));
+        await InvokeRunnerAsync(entry, "retry workflow pack", client => client.RetryMachineWorkflowPackAsync(NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
         return true;
     }
 
     public async Task<IReadOnlyList<OrchestrationJob>> GetOrchestrationJobsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).GetOrchestrationJobsAsync();
+        return await InvokeRunnerAsync(entry, "list orchestration jobs", client => client.GetOrchestrationJobsAsync(), retryOnReconnect: true, cancellationToken);
     }
 
     public async Task<OrchestrationJob?> QueueOrchestrationJobAsync(string machineId, CreateOrchestrationJobRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).QueueOrchestrationJobAsync(request, NormalizeActorId(actorId));
+        return await InvokeRunnerAsync(entry, "queue orchestration job", client => client.QueueOrchestrationJobAsync(request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task<OrchestrationJob?> CancelOrchestrationJobAsync(string machineId, string jobId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).CancelOrchestrationJobAsync(jobId, NormalizeActorId(actorId));
+        return await InvokeRunnerAsync(entry, "cancel orchestration job", client => client.CancelOrchestrationJobAsync(jobId, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task<IReadOnlyList<RemoteViewerSession>> GetViewerSessionsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        var sessions = await GetRunnerClient(entry).GetViewerSessionsAsync();
+        var sessions = await InvokeRunnerAsync(entry, "list viewer sessions", client => client.GetViewerSessionsAsync(), retryOnReconnect: true, cancellationToken);
         var annotated = sessions.Select(session => AnnotateViewerSession(entry.MachineId, session)).ToArray();
         foreach (var session in annotated)
         {
@@ -265,7 +266,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     public async Task<RemoteViewerSession> CreateViewerSessionAsync(string machineId, CreateRemoteViewerSessionRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        var session = await GetRunnerClient(entry).CreateViewerSessionAsync(request, NormalizeActorId(actorId));
+        var session = await InvokeRunnerAsync(entry, "create viewer session", client => client.CreateViewerSessionAsync(request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
         var annotated = AnnotateViewerSession(entry.MachineId, session);
         _viewerMachineMap[annotated.Id] = entry.MachineId;
         _viewerSessions[annotated.Id] = annotated;
@@ -275,7 +276,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     public async Task<RemoteViewerSession?> CloseViewerSessionAsync(string machineId, string viewerSessionId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        var session = await GetRunnerClient(entry).CloseViewerSessionAsync(viewerSessionId, NormalizeActorId(actorId));
+        var session = await InvokeRunnerAsync(entry, "close viewer session", client => client.CloseViewerSessionAsync(viewerSessionId, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
         if (session is null)
         {
             return null;
@@ -302,25 +303,25 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     public async Task SendViewerPointerInputAsync(string machineId, string viewerSessionId, string actorId, RemoteViewerPointerInputEvent input, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        await GetRunnerClient(entry).SendViewerPointerInputAsync(viewerSessionId, NormalizeActorId(actorId), input);
+        await InvokeRunnerAsync(entry, "send viewer pointer input", client => client.SendViewerPointerInputAsync(viewerSessionId, NormalizeActorId(actorId), input), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task SendViewerKeyboardInputAsync(string machineId, string viewerSessionId, string actorId, RemoteViewerKeyboardInputEvent input, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        await GetRunnerClient(entry).SendViewerKeyboardInputAsync(viewerSessionId, NormalizeActorId(actorId), input);
+        await InvokeRunnerAsync(entry, "send viewer keyboard input", client => client.SendViewerKeyboardInputAsync(viewerSessionId, NormalizeActorId(actorId), input), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetVirtualDeviceCatalogsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).GetVirtualDeviceCatalogsAsync();
+        return await InvokeRunnerAsync(entry, "list virtual device catalogs", client => client.GetVirtualDeviceCatalogsAsync(), retryOnReconnect: true, cancellationToken);
     }
 
     public async Task<VirtualDeviceLaunchResolution?> ResolveVirtualDeviceAsync(string machineId, VirtualDeviceLaunchSelection selection, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await GetRunnerClient(entry).ResolveVirtualDeviceAsync(selection);
+        return await InvokeRunnerAsync(entry, "resolve virtual device", client => client.ResolveVirtualDeviceAsync(selection), retryOnReconnect: true, cancellationToken);
     }
 
     private async Task<RunnerEntry> EnsureEntryAsync(string machineId, CancellationToken cancellationToken)
@@ -406,8 +407,26 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         var machines = await _registry.GetMachinesAsync(cancellationToken);
         foreach (var machine in machines.Where(machine => machine.IsOnline))
         {
-            var entry = await EnsureEntryAsync(machine.MachineId, cancellationToken);
-            var sessions = await GetRunnerClient(entry).GetSessionsAsync();
+            RunnerEntry entry;
+            try
+            {
+                entry = await EnsureEntryAsync(machine.MachineId, cancellationToken);
+            }
+            catch (InvalidOperationException)
+            {
+                continue;
+            }
+
+            IReadOnlyList<TerminalSession> sessions;
+            try
+            {
+                sessions = await InvokeRunnerAsync(entry, "list terminal sessions", client => client.GetSessionsAsync(), retryOnReconnect: true, cancellationToken);
+            }
+            catch (InvalidOperationException)
+            {
+                continue;
+            }
+
             foreach (var session in sessions)
             {
                 AnnotateSession(session, machine);
@@ -420,6 +439,119 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
 
         return null;
     }
+
+    private async Task<T> InvokeRunnerAsync<T>(RunnerEntry entry, string operation, Func<IRunnerControlClient, Task<T>> action, bool retryOnReconnect, CancellationToken cancellationToken)
+    {
+        var initialConnectionId = entry.ConnectionId;
+        try
+        {
+            return await action(GetRunnerClient(entry));
+        }
+        catch (Exception ex) when (IsTransientRunnerDisconnect(ex))
+        {
+            _logger.LogWarning(
+                ex,
+                "Runner {MachineName} ({MachineId}) disconnected while attempting to {Operation}; checking for a refreshed control connection.",
+                entry.Machine?.MachineName ?? entry.MachineId,
+                entry.MachineId,
+                operation);
+
+            if (!retryOnReconnect)
+            {
+                throw BuildRunnerDisconnectException(entry, operation, ex);
+            }
+
+            return await RetryRunnerInvokeAsync(entry, initialConnectionId, operation, action, cancellationToken, ex);
+        }
+    }
+
+    private async Task InvokeRunnerAsync(RunnerEntry entry, string operation, Func<IRunnerControlClient, Task> action, bool retryOnReconnect, CancellationToken cancellationToken)
+    {
+        var initialConnectionId = entry.ConnectionId;
+        try
+        {
+            await action(GetRunnerClient(entry));
+        }
+        catch (Exception ex) when (IsTransientRunnerDisconnect(ex))
+        {
+            _logger.LogWarning(
+                ex,
+                "Runner {MachineName} ({MachineId}) disconnected while attempting to {Operation}; checking for a refreshed control connection.",
+                entry.Machine?.MachineName ?? entry.MachineId,
+                entry.MachineId,
+                operation);
+
+            if (!retryOnReconnect)
+            {
+                throw BuildRunnerDisconnectException(entry, operation, ex);
+            }
+
+            await RetryRunnerInvokeAsync(entry, initialConnectionId, operation, action, cancellationToken, ex);
+        }
+    }
+
+    private async Task<T> RetryRunnerInvokeAsync<T>(RunnerEntry entry, string? initialConnectionId, string operation, Func<IRunnerControlClient, Task<T>> action, CancellationToken cancellationToken, Exception originalException)
+    {
+        var refreshedEntry = await EnsureRefreshedEntryAsync(entry, initialConnectionId, operation, originalException, cancellationToken);
+        try
+        {
+            return await action(GetRunnerClient(refreshedEntry));
+        }
+        catch (Exception retryException) when (IsTransientRunnerDisconnect(retryException))
+        {
+            throw BuildRunnerDisconnectException(refreshedEntry, operation, retryException);
+        }
+    }
+
+    private async Task RetryRunnerInvokeAsync(RunnerEntry entry, string? initialConnectionId, string operation, Func<IRunnerControlClient, Task> action, CancellationToken cancellationToken, Exception originalException)
+    {
+        var refreshedEntry = await EnsureRefreshedEntryAsync(entry, initialConnectionId, operation, originalException, cancellationToken);
+        try
+        {
+            await action(GetRunnerClient(refreshedEntry));
+        }
+        catch (Exception retryException) when (IsTransientRunnerDisconnect(retryException))
+        {
+            throw BuildRunnerDisconnectException(refreshedEntry, operation, retryException);
+        }
+    }
+
+    private async Task<RunnerEntry> EnsureRefreshedEntryAsync(RunnerEntry entry, string? initialConnectionId, string operation, Exception originalException, CancellationToken cancellationToken)
+    {
+        RunnerEntry refreshedEntry;
+        try
+        {
+            refreshedEntry = await EnsureEntryAsync(entry.MachineId, cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            throw BuildRunnerDisconnectException(entry, operation, originalException);
+        }
+
+        if (string.IsNullOrWhiteSpace(refreshedEntry.ConnectionId) ||
+            string.Equals(refreshedEntry.ConnectionId, initialConnectionId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw BuildRunnerDisconnectException(refreshedEntry, operation, originalException);
+        }
+
+        _logger.LogInformation(
+            "Retrying brokered {Operation} on runner {MachineName} ({MachineId}) after control connection moved from {PreviousConnectionId} to {CurrentConnectionId}.",
+            operation,
+            refreshedEntry.Machine?.MachineName ?? refreshedEntry.MachineId,
+            refreshedEntry.MachineId,
+            initialConnectionId ?? "<none>",
+            refreshedEntry.ConnectionId);
+
+        return refreshedEntry;
+    }
+
+    private static bool IsTransientRunnerDisconnect(Exception exception) =>
+        exception is IOException or ObjectDisposedException;
+
+    private static InvalidOperationException BuildRunnerDisconnectException(RunnerEntry entry, string operation, Exception exception) =>
+        new(
+            $"Runner machine '{entry.Machine?.MachineName ?? entry.MachineId}' disconnected while attempting to {operation}. Retry the request after the runner reconnects.",
+            exception);
 
     private static string NormalizeActorId(string actorId) =>
         string.IsNullOrWhiteSpace(actorId) ? "coordinator" : actorId.Trim();
