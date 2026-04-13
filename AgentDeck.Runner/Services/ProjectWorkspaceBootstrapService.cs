@@ -25,20 +25,46 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
         var projectPath = ResolveProjectPath(request);
         var workspaceCreated = false;
         var repositoryCloned = false;
+        var workspaceAlreadyExists = Directory.Exists(projectPath);
 
-        if (!Directory.Exists(projectPath))
+        _logger.LogInformation(
+            "Runner opening project workspace for {ProjectId} ({ProjectName}); resolved path: {ProjectPath}; existing workspace override: {ExistingWorkspacePath}; repository: {RepositoryUrl}; path exists: {PathExists}",
+            request.ProjectId,
+            request.ProjectName ?? "<unnamed>",
+            projectPath,
+            request.ExistingWorkspacePath ?? "<none>",
+            string.IsNullOrWhiteSpace(request.Repository.Url) ? "<none>" : request.Repository.Url,
+            workspaceAlreadyExists);
+
+        if (!workspaceAlreadyExists)
         {
             if (!string.IsNullOrWhiteSpace(request.Repository.Url))
             {
+                _logger.LogInformation(
+                    "Cloning repository {RepositoryUrl} into {ProjectPath} for project {ProjectId}",
+                    request.Repository.Url,
+                    projectPath,
+                    request.ProjectId);
                 await CloneRepositoryAsync(request.Repository, projectPath, cancellationToken);
                 repositoryCloned = true;
                 workspaceCreated = true;
             }
             else
             {
+                _logger.LogInformation(
+                    "Creating empty workspace directory {ProjectPath} for project {ProjectId}",
+                    projectPath,
+                    request.ProjectId);
                 Directory.CreateDirectory(projectPath);
                 workspaceCreated = true;
             }
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Reusing existing workspace directory {ProjectPath} for project {ProjectId}",
+                projectPath,
+                request.ProjectId);
         }
 
         _logger.LogInformation(
@@ -60,12 +86,23 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
     {
         if (!string.IsNullOrWhiteSpace(request.ExistingWorkspacePath))
         {
-            return _workspace.ResolvePath(request.ExistingWorkspacePath);
+            var resolvedExistingPath = _workspace.ResolvePath(request.ExistingWorkspacePath);
+            _logger.LogInformation(
+                "Resolved existing workspace path {ExistingWorkspacePath} to {ResolvedProjectPath} for project {ProjectId}",
+                request.ExistingWorkspacePath,
+                resolvedExistingPath,
+                request.ProjectId);
+            return resolvedExistingPath;
         }
 
         var folderName = BuildWorkspaceFolderName(request);
-
-        return _workspace.ResolveDirectory(folderName);
+        var resolvedDirectory = _workspace.ResolveDirectory(folderName);
+        _logger.LogInformation(
+            "Resolved new workspace folder {WorkspaceFolderName} to {ResolvedProjectPath} for project {ProjectId}",
+            folderName,
+            resolvedDirectory,
+            request.ProjectId);
+        return resolvedDirectory;
     }
 
     private static string BuildWorkspaceFolderName(OpenProjectOnRunnerRequest request)
@@ -131,8 +168,22 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
             if (process.ExitCode != 0)
             {
                 var failureMessage = FirstMeaningfulLine(standardError, standardOutput) ?? "git clone failed.";
+                _logger.LogWarning(
+                    "git clone failed for {RepositoryUrl} into {ProjectPath} with exit code {ExitCode}. stdout: {StandardOutput}. stderr: {StandardError}",
+                    repository.Url,
+                    projectPath,
+                    process.ExitCode,
+                    string.IsNullOrWhiteSpace(standardOutput) ? "<empty>" : standardOutput.Trim(),
+                    string.IsNullOrWhiteSpace(standardError) ? "<empty>" : standardError.Trim());
                 throw new InvalidOperationException($"Failed to clone repository '{repository.Url}'. {failureMessage}");
             }
+
+            _logger.LogInformation(
+                "git clone succeeded for {RepositoryUrl} into {ProjectPath}. stdout: {StandardOutput}. stderr: {StandardError}",
+                repository.Url,
+                projectPath,
+                string.IsNullOrWhiteSpace(standardOutput) ? "<empty>" : standardOutput.Trim(),
+                string.IsNullOrWhiteSpace(standardError) ? "<empty>" : standardError.Trim());
         }
         catch (OperationCanceledException)
         {
