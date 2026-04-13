@@ -71,9 +71,11 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     {
         if (!_activeJobs.TryAdd(jobId, 0))
         {
+            _logger.LogWarning("Ignored duplicate start request for orchestration job {JobId} because it is already active.", jobId);
             return false;
         }
 
+        _logger.LogInformation("Starting orchestration execution for job {JobId}.", jobId);
         _ = Task.Run(() => ExecuteJobAsync(jobId), CancellationToken.None);
         return true;
     }
@@ -117,8 +119,20 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             var job = _jobs.Get(jobId);
             if (job is null)
             {
+                _logger.LogWarning("Orchestration job {JobId} disappeared before execution started.", jobId);
                 return;
             }
+
+            _logger.LogInformation(
+                "Executing orchestration job {JobId} for project {ProjectId} ({ProjectName}); profile {LaunchProfileId}; mode {Mode}; platform {Platform}; terminal {TerminalSessionId}; working directory {WorkingDirectory}",
+                job.Id,
+                job.ProjectId,
+                job.ProjectName,
+                job.LaunchProfileId,
+                job.Mode,
+                job.Platform,
+                job.SessionId ?? "<none>",
+                job.WorkingDirectory);
 
             if (job.Status is OrchestrationJobStatus.CancelRequested or OrchestrationJobStatus.Cancelled)
             {
@@ -138,6 +152,11 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
             var workingDirectory = ResolveWorkingDirectory(job.WorkingDirectory);
             var terminalSessionId = RequireOwnedTerminalSessionId(job);
+            _logger.LogInformation(
+                "Orchestration job {JobId} resolved owned terminal {TerminalSessionId} at {WorkingDirectory} for build/launch execution.",
+                job.Id,
+                terminalSessionId,
+                workingDirectory);
             _jobs.AppendLog(jobId, new AppendOrchestrationJobLogRequest
             {
                 Level = OrchestrationLogLevel.Information,
@@ -286,6 +305,10 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             SessionId = terminalSessionId,
             Message = "Launching VS Code from the owned terminal."
         });
+        _logger.LogInformation(
+            "Orchestration job {JobId} launching VS Code debug through owned terminal {TerminalSessionId}.",
+            job.Id,
+            terminalSessionId);
 
         var launch = await _vsCodeDebug.LaunchAsync(job.Id, job, workingDirectory);
         _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
@@ -354,6 +377,13 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             throw new InvalidOperationException($"Owned terminal session '{sessionId}' is not currently active on the runner.");
         }
 
+        _logger.LogInformation(
+            "Orchestration job {JobId} entering phase {Status} on terminal {TerminalSessionId} with command: {Command}",
+            job.Id,
+            status,
+            sessionId,
+            command);
+
         var operationId = Guid.NewGuid().ToString("N");
         var completionMarker = $"__AGENTDECK_EXIT_{operationId}__";
         var processIdMarker = isVsCode ? $"__AGENTDECK_PID_{operationId}__" : null;
@@ -402,7 +432,14 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
                 await onBeforeWaitAsync(activeSession);
             }
 
-            return await completion.Task;
+            var exitCode = await completion.Task;
+            _logger.LogInformation(
+                "Orchestration job {JobId} phase {Status} finished on terminal {TerminalSessionId} with exit code {ExitCode}.",
+                job.Id,
+                status,
+                sessionId,
+                exitCode);
+            return exitCode;
         }
         finally
         {
@@ -775,6 +812,11 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         if (TryReadMarkedInt(ref markerBuffer, session.CompletionMarker, out var exitCode))
         {
+            _logger.LogInformation(
+                "Detected orchestration completion marker for job {JobId} on terminal {TerminalSessionId} with exit code {ExitCode}.",
+                session.JobId,
+                e.SessionId,
+                exitCode);
             session.Completion.TrySetResult(exitCode);
         }
 
@@ -785,6 +827,11 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     {
         if (_sessions.TryGetValue(e.SessionId, out var session))
         {
+            _logger.LogInformation(
+                "Terminal {TerminalSessionId} exited while orchestration job {JobId} was active; using process exit code {ExitCode}.",
+                e.SessionId,
+                session.JobId,
+                e.ExitCode);
             session.Completion.TrySetResult(e.ExitCode);
         }
     }

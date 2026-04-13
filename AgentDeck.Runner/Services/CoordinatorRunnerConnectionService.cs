@@ -476,8 +476,35 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         }
 
         var job = _jobs.Queue(request);
-        _execution.Start(job.Id);
-        _audit.Record(decision, RunnerAuditOutcome.Succeeded, $"Queued orchestration job '{job.Id}' for launch profile '{request.LaunchProfileId}'.");
+        var started = _execution.Start(job.Id);
+        if (!started)
+        {
+            const string failureMessage = "Runner rejected orchestration execution because a job with the same identifier was already active.";
+            _logger.LogWarning(
+                "Runner could not start orchestration job {JobId} for project {ProjectId} using launch profile {LaunchProfileId}: {FailureMessage}",
+                job.Id,
+                request.ProjectId,
+                request.LaunchProfileId,
+                failureMessage);
+            _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
+            {
+                Level = OrchestrationLogLevel.Error,
+                Message = failureMessage,
+                MachineId = request.TargetMachineId
+            });
+            job = _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
+            {
+                Status = OrchestrationJobStatus.Failed,
+                Message = failureMessage
+            }) ?? job;
+        }
+
+        _audit.Record(
+            decision,
+            started ? RunnerAuditOutcome.Succeeded : RunnerAuditOutcome.Failed,
+            started
+                ? $"Queued orchestration job '{job.Id}' for launch profile '{request.LaunchProfileId}'."
+                : $"Failed to start orchestration job '{job.Id}' for launch profile '{request.LaunchProfileId}'.");
         return Task.FromResult<OrchestrationJob?>(SanitizeOrchestrationJobForCoordinatorTransport(job));
     }
 
