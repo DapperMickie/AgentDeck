@@ -113,13 +113,10 @@
                         <dt>Status</dt>
                         <dd>@(session.StatusMessage ?? session.Status.ToString())</dd>
                     </div>
-                    @if (!string.IsNullOrWhiteSpace(session.ConnectionUri))
-                    {
-                        <div>
-                            <dt>Relay</dt>
-                            <dd><code>@session.ConnectionUri</code></dd>
-                        </div>
-                    }
+                    <div>
+                        <dt>Relay</dt>
+                        <dd>Coordinator-brokered</dd>
+                    </div>
                     @if (ViewerClient.RemoteControlState is { } remoteControlState)
                     {
                         <div>
@@ -134,7 +131,7 @@
                 </dl>
                 @if (!ViewerClient.SupportsInAppViewer)
                 {
-                    <p class="surface-details-card__note">This viewer session does not expose the managed relay details the in-app viewer needs.</p>
+                    <p class="surface-details-card__note">This viewer session is not backed by the coordinator-managed relay.</p>
                 }
             </section>
         </div>

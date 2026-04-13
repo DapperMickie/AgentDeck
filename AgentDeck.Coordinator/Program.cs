@@ -785,6 +785,8 @@ app.MapPost("/api/cluster/workers/register", (RegisterRunnerMachineRequest reque
 });
 
 app.MapHub<CoordinatorAgentHub>("/hubs/agent");
+app.MapHub<CoordinatorViewerHub>("/hubs/viewers");
+app.MapHub<CoordinatorRunnerHub>("/hubs/runners");
 
 app.Run();
 
