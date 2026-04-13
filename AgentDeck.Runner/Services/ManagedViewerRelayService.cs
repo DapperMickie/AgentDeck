@@ -32,6 +32,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     private readonly ManagedDesktopViewerTransportOptions _options;
     private readonly ILogger<ManagedViewerRelayService> _logger;
     private readonly IHostCapturePlatform _capturePlatform;
+    private readonly object _captureSync = new();
 
     public ManagedViewerRelayService(
         IRemoteViewerSessionService viewers,
@@ -81,13 +82,14 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
             CaptureLoop = Task.CompletedTask
         };
 
-        activeSession.CaptureLoop = RunCaptureLoopAsync(activeSession);
         if (!_activeSessions.TryAdd(session.Id, activeSession))
         {
             linkedCancellation.Cancel();
             linkedCancellation.Dispose();
             throw new InvalidOperationException($"Viewer session '{session.Id}' is already active.");
         }
+
+        activeSession.CaptureLoop = RunCaptureLoopAsync(activeSession);
 
         try
         {
@@ -153,7 +155,10 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
         {
             lock (activeSession.InputSync)
             {
-                _capturePlatform.HandlePointerInput(activeSession.Assignment, input);
+                lock (_captureSync)
+                {
+                    _capturePlatform.HandlePointerInput(activeSession.Assignment, input);
+                }
             }
         }, cancellationToken);
     }
@@ -171,10 +176,13 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
         {
             lock (activeSession.InputSync)
             {
-                activeSession.ModifierState = _capturePlatform.HandleKeyboardInput(
-                    activeSession.Assignment,
-                    input,
-                    activeSession.ModifierState);
+                lock (_captureSync)
+                {
+                    activeSession.ModifierState = _capturePlatform.HandleKeyboardInput(
+                        activeSession.Assignment,
+                        input,
+                        activeSession.ModifierState);
+                }
             }
         }, cancellationToken);
     }
@@ -205,7 +213,10 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
                 RelayFrame frame;
                 lock (activeSession.InputSync)
                 {
-                    frame = _capturePlatform.CaptureFrame(activeSession.Assignment, sequenceId++);
+                    lock (_captureSync)
+                    {
+                        frame = _capturePlatform.CaptureFrame(activeSession.Assignment, sequenceId++);
+                    }
                 }
 
                 activeSession.LatestFrame = frame;
@@ -245,9 +256,12 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     {
         if (session.Target.Kind == RemoteViewerTargetKind.Desktop)
         {
-            return _capturePlatform.GetTargets()
-                .FirstOrDefault(target => target.Kind == CaptureTargetKind.Desktop)
-                ?? throw new InvalidOperationException("The runner does not currently expose a desktop capture target.");
+            lock (_captureSync)
+            {
+                return _capturePlatform.GetTargets()
+                    .FirstOrDefault(target => target.Kind == CaptureTargetKind.Desktop)
+                    ?? throw new InvalidOperationException("The runner does not currently expose a desktop capture target.");
+            }
         }
 
         var deadline = DateTimeOffset.UtcNow + _options.StartupTimeout;
@@ -273,9 +287,13 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
 
     private CaptureTargetDescriptor? TryFindWindowTarget(RemoteViewerSession session)
     {
-        var candidates = _capturePlatform.GetTargets()
-            .Where(target => target.Kind == CaptureTargetKind.Window)
-            .ToArray();
+        CaptureTargetDescriptor[] candidates;
+        lock (_captureSync)
+        {
+            candidates = _capturePlatform.GetTargets()
+                .Where(target => target.Kind == CaptureTargetKind.Window)
+                .ToArray();
+        }
         if (candidates.Length == 0)
         {
             return null;
