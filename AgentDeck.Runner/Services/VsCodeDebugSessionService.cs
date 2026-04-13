@@ -15,13 +15,14 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
     private const string VsCodeWindowTitle = "Visual Studio Code";
     private const string AgentDeckBuildTaskName = "AgentDeck Build";
 
-    private sealed record ActiveDebugSession(
-        Process Process,
-        TaskCompletionSource<int> Completion,
-        string ViewerSessionId,
-        string? DeviceViewerSessionId,
-        string WorkspaceDirectory,
-        string StartupProjectPath);
+    private sealed class ActiveDebugSession
+    {
+        public required string ViewerSessionId { get; init; }
+        public string? DeviceViewerSessionId { get; init; }
+        public required string WorkspaceDirectory { get; init; }
+        public required string StartupProjectPath { get; init; }
+        public int? HostProcessId { get; set; }
+    }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -152,79 +153,33 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                     VsCodeDebuggerVisibilityState.Background),
                 true));
 
-            var process = StartVsCodeProcess(codeExecutable, workspaceDirectory);
-            var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            process.EnableRaisingEvents = true;
-            process.Exited += (_, _) =>
+            var activeSession = new ActiveDebugSession
             {
-                completion.TrySetResult(process.ExitCode);
-                CloseViewer(viewer.Id, "VS Code session closed.");
-                CloseViewer(deviceViewer?.Id, "Device viewer session closed.");
-                UpdateSession(orchestrationSessionId, session => WithStatus(
-                    session,
-                    VsCodeDebugSessionStatus.Closed,
-                    "VS Code session closed.",
-                    VsCodeDebuggerVisibilityState.Closed));
-                process.Dispose();
+                ViewerSessionId = viewer.Id,
+                DeviceViewerSessionId = deviceViewer?.Id,
+                WorkspaceDirectory = workspaceDirectory,
+                StartupProjectPath = startupProjectPath
             };
-
-            if (process.HasExited)
-            {
-                completion.TrySetResult(process.ExitCode);
-                CloseViewer(viewer.Id, "VS Code session closed.");
-                CloseViewer(deviceViewer?.Id, "Device viewer session closed.");
-                UpdateSession(orchestrationSessionId, session => WithStatus(
-                    session,
-                    VsCodeDebugSessionStatus.Closed,
-                    "VS Code session closed.",
-                    VsCodeDebuggerVisibilityState.Closed));
-                process.Dispose();
-            }
-
-            var activeSession = new ActiveDebugSession(process, completion, viewer.Id, deviceViewer?.Id, workspaceDirectory, startupProjectPath);
             if (!_sessions.TryAdd(orchestrationSessionId, activeSession))
             {
-                completion.TrySetResult(-1);
                 CloseViewer(viewer.Id, "VS Code session closed.");
                 CloseViewer(deviceViewer?.Id, "Device viewer session closed.");
-                TryKillProcess(process);
                 throw new InvalidOperationException($"A VS Code debug session is already active for orchestration session '{orchestrationSessionId}'.");
             }
-
-            try
-            {
-                UpdateSession(orchestrationSessionId, session => WithStatus(
-                    session,
-                    VsCodeDebugSessionStatus.StartingDebugger,
-                    "Starting the VS Code debugger.",
-                    VsCodeDebuggerVisibilityState.Background));
-                await TriggerDebugStartAsync(process, job.ProjectName, cancellationToken);
-            }
-            catch
-            {
-                _sessions.TryRemove(orchestrationSessionId, out _);
-                TryKillProcess(process);
-                throw;
-            }
-
-            _viewers.Update(viewer.Id, new UpdateRemoteViewerSessionRequest
-            {
-                Status = RemoteViewerSessionStatus.Ready,
-                Message = $"VS Code is ready for '{debugConfigurationName}'."
-            });
-            UpdateSession(orchestrationSessionId, session => WithStatus(
-                session,
-                VsCodeDebugSessionStatus.Running,
-                $"VS Code is ready for '{debugConfigurationName}'.",
-                VsCodeDebuggerVisibilityState.Visible));
 
             return new VsCodeDebugLaunchResult
             {
                 DebugSessionId = debugSessionId,
                 ViewerSessionId = viewer.Id,
                 WorkspaceDirectory = workspaceDirectory,
-                StartupProjectPath = startupProjectPath
+                StartupProjectPath = startupProjectPath,
+                LaunchCommand = codeExecutable,
+                LaunchArguments =
+                [
+                    "--new-window",
+                    "--wait",
+                    workspaceDirectory
+                ]
             };
         }
         catch (Exception ex)
@@ -245,22 +200,67 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         }
     }
 
-    public async Task<int> WaitForExitAsync(string orchestrationSessionId, CancellationToken cancellationToken = default)
+    public Task NotifyHostStartedAsync(string orchestrationSessionId, int processId, CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(orchestrationSessionId, out var session))
         {
             throw new InvalidOperationException($"No VS Code debug session is active for orchestration session '{orchestrationSessionId}'.");
         }
 
-        using var registration = cancellationToken.Register(() => session.Completion.TrySetCanceled(cancellationToken));
-        try
+        session.HostProcessId = processId;
+        return Task.CompletedTask;
+    }
+
+    public async Task NotifyHostReadyAsync(string orchestrationSessionId, string projectName, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(orchestrationSessionId, out _))
         {
-            return await session.Completion.Task;
+            throw new InvalidOperationException($"No VS Code debug session is active for orchestration session '{orchestrationSessionId}'.");
         }
-        finally
+
+        UpdateSession(orchestrationSessionId, session => WithStatus(
+            session,
+            VsCodeDebugSessionStatus.StartingDebugger,
+            "Starting the VS Code debugger.",
+            VsCodeDebuggerVisibilityState.Background));
+
+        await TriggerDebugStartAsync(projectName, cancellationToken);
+
+        var debugSession = Get(orchestrationSessionId)
+            ?? throw new InvalidOperationException($"No VS Code debug session exists for orchestration session '{orchestrationSessionId}'.");
+        if (!string.IsNullOrWhiteSpace(debugSession.ViewerSessionId))
         {
-            _sessions.TryRemove(orchestrationSessionId, out _);
+            _viewers.Update(debugSession.ViewerSessionId, new UpdateRemoteViewerSessionRequest
+            {
+                Status = RemoteViewerSessionStatus.Ready,
+                Message = $"VS Code is ready for '{debugSession.DebugConfigurationName}'."
+            });
         }
+
+        UpdateSession(orchestrationSessionId, session => WithStatus(
+            session,
+            VsCodeDebugSessionStatus.Running,
+            $"VS Code is ready for '{session.DebugConfigurationName}'.",
+            VsCodeDebuggerVisibilityState.Visible));
+    }
+
+    public Task CompleteAsync(string orchestrationSessionId, int exitCode, CancellationToken cancellationToken = default)
+    {
+        if (_sessions.TryRemove(orchestrationSessionId, out var session))
+        {
+            var message = exitCode == 0
+                ? "VS Code session closed."
+                : $"VS Code session closed with exit code {exitCode}.";
+            CloseViewer(session.ViewerSessionId, message);
+            CloseViewer(session.DeviceViewerSessionId, "Device viewer session closed.");
+            UpdateSession(orchestrationSessionId, existing => WithStatus(
+                existing,
+                exitCode == 0 ? VsCodeDebugSessionStatus.Closed : VsCodeDebugSessionStatus.Failed,
+                message,
+                VsCodeDebuggerVisibilityState.Closed));
+        }
+
+        return Task.CompletedTask;
     }
 
     public Task StopAsync(string orchestrationSessionId, CancellationToken cancellationToken = default)
@@ -269,8 +269,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         {
             CloseViewer(session.ViewerSessionId, "VS Code session cancelled.");
             CloseViewer(session.DeviceViewerSessionId, "Device viewer session cancelled.");
-            session.Completion.TrySetResult(-1);
-            TryKillProcess(session.Process);
+            TryKillProcess(session.HostProcessId);
             UpdateSession(orchestrationSessionId, existing => WithStatus(
                 existing,
                 VsCodeDebugSessionStatus.Closed,
@@ -442,49 +441,16 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         await WriteJsonAsync(path, root, cancellationToken);
     }
 
-    private static Process StartVsCodeProcess(string codeExecutable, string workspaceDirectory)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = codeExecutable,
-            WorkingDirectory = workspaceDirectory,
-            UseShellExecute = false,
-            RedirectStandardError = true,
-            RedirectStandardOutput = true
-        };
-        startInfo.ArgumentList.Add("--new-window");
-        startInfo.ArgumentList.Add("--wait");
-        startInfo.ArgumentList.Add(workspaceDirectory);
-
-        try
-        {
-            return Process.Start(startInfo)
-                ?? throw new InvalidOperationException("VS Code did not start a process.");
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Failed to start VS Code from '{codeExecutable}'. {ex.Message}", ex);
-        }
-    }
-
-    private static async Task TriggerDebugStartAsync(Process process, string projectName, CancellationToken cancellationToken)
+    private static async Task TriggerDebugStartAsync(string projectName, CancellationToken cancellationToken)
     {
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linkedCts.CancelAfter(TimeSpan.FromSeconds(45));
 
-        var processExitedTask = process.WaitForExitAsync(linkedCts.Token);
         var automationTask = OperatingSystem.IsWindows()
             ? TriggerDebugStartWindowsAsync(projectName, linkedCts.Token)
             : OperatingSystem.IsMacOS()
                 ? TriggerDebugStartMacAsync(linkedCts.Token)
                 : TriggerDebugStartLinuxAsync(linkedCts.Token);
-
-        var completed = await Task.WhenAny(automationTask, processExitedTask);
-        if (completed == processExitedTask)
-        {
-            throw new InvalidOperationException("VS Code exited before the debug session could be started.");
-        }
-
         await automationTask;
     }
 
@@ -848,23 +814,28 @@ error "Could not focus the VS Code window to start debugging."
         }
     }
 
-    private static void TryKillProcess(Process process)
+    private static void TryKillProcess(int? processId)
     {
+        if (processId is null)
+        {
+            return;
+        }
+
         try
         {
+            using var process = Process.GetProcessById(processId.Value);
             if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit(5000);
             }
         }
+        catch (ArgumentException)
+        {
+        }
         catch
         {
             // Best effort shutdown for an external GUI process.
-        }
-        finally
-        {
-            process.Dispose();
         }
     }
 

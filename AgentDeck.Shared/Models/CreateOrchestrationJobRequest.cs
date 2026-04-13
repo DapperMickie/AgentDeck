@@ -7,6 +7,8 @@ public sealed class CreateOrchestrationJobRequest
 {
     public required string ProjectId { get; init; }
     public required string ProjectName { get; init; }
+    public string? ProjectSessionId { get; init; }
+    public string? TerminalSessionId { get; init; }
     public required string LaunchProfileId { get; init; }
     public required string LaunchProfileName { get; init; }
     public required string WorkingDirectory { get; init; }

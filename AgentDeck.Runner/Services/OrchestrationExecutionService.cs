@@ -7,15 +7,23 @@ namespace AgentDeck.Runner.Services;
 /// <inheritdoc />
 public sealed class OrchestrationExecutionService : IOrchestrationExecutionService, IHostedService
 {
-    private sealed record ActiveSession(
-        string JobId,
-        string SessionId,
-        string? MachineId,
-        TaskCompletionSource<int> Completion,
-        bool IsVsCode = false);
+    private const string CtrlC = "\u0003";
+
+    private sealed class ActiveSession
+    {
+        public required string JobId { get; init; }
+        public required string SessionId { get; init; }
+        public string? MachineId { get; init; }
+        public required TaskCompletionSource<int> Completion { get; init; }
+        public required string CompletionMarker { get; init; }
+        public string? ProcessIdMarker { get; init; }
+        public bool IsVsCode { get; init; }
+        public string MarkerBuffer { get; set; } = string.Empty;
+    }
 
     private readonly IOrchestrationJobService _jobs;
     private readonly IPtyProcessManager _ptyManager;
+    private readonly IAgentSessionStore _sessionStore;
     private readonly IRemoteViewerSessionService _viewers;
     private readonly IDesktopViewerBootstrapService _viewerBootstrap;
     private readonly IVsCodeDebugSessionService _vsCodeDebug;
@@ -28,6 +36,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     public OrchestrationExecutionService(
         IOrchestrationJobService jobs,
         IPtyProcessManager ptyManager,
+        IAgentSessionStore sessionStore,
         IRemoteViewerSessionService viewers,
         IDesktopViewerBootstrapService viewerBootstrap,
         IVsCodeDebugSessionService vsCodeDebug,
@@ -36,6 +45,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     {
         _jobs = jobs;
         _ptyManager = ptyManager;
+        _sessionStore = sessionStore;
         _viewers = viewers;
         _viewerBootstrap = viewerBootstrap;
         _vsCodeDebug = vsCodeDebug;
@@ -78,12 +88,14 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
                 if (activeSession.IsVsCode)
                 {
-                    await _vsCodeDebug.StopAsync(sessionId, cancellationToken);
-                    return;
+                    await _vsCodeDebug.StopAsync(jobId, cancellationToken);
                 }
             }
 
-            await _ptyManager.KillAsync(sessionId, cancellationToken);
+            if (_ptyManager.IsActive(sessionId))
+            {
+                await _ptyManager.WriteAsync(sessionId, CtrlC, cancellationToken);
+            }
             return;
         }
 
@@ -125,19 +137,20 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             }
 
             var workingDirectory = ResolveWorkingDirectory(job.WorkingDirectory);
+            var terminalSessionId = RequireOwnedTerminalSessionId(job);
             _jobs.AppendLog(jobId, new AppendOrchestrationJobLogRequest
             {
                 Level = OrchestrationLogLevel.Information,
-                Message = $"Starting execution on local runner in '{workingDirectory}'.",
+                Message = $"Starting execution in owned terminal '{terminalSessionId}' at '{workingDirectory}'.",
                 MachineId = job.TargetMachineId
             });
 
             var buildExitCode = await RunPhaseAsync(
                 job,
+                sessionId: terminalSessionId,
                 command: job.BuildCommand,
                 status: OrchestrationJobStatus.Preparing,
-                statusMessage: "Building project.",
-                fallbackMachineId: job.TargetMachineId);
+                statusMessage: "Building project in the owned terminal.");
 
             if (await FinishIfTerminalAsync(jobId, buildExitCode, "Build"))
             {
@@ -202,10 +215,10 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
             var launchExitCode = await RunPhaseAsync(
                 job,
+                sessionId: terminalSessionId,
                 command: launchCommand,
                 status: OrchestrationJobStatus.Running,
                 statusMessage: "Launching application.",
-                fallbackMachineId: job.TargetMachineId,
                 attachRuntimeViewer: true);
 
             await FinishIfTerminalAsync(jobId, launchExitCode, "Launch");
@@ -235,19 +248,20 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     private async Task ExecuteVsCodeDebugAsync(OrchestrationJob job)
     {
         var workingDirectory = ResolveWorkingDirectory(job.WorkingDirectory);
+        var terminalSessionId = RequireOwnedTerminalSessionId(job);
         _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
         {
             Level = OrchestrationLogLevel.Information,
-            Message = $"Preparing VS Code debug execution in '{workingDirectory}'.",
+            Message = $"Preparing VS Code debug execution in owned terminal '{terminalSessionId}' at '{workingDirectory}'.",
             MachineId = job.TargetMachineId
         });
 
         var buildExitCode = await RunPhaseAsync(
             job,
+            sessionId: terminalSessionId,
             command: job.BuildCommand,
             status: OrchestrationJobStatus.Preparing,
-            statusMessage: "Building project for VS Code debugging.",
-            fallbackMachineId: job.TargetMachineId);
+            statusMessage: "Building project for VS Code debugging in the owned terminal.");
 
         if (await FinishIfTerminalAsync(job.Id, buildExitCode, "Build"))
         {
@@ -266,74 +280,99 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             return;
         }
 
-        var orchestrationSessionId = Guid.NewGuid().ToString("N");
-        var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var activeSession = new ActiveSession(job.Id, orchestrationSessionId, job.TargetMachineId, completion, IsVsCode: true);
-        _sessions[orchestrationSessionId] = activeSession;
-        _jobSessions[job.Id] = orchestrationSessionId;
-
-        try
+        _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
         {
-            _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
-            {
-                Status = OrchestrationJobStatus.Dispatching,
-                SessionId = orchestrationSessionId,
-                Message = "Launching VS Code debug host on the local runner."
-            });
+            Status = OrchestrationJobStatus.Dispatching,
+            SessionId = terminalSessionId,
+            Message = "Launching VS Code from the owned terminal."
+        });
 
-            var launch = await _vsCodeDebug.LaunchAsync(orchestrationSessionId, job, workingDirectory);
+        var launch = await _vsCodeDebug.LaunchAsync(job.Id, job, workingDirectory);
+        _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
+        {
+            Level = OrchestrationLogLevel.Information,
+            Message = $"VS Code launch prepared in '{launch.WorkspaceDirectory}' for '{Path.GetFileName(launch.StartupProjectPath)}'.",
+            MachineId = job.TargetMachineId
+        });
+
+        if (job.DeviceSelection?.HasTarget == true)
+        {
             _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
             {
                 Level = OrchestrationLogLevel.Information,
-                Message = $"VS Code opened in '{launch.WorkspaceDirectory}' for '{Path.GetFileName(launch.StartupProjectPath)}'.",
+                Message = $"Debug launch recorded device selection '{job.DeviceSelection.DisplayName ?? job.DeviceSelection.DeviceId ?? job.DeviceSelection.ProfileId}'.",
                 MachineId = job.TargetMachineId
             });
+        }
 
-            if (job.DeviceSelection?.HasTarget == true)
+        var exitCode = await RunPhaseAsync(
+            job,
+            sessionId: terminalSessionId,
+            command: BuildVsCodeLaunchCommand(launch.LaunchCommand, launch.LaunchArguments),
+            status: OrchestrationJobStatus.Running,
+            statusMessage: $"Debugging through VS Code configuration '{job.DebugConfigurationName ?? job.LaunchProfileName}'.",
+            isVsCode: true,
+            onBeforeWaitAsync: async activeSession =>
             {
-                _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
+                _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
                 {
-                    Level = OrchestrationLogLevel.Information,
-                    Message = $"Debug launch recorded device selection '{job.DeviceSelection.DisplayName ?? job.DeviceSelection.DeviceId ?? job.DeviceSelection.ProfileId}'.",
-                    MachineId = job.TargetMachineId
+                    Status = OrchestrationJobStatus.Running,
+                    SessionId = terminalSessionId,
+                    ViewerSessionId = launch.ViewerSessionId,
+                    Message = $"Debugging through VS Code configuration '{job.DebugConfigurationName ?? job.LaunchProfileName}'."
                 });
-            }
-
-            _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
-            {
-                Status = OrchestrationJobStatus.Running,
-                SessionId = orchestrationSessionId,
-                ViewerSessionId = launch.ViewerSessionId,
-                Message = $"Debugging through VS Code configuration '{job.DebugConfigurationName ?? job.LaunchProfileName}'."
+                await _vsCodeDebug.NotifyHostReadyAsync(job.Id, job.ProjectName);
             });
 
-            var exitCode = await _vsCodeDebug.WaitForExitAsync(orchestrationSessionId);
-            await FinishIfTerminalAsync(job.Id, exitCode, "Launch");
-        }
-        finally
-        {
-            _sessions.TryRemove(orchestrationSessionId, out _);
-        }
+        await _vsCodeDebug.CompleteAsync(job.Id, exitCode);
+        await FinishIfTerminalAsync(job.Id, exitCode, "Launch");
     }
 
     private async Task<int> RunPhaseAsync(
         OrchestrationJob job,
+        string sessionId,
         string command,
         OrchestrationJobStatus status,
         string statusMessage,
-        string? fallbackMachineId,
-        bool attachRuntimeViewer = false)
+        bool attachRuntimeViewer = false,
+        bool isVsCode = false,
+        Func<ActiveSession, Task>? onBeforeWaitAsync = null)
     {
         if (string.IsNullOrWhiteSpace(command))
         {
             throw new InvalidOperationException("Orchestration phase command was empty.");
         }
 
-        var workingDirectory = ResolveWorkingDirectory(job.WorkingDirectory);
-        var sessionId = Guid.NewGuid().ToString("N");
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new InvalidOperationException("An owned terminal session is required for orchestration execution.");
+        }
+
+        var existingSession = _sessionStore.Get(sessionId);
+        if (existingSession is null || !_ptyManager.IsActive(sessionId))
+        {
+            throw new InvalidOperationException($"Owned terminal session '{sessionId}' is not currently active on the runner.");
+        }
+
+        var operationId = Guid.NewGuid().ToString("N");
+        var completionMarker = $"__AGENTDECK_EXIT_{operationId}__";
+        var processIdMarker = isVsCode ? $"__AGENTDECK_PID_{operationId}__" : null;
         var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var activeSession = new ActiveSession(job.Id, sessionId, fallbackMachineId, completion);
-        _sessions[sessionId] = activeSession;
+        var activeSession = new ActiveSession
+        {
+            JobId = job.Id,
+            SessionId = sessionId,
+            MachineId = job.TargetMachineId,
+            Completion = completion,
+            CompletionMarker = completionMarker,
+            ProcessIdMarker = processIdMarker,
+            IsVsCode = isVsCode
+        };
+        if (!_sessions.TryAdd(sessionId, activeSession))
+        {
+            throw new InvalidOperationException($"Owned terminal session '{sessionId}' is already executing another AgentDeck orchestration command.");
+        }
+
         _jobSessions[job.Id] = sessionId;
 
         _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
@@ -347,27 +386,163 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         {
             Level = OrchestrationLogLevel.Information,
             Message = $"> {command}",
-            MachineId = fallbackMachineId
+            MachineId = job.TargetMachineId
         });
-
-        var (shellCommand, shellArguments) = ShellLaunchBuilder.BuildBatchLaunch(command, workingDirectory);
 
         try
         {
-            await _ptyManager.StartAsync(sessionId, shellCommand, shellArguments, workingDirectory, 120, 40);
+            await _ptyManager.WriteAsync(sessionId, BuildTerminalPhaseInput(command, completionMarker, processIdMarker));
             if (attachRuntimeViewer)
             {
                 await TryAttachRuntimeViewerAsync(job, sessionId);
+            }
+
+            if (onBeforeWaitAsync is not null)
+            {
+                await onBeforeWaitAsync(activeSession);
             }
 
             return await completion.Task;
         }
         finally
         {
-            await _ptyManager.KillAsync(sessionId);
             _sessions.TryRemove(sessionId, out _);
         }
     }
+
+    private static string RequireOwnedTerminalSessionId(OrchestrationJob job) =>
+        !string.IsNullOrWhiteSpace(job.SessionId)
+            ? job.SessionId
+            : throw new InvalidOperationException($"Project '{job.ProjectName}' does not currently have an owned terminal session for orchestration.");
+
+    private static string BuildVsCodeLaunchCommand(string command, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 0)
+        {
+            return command;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return $"'{command.Replace("'", "''")}' {string.Join(" ", arguments.Select(argument => $"'{argument.Replace("'", "''")}'"))}";
+        }
+
+        return $"{QuotePosix(command)} {string.Join(" ", arguments.Select(QuotePosix))}";
+    }
+
+    private static string BuildTerminalPhaseInput(string command, string completionMarker, string? processIdMarker)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var lines = new List<string>
+            {
+                "$global:LASTEXITCODE = 0",
+                "$agentDeckExit = 1",
+                "try {"
+            };
+
+            if (!string.IsNullOrWhiteSpace(processIdMarker))
+            {
+                lines.Add($"    {BuildPowerShellVsCodeWrapper(command, processIdMarker)}");
+            }
+            else
+            {
+                lines.Add($"    {command}");
+            }
+
+            lines.Add("    if ($null -ne $LASTEXITCODE) { $agentDeckExit = [int]$LASTEXITCODE } elseif ($?) { $agentDeckExit = 0 } else { $agentDeckExit = 1 }");
+            lines.Add("} catch {");
+            lines.Add("    Write-Error $_");
+            lines.Add("    $agentDeckExit = 1");
+            lines.Add("}");
+            lines.Add($"Write-Host '{completionMarker}:$agentDeckExit'");
+            return string.Join(Environment.NewLine, lines) + Environment.NewLine;
+        }
+
+        if (!string.IsNullOrWhiteSpace(processIdMarker))
+        {
+            return $"agentdeck_exit=1\n{{ {BuildPosixVsCodeWrapper(command, processIdMarker)}; agentdeck_exit=$?; }}\nprintf '{completionMarker}:%s\\n' \"$agentdeck_exit\"\n";
+        }
+
+        return $"agentdeck_exit=1\n{{ {command}; agentdeck_exit=$?; }}\nprintf '{completionMarker}:%s\\n' \"$agentdeck_exit\"\n";
+    }
+
+    private static string BuildPowerShellVsCodeWrapper(string command, string processIdMarker)
+    {
+        var parsed = SplitQuotedArguments(command);
+        var executable = parsed.FirstOrDefault()
+            ?? throw new InvalidOperationException("VS Code launch command was empty.");
+        var arguments = parsed.Skip(1).ToArray();
+        var lines = new List<string>
+        {
+            $"$agentDeckProc = Start-Process -FilePath '{executable.Replace("'", "''")}' -ArgumentList @({string.Join(", ", arguments.Select(argument => $"'{argument.Replace("'", "''")}'"))}) -PassThru"
+        };
+        lines.Add($"Write-Host '{processIdMarker}:$($agentDeckProc.Id)'");
+        lines.Add("Wait-Process -Id $agentDeckProc.Id");
+        lines.Add("$agentDeckProc.Refresh()");
+        lines.Add("$global:LASTEXITCODE = $agentDeckProc.ExitCode");
+        return string.Join("; ", lines);
+    }
+
+    private static string BuildPosixVsCodeWrapper(string command, string processIdMarker) =>
+        $"{command} & agentdeck_pid=$!; printf '{processIdMarker}:%s\\n' \"$agentdeck_pid\"; wait \"$agentdeck_pid\"";
+
+    private static IReadOnlyList<string> SplitQuotedArguments(string value)
+    {
+        var arguments = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var quote = '\0';
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (quote == '\0' && char.IsWhiteSpace(character))
+            {
+                if (current.Length > 0)
+                {
+                    arguments.Add(current.ToString());
+                    current.Clear();
+                }
+
+                continue;
+            }
+
+            if (character is '\'' or '"')
+            {
+                if (quote == character &&
+                    index + 1 < value.Length &&
+                    value[index + 1] == character)
+                {
+                    current.Append(character);
+                    index++;
+                    continue;
+                }
+
+                if (quote == '\0')
+                {
+                    quote = character;
+                    continue;
+                }
+
+                if (quote == character)
+                {
+                    quote = '\0';
+                    continue;
+                }
+            }
+
+            current.Append(character);
+        }
+
+        if (current.Length > 0)
+        {
+            arguments.Add(current.ToString());
+        }
+
+        return arguments;
+    }
+
+    private static string QuotePosix(string value) =>
+        $"'{value.Replace("'", "'\"'\"'")}'";
 
     private async Task<bool> FinishIfTerminalAsync(string jobId, int exitCode, string phaseName)
     {
@@ -590,6 +765,20 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             Message = e.Data,
             MachineId = session.MachineId
         });
+
+        var markerBuffer = session.MarkerBuffer + e.Data;
+        if (!string.IsNullOrWhiteSpace(session.ProcessIdMarker) &&
+            TryReadMarkedInt(ref markerBuffer, session.ProcessIdMarker, out var processId))
+        {
+            _ = NotifyHostStartedAsync(session.JobId, processId);
+        }
+
+        if (TryReadMarkedInt(ref markerBuffer, session.CompletionMarker, out var exitCode))
+        {
+            session.Completion.TrySetResult(exitCode);
+        }
+
+        session.MarkerBuffer = TrimMarkerBuffer(markerBuffer);
     }
 
     private void OnProcessExited(object? sender, (string SessionId, int ExitCode) e)
@@ -604,4 +793,49 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         Path.IsPathRooted(workingDirectory)
             ? workingDirectory
             : _workspace.ResolveDirectory(workingDirectory);
+
+    private static bool TryReadMarkedInt(ref string buffer, string marker, out int value)
+    {
+        value = 0;
+        var markerIndex = buffer.IndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            return false;
+        }
+
+        var valueStart = markerIndex + marker.Length + 1;
+        if (valueStart > buffer.Length)
+        {
+            return false;
+        }
+
+        var lineEnd = buffer.IndexOfAny(['\r', '\n'], valueStart);
+        if (lineEnd < 0)
+        {
+            return false;
+        }
+
+        var rawValue = buffer[valueStart..lineEnd].Trim();
+        buffer = buffer[(lineEnd + 1)..];
+        return int.TryParse(rawValue, out value);
+    }
+
+    private static string TrimMarkerBuffer(string buffer) =>
+        buffer.Length <= 4096
+            ? buffer
+            : buffer.LastIndexOf("__AGENTDECK_", StringComparison.Ordinal) is var markerIndex && markerIndex >= 0 && buffer.Length - markerIndex <= 512
+                ? buffer[markerIndex..]
+                : buffer[^4096..];
+
+    private async Task NotifyHostStartedAsync(string jobId, int processId)
+    {
+        try
+        {
+            await _vsCodeDebug.NotifyHostStartedAsync(jobId, processId).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to record VS Code host process {ProcessId} for job {JobId}", processId, jobId);
+        }
+    }
 }
