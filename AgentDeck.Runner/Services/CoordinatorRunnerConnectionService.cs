@@ -270,7 +270,24 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
 
     private async Task<OpenProjectOnRunnerResult?> OpenProjectAsync(OpenProjectOnRunnerRequest request, string actorId)
     {
-        return await _projectBootstrap.OpenProjectAsync(request);
+        _logger.LogInformation(
+            "Runner received brokered project open for {ProjectId} ({ProjectName}); existing workspace: {ExistingWorkspacePath}; repository: {RepositoryUrl}; actor: {ActorId}",
+            request.ProjectId,
+            request.ProjectName ?? "<unnamed>",
+            request.ExistingWorkspacePath ?? "<none>",
+            string.IsNullOrWhiteSpace(request.Repository.Url) ? "<none>" : request.Repository.Url,
+            actorId);
+
+        var result = await _projectBootstrap.OpenProjectAsync(request);
+
+        _logger.LogInformation(
+            "Runner completed brokered project open for {ProjectId} with path {ProjectPath} (created: {WorkspaceCreated}, cloned: {RepositoryCloned})",
+            request.ProjectId,
+            result.ProjectPath,
+            result.WorkspaceCreated,
+            result.RepositoryCloned);
+
+        return result;
     }
 
     private async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string capabilityId, MachineCapabilityInstallRequest request, string actorId)
