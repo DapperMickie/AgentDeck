@@ -664,7 +664,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         {
             return await action(GetRunnerClient(entry));
         }
-        catch (Exception ex) when (IsTransientRunnerDisconnect(ex))
+        catch (Exception ex) when (IsRetryableRunnerDisconnect(entry, ex))
         {
             _logger.LogWarning(
                 ex,
@@ -689,7 +689,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         {
             await action(GetRunnerClient(entry));
         }
-        catch (Exception ex) when (IsTransientRunnerDisconnect(ex))
+        catch (Exception ex) when (IsRetryableRunnerDisconnect(entry, ex))
         {
             _logger.LogWarning(
                 ex,
@@ -714,7 +714,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         {
             return await action(GetRunnerClient(refreshedEntry));
         }
-        catch (Exception retryException) when (IsTransientRunnerDisconnect(retryException))
+        catch (Exception retryException) when (IsRetryableRunnerDisconnect(refreshedEntry, retryException))
         {
             throw BuildRunnerDisconnectException(refreshedEntry, operation, retryException);
         }
@@ -727,7 +727,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         {
             await action(GetRunnerClient(refreshedEntry));
         }
-        catch (Exception retryException) when (IsTransientRunnerDisconnect(retryException))
+        catch (Exception retryException) when (IsRetryableRunnerDisconnect(refreshedEntry, retryException))
         {
             throw BuildRunnerDisconnectException(refreshedEntry, operation, retryException);
         }
@@ -764,6 +764,16 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
 
     private static bool IsTransientRunnerDisconnect(Exception exception) =>
         exception is IOException or ObjectDisposedException;
+
+    private static bool IsRetryableRunnerDisconnect(RunnerEntry entry, Exception exception) =>
+        IsTransientRunnerDisconnect(exception) || IsMissingRunnerConnection(entry, exception);
+
+    private static bool IsMissingRunnerConnection(RunnerEntry entry, Exception exception) =>
+        exception is InvalidOperationException invalidOperationException &&
+        string.Equals(
+            invalidOperationException.Message,
+            $"Runner machine '{entry.Machine?.MachineName ?? entry.MachineId}' does not currently have an active coordinator control connection.",
+            StringComparison.Ordinal);
 
     private static InvalidOperationException BuildRunnerDisconnectException(RunnerEntry entry, string operation, Exception exception) =>
         new(
