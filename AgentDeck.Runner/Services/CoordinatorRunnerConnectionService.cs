@@ -12,7 +12,8 @@ namespace AgentDeck.Runner.Services;
 
 public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsyncDisposable
 {
-    private const int CoordinatorTransportJobLogCountLimit = 1;
+    // Keep a bounded recent history so coordinator/app surfaces retain context without replaying full PTY-scale logs.
+    private const int CoordinatorTransportJobLogCountLimit = 10;
     private const int CoordinatorTransportMessageLengthLimit = 2048;
 
     private readonly WorkerCoordinatorOptions _options;
