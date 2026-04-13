@@ -52,6 +52,8 @@ builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
 builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>();
 builder.Services.AddSingleton<IOrchestrationExecutionService, OrchestrationExecutionService>();
 builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionService>();
+builder.Services.AddSingleton<IRunnerConnectionUrlResolver, RunnerConnectionUrlResolver>();
+builder.Services.AddSingleton<IManagedViewerRelayService, ManagedViewerRelayService>();
 builder.Services.AddSingleton<IDesktopViewerBootstrapService, DesktopViewerBootstrapService>();
 builder.Services.AddSingleton<IRunnerAuditService, RunnerAuditService>();
 builder.Services.AddSingleton<IRunnerTrustPolicy, RunnerTrustPolicy>();
@@ -217,7 +219,11 @@ app.MapPost("/api/viewers/sessions", async (CreateRemoteViewerSessionRequest req
     }
 
     var session = viewers.Create(request);
-    session = await desktopBootstrap.BootstrapAsync(session.Id, httpContext.Request.Host.Host, cancellationToken) ?? session;
+    session = await desktopBootstrap.BootstrapAsync(
+        session.Id,
+        httpContext.Request.Host.Host,
+        $"{httpContext.Request.Scheme}://{httpContext.Request.Host.Value}",
+        cancellationToken) ?? session;
 
     audit.Record(
         decision,
@@ -382,6 +388,7 @@ app.MapPost("/api/workflow-packs/current/retry", async (HttpContext httpContext,
 });
 
 app.MapHub<AgentHub>("/hubs/agent");
+app.MapHub<ManagedViewerRelayHub>("/hubs/managed-viewer");
 
 app.Lifetime.ApplicationStarted.Register(() =>
 {
