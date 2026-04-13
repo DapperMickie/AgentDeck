@@ -167,8 +167,25 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     public async Task<TerminalSession> CreateSessionAsync(string machineId, CreateTerminalRequest request, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation("Brokering terminal session creation '{SessionName}' on machine {MachineName} ({MachineId})", request.Name, entry.Machine?.MachineName ?? machineId, machineId);
-        var session = await InvokeRunnerAsync(entry, "create terminal session", client => client.CreateSessionAsync(request), retryOnReconnect: false, cancellationToken);
+        var requestWithSessionId = string.IsNullOrWhiteSpace(request.RequestedSessionId)
+            ? new CreateTerminalRequest
+            {
+                RequestedSessionId = Guid.NewGuid().ToString("N"),
+                Name = request.Name,
+                WorkingDirectory = request.WorkingDirectory,
+                Command = request.Command,
+                Arguments = request.Arguments,
+                Cols = request.Cols,
+                Rows = request.Rows
+            }
+            : request;
+        _logger.LogInformation(
+            "Brokering terminal session creation '{SessionName}' on machine {MachineName} ({MachineId}) with requested session id {RequestedSessionId}",
+            request.Name,
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            requestWithSessionId.RequestedSessionId ?? "<none>");
+        var session = await InvokeRunnerAsync(entry, "create terminal session", client => client.CreateSessionAsync(requestWithSessionId), retryOnReconnect: true, cancellationToken);
         var annotated = AnnotateSession(session, entry.Machine!);
         await _agentHubContext.Clients.All.SessionCreatedAsync(annotated);
         return annotated;
