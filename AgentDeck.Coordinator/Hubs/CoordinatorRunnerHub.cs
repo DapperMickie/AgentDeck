@@ -42,6 +42,9 @@ public sealed class CoordinatorRunnerHub : Hub<IRunnerControlClient>, ICoordinat
     public Task PublishTerminalSessionClosedAsync(string sessionId) =>
         _runners.PublishTerminalSessionClosedAsync(RequireMachineId(), sessionId, Context.ConnectionAborted);
 
+    public Task PublishOrchestrationJobUpdatedAsync(OrchestrationJob job) =>
+        _runners.PublishOrchestrationJobUpdatedAsync(RequireMachineId(), job, Context.ConnectionAborted);
+
     public Task PublishViewerSessionUpdatedAsync(RemoteViewerSession session) =>
         _runners.PublishViewerSessionUpdatedAsync(RequireMachineId(), session, Context.ConnectionAborted);
 

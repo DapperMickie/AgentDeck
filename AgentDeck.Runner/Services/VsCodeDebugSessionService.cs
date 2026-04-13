@@ -68,6 +68,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             MachineId = job.TargetMachineId,
             MachineName = job.TargetMachineName,
             JobId = job.Id,
+            Provider = RemoteViewerProviderKind.Managed,
             Target = new RemoteViewerTarget
             {
                 Kind = RemoteViewerTargetKind.VsCode,
@@ -816,6 +817,7 @@ error "Could not focus the VS Code window to start debugging."
             MachineId = job.TargetMachineId,
             MachineName = job.TargetMachineName,
             JobId = job.Id,
+            Provider = RemoteViewerProviderKind.Managed,
             Target = new RemoteViewerTarget
             {
                 Kind = targetKind,

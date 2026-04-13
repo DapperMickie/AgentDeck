@@ -5,6 +5,7 @@ namespace AgentDeck.Runner.Services;
 /// <summary>Tracks coordinator-managed run/debug jobs independently from terminal sessions.</summary>
 public interface IOrchestrationJobService
 {
+    event Action<OrchestrationJob>? Changed;
     OrchestrationJob Queue(CreateOrchestrationJobRequest request);
     OrchestrationJob? Get(string jobId);
     IReadOnlyList<OrchestrationJob> GetAll();
