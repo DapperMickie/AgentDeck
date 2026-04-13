@@ -496,6 +496,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
                 MachineId = job.TargetMachineId,
                 MachineName = job.TargetMachineName,
                 JobId = job.Id,
+                Provider = RemoteViewerProviderKind.Managed,
                 Target = new RemoteViewerTarget
                 {
                     Kind = targetKind,
@@ -520,6 +521,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             MachineId = job.TargetMachineId,
             MachineName = job.TargetMachineName,
             JobId = job.Id,
+            Provider = RemoteViewerProviderKind.Managed,
             Target = new RemoteViewerTarget
             {
                 Kind = targetKind,

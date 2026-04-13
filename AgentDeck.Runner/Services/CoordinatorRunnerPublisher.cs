@@ -22,6 +22,9 @@ public sealed class CoordinatorRunnerPublisher : ICoordinatorRunnerPublisher
     public Task PublishTerminalSessionClosedAsync(string sessionId, CancellationToken cancellationToken = default) =>
         SendAsync(nameof(ICoordinatorRunnerHub.PublishTerminalSessionClosedAsync), [sessionId], cancellationToken);
 
+    public Task PublishOrchestrationJobUpdatedAsync(OrchestrationJob job, CancellationToken cancellationToken = default) =>
+        SendAsync(nameof(ICoordinatorRunnerHub.PublishOrchestrationJobUpdatedAsync), [job], cancellationToken);
+
     public Task PublishViewerSessionUpdatedAsync(RemoteViewerSession session, CancellationToken cancellationToken = default) =>
         SendAsync(nameof(ICoordinatorRunnerHub.PublishViewerSessionUpdatedAsync), [session], cancellationToken);
 

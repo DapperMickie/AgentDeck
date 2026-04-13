@@ -20,6 +20,8 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
 
     private readonly ConcurrentDictionary<string, RunnerEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _sessionMachineMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _jobMachineMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, OrchestrationJob> _orchestrationJobs = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _viewerMachineMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _connectionMachineMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, RemoteViewerSession> _viewerSessions = new(StringComparer.OrdinalIgnoreCase);
@@ -109,6 +111,14 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         _companions.RemoveSessionFromAll(sessionId);
         _logger.LogInformation("Runner {MachineId} published terminal session close for {SessionId}", machineId, sessionId);
         await _agentHubContext.Clients.All.SessionClosedAsync(sessionId.Trim());
+    }
+
+    public Task PublishOrchestrationJobUpdatedAsync(string machineId, OrchestrationJob job, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        CacheOrchestrationJob(machineId, job);
+        _logger.LogDebug("Runner {MachineId} published orchestration job update for {JobId}", machineId, job.Id);
+        return Task.CompletedTask;
     }
 
     public Task PublishViewerSessionUpdatedAsync(string machineId, RemoteViewerSession session, CancellationToken cancellationToken = default)
@@ -233,43 +243,62 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
 
     public async Task<IReadOnlyList<OrchestrationJob>> GetOrchestrationJobsAsync(string machineId, CancellationToken cancellationToken = default)
     {
-        var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await InvokeRunnerAsync(entry, "list orchestration jobs", client => client.GetOrchestrationJobsAsync(), retryOnReconnect: true, cancellationToken);
+        var entry = await TryEnsureEntryAsync(machineId, cancellationToken);
+        if (entry is null)
+        {
+            return GetCachedOrchestrationJobs(machineId);
+        }
+
+        var jobs = await InvokeRunnerAsync(entry, "list orchestration jobs", client => client.GetOrchestrationJobsAsync(), retryOnReconnect: true, cancellationToken);
+        ReplaceOrchestrationJobs(entry.MachineId, jobs);
+        return jobs;
     }
 
     public async Task<OrchestrationJob?> QueueOrchestrationJobAsync(string machineId, CreateOrchestrationJobRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await InvokeRunnerAsync(entry, "queue orchestration job", client => client.QueueOrchestrationJobAsync(request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
+        var job = await InvokeRunnerAsync(entry, "queue orchestration job", client => client.QueueOrchestrationJobAsync(request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
+        if (job is not null)
+        {
+            CacheOrchestrationJob(entry.MachineId, job);
+        }
+
+        return job;
     }
 
     public async Task<OrchestrationJob?> CancelOrchestrationJobAsync(string machineId, string jobId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await InvokeRunnerAsync(entry, "cancel orchestration job", client => client.CancelOrchestrationJobAsync(jobId, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
+        var job = await InvokeRunnerAsync(entry, "cancel orchestration job", client => client.CancelOrchestrationJobAsync(jobId, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
+        if (job is not null)
+        {
+            CacheOrchestrationJob(entry.MachineId, job);
+        }
+
+        return job;
     }
 
     public async Task<IReadOnlyList<RemoteViewerSession>> GetViewerSessionsAsync(string machineId, CancellationToken cancellationToken = default)
     {
-        var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        var sessions = await InvokeRunnerAsync(entry, "list viewer sessions", client => client.GetViewerSessionsAsync(), retryOnReconnect: true, cancellationToken);
-        var annotated = sessions.Select(session => AnnotateViewerSession(entry.MachineId, session)).ToArray();
-        foreach (var session in annotated)
+        var entry = await TryEnsureEntryAsync(machineId, cancellationToken);
+        if (entry is null)
         {
-            _viewerMachineMap[session.Id] = entry.MachineId;
-            _viewerSessions[session.Id] = session;
+            return GetCachedViewerSessions(machineId);
         }
 
+        var sessions = await InvokeRunnerAsync(entry, "list viewer sessions", client => client.GetViewerSessionsAsync(), retryOnReconnect: true, cancellationToken);
+        var annotated = sessions.Select(session => AnnotateViewerSession(entry.MachineId, session)).ToArray();
+        ReplaceViewerSessions(entry.MachineId, annotated);
         return annotated;
     }
 
     public async Task<RemoteViewerSession> CreateViewerSessionAsync(string machineId, CreateRemoteViewerSessionRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        var session = await InvokeRunnerAsync(entry, "create viewer session", client => client.CreateViewerSessionAsync(request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
+        var brokeredRequest = EnsureManagedViewerRequest(request);
+        var session = await InvokeRunnerAsync(entry, "create viewer session", client => client.CreateViewerSessionAsync(brokeredRequest, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
         var annotated = AnnotateViewerSession(entry.MachineId, session);
-        _viewerMachineMap[annotated.Id] = entry.MachineId;
-        _viewerSessions[annotated.Id] = annotated;
+        CacheViewerSession(entry.MachineId, annotated);
         return annotated;
     }
 
@@ -324,7 +353,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         return await InvokeRunnerAsync(entry, "resolve virtual device", client => client.ResolveVirtualDeviceAsync(selection), retryOnReconnect: true, cancellationToken);
     }
 
-    private async Task<RunnerEntry> EnsureEntryAsync(string machineId, CancellationToken cancellationToken)
+    private async Task<RunnerEntry?> TryEnsureEntryAsync(string machineId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(machineId);
 
@@ -341,17 +370,25 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         try
         {
             entry.Machine = machine;
-            if (!string.IsNullOrWhiteSpace(entry.ConnectionId))
-            {
-                return entry;
-            }
-
-            throw new InvalidOperationException($"Runner machine '{machine.MachineName}' does not currently have an active coordinator control connection.");
+            return string.IsNullOrWhiteSpace(entry.ConnectionId) ? null : entry;
         }
         finally
         {
             entry.Gate.Release();
         }
+    }
+
+    private async Task<RunnerEntry> EnsureEntryAsync(string machineId, CancellationToken cancellationToken)
+    {
+        var entry = await TryEnsureEntryAsync(machineId, cancellationToken);
+        if (entry is not null)
+        {
+            return entry;
+        }
+
+        var machine = await _registry.GetMachineAsync(machineId, cancellationToken)
+            ?? throw new InvalidOperationException($"Coordinator does not know runner machine '{machineId}'.");
+        throw new InvalidOperationException($"Runner machine '{machine.MachineName}' does not currently have an active coordinator control connection.");
     }
 
     private IRunnerControlClient GetRunnerClient(RunnerEntry entry) =>
@@ -386,6 +423,110 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
             ConnectionUri = null
         };
     }
+
+    private static CreateRemoteViewerSessionRequest EnsureManagedViewerRequest(CreateRemoteViewerSessionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return new CreateRemoteViewerSessionRequest
+        {
+            MachineId = request.MachineId,
+            MachineName = request.MachineName,
+            JobId = request.JobId,
+            Provider = request.Provider == RemoteViewerProviderKind.Auto &&
+                       request.Target.Kind is not RemoteViewerTargetKind.Desktop
+                ? RemoteViewerProviderKind.Managed
+                : request.Provider,
+            Target = new RemoteViewerTarget
+            {
+                Kind = request.Target.Kind,
+                DisplayName = request.Target.DisplayName,
+                JobId = request.Target.JobId,
+                SessionId = request.Target.SessionId,
+                WindowTitle = request.Target.WindowTitle,
+                VirtualDeviceId = request.Target.VirtualDeviceId,
+                VirtualDeviceProfileId = request.Target.VirtualDeviceProfileId
+            }
+        };
+    }
+
+    private void ReplaceOrchestrationJobs(string machineId, IReadOnlyList<OrchestrationJob> jobs)
+    {
+        var normalizedMachineId = machineId.Trim();
+        var incoming = jobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var existing in _jobMachineMap.Where(pair => string.Equals(pair.Value, normalizedMachineId, StringComparison.OrdinalIgnoreCase)).ToArray())
+        {
+            if (!incoming.Contains(existing.Key))
+            {
+                _jobMachineMap.TryRemove(existing.Key, out _);
+                _orchestrationJobs.TryRemove(existing.Key, out _);
+            }
+        }
+
+        foreach (var job in jobs)
+        {
+            CacheOrchestrationJob(normalizedMachineId, job);
+        }
+    }
+
+    private void CacheOrchestrationJob(string machineId, OrchestrationJob job)
+    {
+        var normalizedMachineId = machineId.Trim();
+        if (_orchestrationJobs.TryGetValue(job.Id, out var existingJob) &&
+            existingJob.UpdatedAt > job.UpdatedAt)
+        {
+            return;
+        }
+
+        _jobMachineMap[job.Id] = normalizedMachineId;
+        _orchestrationJobs[job.Id] = CloneOrchestrationJob(job);
+    }
+
+    private IReadOnlyList<OrchestrationJob> GetCachedOrchestrationJobs(string machineId) =>
+        _jobMachineMap
+            .Where(pair => string.Equals(pair.Value, machineId.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Select(pair => _orchestrationJobs.TryGetValue(pair.Key, out var job) ? CloneOrchestrationJob(job) : null)
+            .Where(job => job is not null)
+            .Cast<OrchestrationJob>()
+            .OrderByDescending(job => job.UpdatedAt)
+            .ThenByDescending(job => job.CreatedAt)
+            .ToArray();
+
+    private void ReplaceViewerSessions(string machineId, IReadOnlyList<RemoteViewerSession> sessions)
+    {
+        var normalizedMachineId = machineId.Trim();
+        var incoming = sessions.Select(session => session.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var existing in _viewerMachineMap.Where(pair => string.Equals(pair.Value, normalizedMachineId, StringComparison.OrdinalIgnoreCase)).ToArray())
+        {
+            if (!incoming.Contains(existing.Key))
+            {
+                _viewerMachineMap.TryRemove(existing.Key, out _);
+                _viewerSessions.TryRemove(existing.Key, out _);
+                _viewerFrames.TryRemove(existing.Key, out _);
+            }
+        }
+
+        foreach (var session in sessions)
+        {
+            CacheViewerSession(normalizedMachineId, session);
+        }
+    }
+
+    private void CacheViewerSession(string machineId, RemoteViewerSession session)
+    {
+        var normalizedMachineId = machineId.Trim();
+        _viewerMachineMap[session.Id] = normalizedMachineId;
+        _viewerSessions[session.Id] = new RemoteViewerSession(session);
+    }
+
+    private IReadOnlyList<RemoteViewerSession> GetCachedViewerSessions(string machineId) =>
+        _viewerMachineMap
+            .Where(pair => string.Equals(pair.Value, machineId.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Select(pair => _viewerSessions.TryGetValue(pair.Key, out var session) ? new RemoteViewerSession(session) : null)
+            .Where(session => session is not null)
+            .Cast<RemoteViewerSession>()
+            .OrderByDescending(session => session.UpdatedAt)
+            .ThenByDescending(session => session.CreatedAt)
+            .ToArray();
 
     private async Task<RunnerEntry> ResolveEntryBySessionAsync(string sessionId, CancellationToken cancellationToken)
     {
@@ -555,4 +696,65 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
 
     private static string NormalizeActorId(string actorId) =>
         string.IsNullOrWhiteSpace(actorId) ? "coordinator" : actorId.Trim();
+
+    private static OrchestrationJob CloneOrchestrationJob(OrchestrationJob job) =>
+        new()
+        {
+            Id = job.Id,
+            ProjectId = job.ProjectId,
+            ProjectName = job.ProjectName,
+            LaunchProfileId = job.LaunchProfileId,
+            LaunchProfileName = job.LaunchProfileName,
+            Platform = job.Platform,
+            Mode = job.Mode,
+            LaunchDriver = job.LaunchDriver,
+            TargetMachineRole = job.TargetMachineRole,
+            TargetMachineId = job.TargetMachineId,
+            TargetMachineName = job.TargetMachineName,
+            WorkingDirectory = job.WorkingDirectory,
+            BuildCommand = job.BuildCommand,
+            LaunchCommand = job.LaunchCommand,
+            BootstrapCommand = job.BootstrapCommand,
+            DebugConfigurationName = job.DebugConfigurationName,
+            DeviceSelection = job.DeviceSelection is null
+                ? null
+                : new VirtualDeviceLaunchSelection
+                {
+                    CatalogKind = job.DeviceSelection.CatalogKind,
+                    TargetPlatform = job.DeviceSelection.TargetPlatform,
+                    DeviceId = job.DeviceSelection.DeviceId,
+                    ProfileId = job.DeviceSelection.ProfileId,
+                    DisplayName = job.DeviceSelection.DisplayName,
+                    StartBeforeLaunch = job.DeviceSelection.StartBeforeLaunch,
+                    ReuseRunningDevice = job.DeviceSelection.ReuseRunningDevice
+                },
+            Status = job.Status,
+            SessionId = job.SessionId,
+            ViewerSessionId = job.ViewerSessionId,
+            ExitCode = job.ExitCode,
+            StatusMessage = job.StatusMessage,
+            CreatedAt = job.CreatedAt,
+            UpdatedAt = job.UpdatedAt,
+            Steps =
+            [
+                ..job.Steps.Select(step => new OrchestrationJobStep
+                {
+                    Name = step.Name,
+                    Status = step.Status,
+                    Message = step.Message,
+                    StartedAt = step.StartedAt,
+                    CompletedAt = step.CompletedAt
+                })
+            ],
+            Logs =
+            [
+                ..job.Logs.Select(log => new OrchestrationJobLogEntry
+                {
+                    Timestamp = log.Timestamp,
+                    Level = log.Level,
+                    Message = log.Message,
+                    MachineId = log.MachineId
+                })
+            ]
+        };
 }

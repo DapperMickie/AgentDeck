@@ -28,6 +28,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
     private readonly IVirtualDeviceCatalogService _devices;
     private readonly IRunnerTrustPolicy _trustPolicy;
     private readonly IRunnerAuditService _audit;
+    private readonly ICoordinatorRunnerPublisher _publisher;
     private readonly ILogger<CoordinatorRunnerConnectionService> _logger;
     private readonly CoordinatorRunnerConnectionState _connectionState;
 
@@ -49,6 +50,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         IVirtualDeviceCatalogService devices,
         IRunnerTrustPolicy trustPolicy,
         IRunnerAuditService audit,
+        ICoordinatorRunnerPublisher publisher,
         CoordinatorRunnerConnectionState connectionState,
         ILogger<CoordinatorRunnerConnectionService> logger)
     {
@@ -69,8 +71,10 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         _devices = devices;
         _trustPolicy = trustPolicy;
         _audit = audit;
+        _publisher = publisher;
         _connectionState = connectionState;
         _logger = logger;
+        _jobs.Changed += OnJobChanged;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -107,6 +111,8 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
             return;
         }
 
+        _jobs.Changed -= OnJobChanged;
+
         await _connectionState.Gate.WaitAsync();
         try
         {
@@ -126,6 +132,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
 
     private async Task EnsureConnectedAsync(string coordinatorUrl, CancellationToken cancellationToken)
     {
+        var shouldRepublishState = false;
         try
         {
             await _connectionState.Gate.WaitAsync(cancellationToken);
@@ -166,16 +173,28 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
             RegisterHandlers(connection);
             await connection.StartAsync(cancellationToken);
             _connectionState.Connection = connection;
-            _logger.LogInformation("Connected runner control channel to coordinator at {CoordinatorUrl} for machine {MachineId}", coordinatorUrl, _options.MachineId);
+            shouldRepublishState = true;
         }
         finally
         {
             _connectionState.Gate.Release();
         }
+
+        if (shouldRepublishState)
+        {
+            await RepublishCoordinatorStateAsync(cancellationToken);
+            _logger.LogInformation("Connected runner control channel to coordinator at {CoordinatorUrl} for machine {MachineId}", coordinatorUrl, _options.MachineId);
+        }
     }
 
     private void RegisterHandlers(HubConnection connection)
     {
+        connection.Reconnected += async _ =>
+        {
+            await RepublishCoordinatorStateAsync(CancellationToken.None);
+            _logger.LogInformation("Replayed runner state after reconnecting coordinator control channel for machine {MachineId}", _options.MachineId);
+        };
+
         connection.On<CreateTerminalRequest, Task<TerminalSession>>(nameof(IRunnerControlClient.CreateSessionAsync),
             request => _terminalSessions.CreateSessionAsync(request));
 
@@ -432,5 +451,53 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         }
 
         return await _devices.ResolveSelectionAsync(selection);
+    }
+
+    private void OnJobChanged(OrchestrationJob job) =>
+        _ = PublishJobChangedAsync(job);
+
+    private async Task PublishJobChangedAsync(OrchestrationJob job)
+    {
+        try
+        {
+            await _publisher.PublishOrchestrationJobUpdatedAsync(job);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to publish orchestration job update for {JobId}", job.Id);
+        }
+    }
+
+    private async Task RepublishCoordinatorStateAsync(CancellationToken cancellationToken)
+    {
+        foreach (var session in _sessionStore.GetAll())
+        {
+            await _publisher.PublishTerminalSessionUpdatedAsync(session, cancellationToken);
+        }
+
+        foreach (var job in _jobs.GetAll())
+        {
+            await _publisher.PublishOrchestrationJobUpdatedAsync(job, cancellationToken);
+        }
+
+        foreach (var viewer in _viewers.GetAll())
+        {
+            await _publisher.PublishViewerSessionUpdatedAsync(viewer, cancellationToken);
+            if (viewer.Provider == RemoteViewerProviderKind.Managed &&
+                viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed &&
+                _managedViewerRelay.GetLatestFrame(viewer.Id) is { } frame)
+            {
+                await _publisher.PublishViewerFrameAsync(
+                    new RemoteViewerRelayFrame(
+                        viewer.Id,
+                        frame.SequenceId,
+                        frame.CapturedAt,
+                        frame.ContentType,
+                        frame.Width,
+                        frame.Height,
+                        frame.Payload),
+                    cancellationToken);
+            }
+        }
     }
 }

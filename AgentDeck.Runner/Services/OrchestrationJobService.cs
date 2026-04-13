@@ -9,6 +9,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
 {
     private readonly Lock _gate = new();
     private readonly ConcurrentDictionary<string, OrchestrationJob> _jobs = new();
+    public event Action<OrchestrationJob>? Changed;
 
     public OrchestrationJob Queue(CreateOrchestrationJobRequest request)
     {
@@ -54,6 +55,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             _jobs[job.Id] = job;
         }
 
+        NotifyChanged(job);
         return CloneJob(job);
     }
 
@@ -92,6 +94,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             updatedJob.Steps = UpdateSteps(updatedJob.Steps, updatedJob.Status, updatedJob.StatusMessage);
 
             _jobs[jobId] = updatedJob;
+            NotifyChanged(updatedJob);
             return CloneJob(updatedJob);
         }
     }
@@ -120,6 +123,7 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             ];
 
             _jobs[jobId] = updatedJob;
+            NotifyChanged(updatedJob);
             return CloneJob(updatedJob);
         }
     }
@@ -132,6 +136,9 @@ public sealed class OrchestrationJobService : IOrchestrationJobService
             Message = message ?? "Cancellation requested."
         });
     }
+
+    private void NotifyChanged(OrchestrationJob job) =>
+        Changed?.Invoke(CloneJob(job));
 
     private static IReadOnlyList<OrchestrationJobStep> CreateSteps(CreateOrchestrationJobRequest request)
     {
