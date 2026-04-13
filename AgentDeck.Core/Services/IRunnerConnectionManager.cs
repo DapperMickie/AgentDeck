@@ -25,7 +25,7 @@ public interface IRunnerConnectionManager
     Task CloseSessionAsync(string sessionId);
     Task<IReadOnlyList<TerminalSession>> GetSessionsAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default);
     Task<WorkspaceInfo?> GetWorkspaceAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default);
-    Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default);
+    Task<MachineCapabilitiesSnapshot> GetMachineCapabilitiesAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default);
     Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(RunnerMachineSettings machine, string capabilityId, string? version = null, CancellationToken cancellationToken = default);
     Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(RunnerMachineSettings machine, string capabilityId, CancellationToken cancellationToken = default);
 }

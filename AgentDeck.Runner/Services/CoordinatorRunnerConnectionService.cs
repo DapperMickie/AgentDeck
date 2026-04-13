@@ -248,7 +248,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
             return Task.CompletedTask;
         };
 
-        connection.On<CreateTerminalRequest, Task<TerminalSession>>(nameof(IRunnerControlClient.CreateSessionAsync),
+        connection.On<CreateTerminalRequest, TerminalSession>(nameof(IRunnerControlClient.CreateSessionAsync),
             request => CreateSessionWithDiagnosticsAsync(request));
 
         connection.On<string, Task>(nameof(IRunnerControlClient.CloseSessionAsync), async sessionId =>
@@ -263,7 +263,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
             _sessionStore.Remove(sessionId);
         });
 
-        connection.On<Task<IReadOnlyList<TerminalSession>>>(nameof(IRunnerControlClient.GetSessionsAsync),
+        connection.On<IReadOnlyList<TerminalSession>>(nameof(IRunnerControlClient.GetSessionsAsync),
             () => GetSessionsWithDiagnosticsAsync());
 
         connection.On<string, string, Task>(nameof(IRunnerControlClient.SendInputAsync),
@@ -272,40 +272,40 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         connection.On<string, int, int, Task>(nameof(IRunnerControlClient.ResizeTerminalAsync),
             (sessionId, cols, rows) => _ptyManager.ResizeAsync(sessionId, cols, rows));
 
-        connection.On<Task<WorkspaceInfo?>>(nameof(IRunnerControlClient.GetWorkspaceAsync),
+        connection.On<WorkspaceInfo?>(nameof(IRunnerControlClient.GetWorkspaceAsync),
             () => Task.FromResult<WorkspaceInfo?>(_workspace.GetWorkspaceInfo()));
 
-        connection.On<OpenProjectOnRunnerRequest, string, Task<OpenProjectOnRunnerResult?>>(nameof(IRunnerControlClient.OpenProjectAsync),
+        connection.On<OpenProjectOnRunnerRequest, string, OpenProjectOnRunnerResult?>(nameof(IRunnerControlClient.OpenProjectAsync),
             (request, actorId) => OpenProjectAsync(request, actorId));
 
-        connection.On<Task<MachineCapabilitiesSnapshot>>(nameof(IRunnerControlClient.GetMachineCapabilitiesAsync),
-            () => _capabilities.GetSnapshotAsync());
+        connection.On<MachineCapabilitiesSnapshot>(nameof(IRunnerControlClient.GetMachineCapabilitiesAsync),
+            async () => await _capabilities.GetSnapshotAsync());
 
-        connection.On<string, MachineCapabilityInstallRequest, string, Task<MachineCapabilityInstallResult?>>(nameof(IRunnerControlClient.InstallMachineCapabilityAsync),
+        connection.On<string, MachineCapabilityInstallRequest, string, MachineCapabilityInstallResult?>(nameof(IRunnerControlClient.InstallMachineCapabilityAsync),
             (capabilityId, request, actorId) => InstallMachineCapabilityAsync(capabilityId, request, actorId));
 
-        connection.On<string, string, Task<MachineCapabilityInstallResult?>>(nameof(IRunnerControlClient.UpdateMachineCapabilityAsync),
+        connection.On<string, string, MachineCapabilityInstallResult?>(nameof(IRunnerControlClient.UpdateMachineCapabilityAsync),
             (capabilityId, actorId) => UpdateMachineCapabilityAsync(capabilityId, actorId));
 
         connection.On<string, Task>(nameof(IRunnerControlClient.RetryMachineWorkflowPackAsync),
             actorId => RetryWorkflowPackAsync(actorId));
 
-        connection.On<Task<IReadOnlyList<OrchestrationJob>>>(nameof(IRunnerControlClient.GetOrchestrationJobsAsync),
+        connection.On<IReadOnlyList<OrchestrationJob>>(nameof(IRunnerControlClient.GetOrchestrationJobsAsync),
             () => Task.FromResult(_jobs.GetAll()));
 
-        connection.On<CreateOrchestrationJobRequest, string, Task<OrchestrationJob?>>(nameof(IRunnerControlClient.QueueOrchestrationJobAsync),
+        connection.On<CreateOrchestrationJobRequest, string, OrchestrationJob?>(nameof(IRunnerControlClient.QueueOrchestrationJobAsync),
             (request, actorId) => QueueOrchestrationJobAsync(request, actorId));
 
-        connection.On<string, string, Task<OrchestrationJob?>>(nameof(IRunnerControlClient.CancelOrchestrationJobAsync),
+        connection.On<string, string, OrchestrationJob?>(nameof(IRunnerControlClient.CancelOrchestrationJobAsync),
             (jobId, actorId) => CancelOrchestrationJobAsync(jobId, actorId));
 
-        connection.On<Task<IReadOnlyList<RemoteViewerSession>>>(nameof(IRunnerControlClient.GetViewerSessionsAsync),
+        connection.On<IReadOnlyList<RemoteViewerSession>>(nameof(IRunnerControlClient.GetViewerSessionsAsync),
             () => Task.FromResult(_viewers.GetAll()));
 
-        connection.On<CreateRemoteViewerSessionRequest, string, Task<RemoteViewerSession>>(nameof(IRunnerControlClient.CreateViewerSessionAsync),
+        connection.On<CreateRemoteViewerSessionRequest, string, RemoteViewerSession>(nameof(IRunnerControlClient.CreateViewerSessionAsync),
             (request, actorId) => CreateViewerSessionAsync(request, actorId));
 
-        connection.On<string, string, Task<RemoteViewerSession?>>(nameof(IRunnerControlClient.CloseViewerSessionAsync),
+        connection.On<string, string, RemoteViewerSession?>(nameof(IRunnerControlClient.CloseViewerSessionAsync),
             (viewerSessionId, actorId) => CloseViewerSessionAsync(viewerSessionId, actorId));
 
         connection.On<string, string, RemoteViewerPointerInputEvent, Task>(nameof(IRunnerControlClient.SendViewerPointerInputAsync),
@@ -314,10 +314,10 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         connection.On<string, string, RemoteViewerKeyboardInputEvent, Task>(nameof(IRunnerControlClient.SendViewerKeyboardInputAsync),
             (viewerSessionId, actorId, input) => SendViewerKeyboardInputAsync(viewerSessionId, actorId, input));
 
-        connection.On<Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>>>(nameof(IRunnerControlClient.GetVirtualDeviceCatalogsAsync),
+        connection.On<IReadOnlyList<VirtualDeviceCatalogSnapshot>>(nameof(IRunnerControlClient.GetVirtualDeviceCatalogsAsync),
             () => _devices.GetCatalogsAsync());
 
-        connection.On<VirtualDeviceLaunchSelection, Task<VirtualDeviceLaunchResolution?>>(nameof(IRunnerControlClient.ResolveVirtualDeviceAsync),
+        connection.On<VirtualDeviceLaunchSelection, VirtualDeviceLaunchResolution?>(nameof(IRunnerControlClient.ResolveVirtualDeviceAsync),
             selection => ResolveVirtualDeviceAsync(selection));
     }
 

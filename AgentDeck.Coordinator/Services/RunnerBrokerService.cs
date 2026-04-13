@@ -254,7 +254,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         return result;
     }
 
-    public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken cancellationToken = default)
+    public async Task<MachineCapabilitiesSnapshot> GetMachineCapabilitiesAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
         return await InvokeRunnerAsync(entry, "read machine capabilities", client => client.GetMachineCapabilitiesAsync(), retryOnReconnect: true, cancellationToken);

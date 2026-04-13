@@ -181,17 +181,22 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         }
     }
 
-    public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken ct = default)
+    public async Task<MachineCapabilitiesSnapshot> GetMachineCapabilitiesAsync(string machineId, CancellationToken ct = default)
     {
-        if (_http.BaseAddress is null) return null;
+        if (_http.BaseAddress is null)
+        {
+            throw new InvalidOperationException("Coordinator base address is not configured.");
+        }
+
         try
         {
-            return await _http.GetFromJsonAsync<MachineCapabilitiesSnapshot>($"/api/machines/{Uri.EscapeDataString(machineId)}/capabilities", ct);
+            return await _http.GetFromJsonAsync<MachineCapabilitiesSnapshot>($"/api/machines/{Uri.EscapeDataString(machineId)}/capabilities", ct)
+                ?? throw new InvalidOperationException($"Coordinator returned an empty capabilities snapshot for machine '{machineId}'.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "GetMachineCapabilitiesAsync failed");
-            return null;
+            throw;
         }
     }
 
