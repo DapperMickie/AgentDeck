@@ -771,6 +771,16 @@
                 throw new InvalidOperationException("The project workspace is not available on the selected machine.");
             }
 
+            var projectSession = GetLatestProjectSessionForMachine(machineId)
+                ?? throw new InvalidOperationException("Open the project on that machine before launching so AgentDeck has an owned terminal to execute through.");
+            var terminalSurface = projectSession.Surfaces.FirstOrDefault(surface =>
+                surface.Kind == ProjectSessionSurfaceKind.Terminal &&
+                !string.IsNullOrWhiteSpace(surface.ReferenceId));
+            if (terminalSurface is null)
+            {
+                throw new InvalidOperationException("The selected machine does not currently expose an owned project terminal for launch/debug execution.");
+            }
+
             VirtualDeviceLaunchSelection? deviceSelection = null;
             if (ProfileNeedsDeviceSelection(profile))
             {
@@ -782,6 +792,8 @@
             {
                 ProjectId = _project.Definition.Id,
                 ProjectName = _project.Definition.Name,
+                ProjectSessionId = projectSession.Id,
+                TerminalSessionId = terminalSurface.ReferenceId,
                 LaunchProfileId = profile.Id,
                 LaunchProfileName = profile.DisplayName,
                 WorkingDirectory = workspace.ProjectPath,

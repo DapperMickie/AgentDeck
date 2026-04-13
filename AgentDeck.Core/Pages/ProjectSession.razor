@@ -396,10 +396,12 @@
         }
 
         var tabs = new List<SurfaceTab>();
+        var tabIndexesByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var surface in _projectSession.Surfaces)
         {
+            var key = BuildSurfaceKey(surface.Kind, surface.ReferenceId);
             tabs.Add(new SurfaceTab(
                 surface.Id,
                 surface.Kind,
@@ -411,25 +413,40 @@
                 surface.StatusMessage,
                 Job: null,
                 Viewer: null));
-            seenKeys.Add(BuildSurfaceKey(surface.Kind, surface.ReferenceId));
+            seenKeys.Add(key);
+            tabIndexesByKey[key] = tabs.Count - 1;
         }
 
         foreach (var job in _runtimeJobs)
         {
-            if (!string.IsNullOrWhiteSpace(job.SessionId) &&
-                seenKeys.Add(BuildSurfaceKey(ProjectSessionSurfaceKind.Terminal, job.SessionId)))
+            if (!string.IsNullOrWhiteSpace(job.SessionId))
             {
-                tabs.Add(new SurfaceTab(
-                    $"runtime-terminal:{job.Id}",
-                    ProjectSessionSurfaceKind.Terminal,
-                    $"{job.LaunchProfileName} terminal",
-                    job.TargetMachineId,
-                    job.TargetMachineName,
-                    job.SessionId,
-                    MapJobStatus(job.Status),
-                    GetJobStatusMessage(job),
-                    job,
-                    Viewer: null));
+                var terminalKey = BuildSurfaceKey(ProjectSessionSurfaceKind.Terminal, job.SessionId);
+                if (tabIndexesByKey.TryGetValue(terminalKey, out var existingIndex))
+                {
+                    var existing = tabs[existingIndex];
+                    tabs[existingIndex] = existing with
+                    {
+                        Status = MapJobStatus(job.Status),
+                        StatusMessage = GetJobStatusMessage(job),
+                        Job = job
+                    };
+                }
+                else if (seenKeys.Add(terminalKey))
+                {
+                    tabs.Add(new SurfaceTab(
+                        $"runtime-terminal:{job.Id}",
+                        ProjectSessionSurfaceKind.Terminal,
+                        $"{job.LaunchProfileName} terminal",
+                        job.TargetMachineId,
+                        job.TargetMachineName,
+                        job.SessionId,
+                        MapJobStatus(job.Status),
+                        GetJobStatusMessage(job),
+                        job,
+                        Viewer: null));
+                    tabIndexesByKey[terminalKey] = tabs.Count - 1;
+                }
             }
         }
 

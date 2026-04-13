@@ -8,6 +8,7 @@ public sealed class OrchestrationJob
     public required string Id { get; init; }
     public required string ProjectId { get; init; }
     public required string ProjectName { get; init; }
+    public string? ProjectSessionId { get; init; }
     public required string LaunchProfileId { get; init; }
     public required string LaunchProfileName { get; init; }
     public ApplicationTargetPlatform Platform { get; init; }
