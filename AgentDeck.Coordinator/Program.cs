@@ -1,6 +1,7 @@
 using AgentDeck.Coordinator.Configuration;
 using AgentDeck.Coordinator.Hubs;
 using AgentDeck.Coordinator.Services;
+using System.Text;
 using System.Runtime.ExceptionServices;
 using AgentDeck.Shared;
 using AgentDeck.Shared.Enums;
@@ -189,6 +190,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
         TerminalSession? session = null;
         try
         {
+            var requestedWorkspacePath = existingWorkspace?.ProjectPath ?? BuildDefaultProjectWorkspacePath(project.Id);
             logger.LogInformation(
                 "Opening project {ProjectId} ({ProjectName}) on machine {MachineId} ({MachineName}); existing workspace: {ExistingWorkspacePath}; companion: {CompanionId}; session: {ProjectSessionId}",
                 project.Id,
@@ -206,7 +208,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
                     ProjectId = project.Id,
                     ProjectName = project.Name,
                     Repository = project.Repository,
-                    ExistingWorkspacePath = existingWorkspace?.ProjectPath
+                    ExistingWorkspacePath = requestedWorkspacePath
                 },
                 GetActorId(httpContext),
                 cancellationToken);
@@ -223,7 +225,13 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
 
             if (string.IsNullOrWhiteSpace(openedWorkspace.ProjectPath))
             {
-                throw new InvalidOperationException($"Runner machine '{machine.MachineName}' returned an empty workspace path while opening project '{project.Id}'.");
+                logger.LogWarning(
+                    "Runner machine {MachineName} ({MachineId}) returned an empty workspace path while opening project {ProjectId}; defaulting to workspace key {WorkspaceKey}",
+                    machine.MachineName,
+                    machine.MachineId,
+                    project.Id,
+                    requestedWorkspacePath);
+                openedWorkspace = BuildFallbackOpenProjectResult(machine, project, requestedWorkspacePath, existingWorkspace is not null);
             }
 
             logger.LogInformation(
@@ -252,6 +260,16 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
                 Command = openedWorkspace.TerminalCommand,
                 Arguments = openedWorkspace.TerminalArguments
             }, cancellationToken);
+
+            if (openedWorkspace.BootstrapPending &&
+                string.IsNullOrWhiteSpace(openedWorkspace.TerminalCommand) &&
+                openedWorkspace.TerminalArguments.Count == 0)
+            {
+                await runners.SendInputAsync(
+                    session.Id,
+                    BuildFallbackBootstrapInput(machine, project, openedWorkspace.ProjectPath),
+                    cancellationToken);
+            }
 
             logger.LogInformation(
                 "Created project terminal session {TerminalSessionId} for project {ProjectId} on machine {MachineId} in {WorkingDirectory}",
@@ -900,6 +918,154 @@ static ProjectSessionRecord? GetLatestProjectSession(
         .OrderByDescending(session => session.UpdatedAt)
         .FirstOrDefault();
 }
+
+static OpenProjectOnRunnerResult BuildFallbackOpenProjectResult(
+    RegisteredRunnerMachine machine,
+    ProjectDefinition project,
+    string workspacePath,
+    bool workspaceAlreadyMapped)
+{
+    var bootstrapPending = !workspaceAlreadyMapped;
+    return new OpenProjectOnRunnerResult
+    {
+        ProjectPath = workspacePath,
+        TerminalWorkingDirectory = bootstrapPending ? "." : workspacePath,
+        BootstrapPending = bootstrapPending,
+        BootstrapMessage = bootstrapPending
+            ? $"Opened a project terminal and defaulted the workspace path to '{workspacePath}'. Bootstrap will continue in that terminal."
+            : $"Opened existing workspace '{workspacePath}'."
+    };
+}
+
+static string BuildDefaultProjectWorkspacePath(string projectId)
+{
+    ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+    var normalized = projectId.Trim().ToLowerInvariant();
+    var invalidCharacters = Path.GetInvalidFileNameChars();
+    var builder = new StringBuilder(normalized.Length);
+    foreach (var character in normalized)
+    {
+        if (character == Path.DirectorySeparatorChar ||
+            character == Path.AltDirectorySeparatorChar)
+        {
+            builder.Append('-');
+            continue;
+        }
+
+        builder.Append(invalidCharacters.Contains(character) ? '-' : character);
+    }
+
+    var sanitized = builder.ToString().Trim();
+    if (string.IsNullOrWhiteSpace(sanitized) || sanitized.Contains("..", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException($"Project id '{projectId}' cannot be used as a workspace path.");
+    }
+
+    return sanitized;
+}
+
+static string BuildFallbackBootstrapInput(RegisteredRunnerMachine machine, ProjectDefinition project, string workspacePath)
+{
+    return machine.Platform?.HostPlatform == RunnerHostPlatform.Windows
+        ? BuildWindowsFallbackBootstrapInput(project, workspacePath)
+        : BuildPosixFallbackBootstrapInput(project, workspacePath);
+}
+
+static string BuildWindowsFallbackBootstrapInput(ProjectDefinition project, string workspacePath)
+{
+    var script = new StringBuilder();
+    script.Append("$AgentDeckGitPromptBackup = $env:GIT_TERMINAL_PROMPT; ");
+    script.Append("$env:GIT_TERMINAL_PROMPT = '0'; ");
+
+    if (string.IsNullOrWhiteSpace(project.Repository.Url))
+    {
+        script.Append($"New-Item -ItemType Directory -Force -Path {QuotePowerShell(workspacePath)} | Out-Null; ");
+        script.Append($"Set-Location -LiteralPath {QuotePowerShell(workspacePath)}; ");
+    }
+    else
+    {
+        var repositoryHost = GetRepositoryHostOrDefault(project.Repository.Url);
+        script.Append("if (Get-Command gh -ErrorAction SilentlyContinue) { ");
+        script.Append($"  & gh auth status --active --hostname {QuotePowerShell(repositoryHost)} *> $null; ");
+        script.Append("  if ($LASTEXITCODE -eq 0) { ");
+        script.Append($"    & gh repo clone {QuotePowerShell(project.Repository.Url)} {QuotePowerShell(workspacePath)}");
+        if (!string.IsNullOrWhiteSpace(project.Repository.DefaultBranch))
+        {
+            script.Append($" -- --branch {QuotePowerShell(project.Repository.DefaultBranch)}");
+        }
+
+        script.Append("; ");
+        script.Append("  } else { ");
+        script.Append("    Write-Host 'GitHub CLI is not authenticated in this terminal context. Falling back to git clone.'; ");
+        script.Append($"    & git clone{BuildWindowsBranchArgument(project.Repository.DefaultBranch)} {QuotePowerShell(project.Repository.Url)} {QuotePowerShell(workspacePath)}; ");
+        script.Append("  } ");
+        script.Append("} else { ");
+        script.Append($"  & git clone{BuildWindowsBranchArgument(project.Repository.DefaultBranch)} {QuotePowerShell(project.Repository.Url)} {QuotePowerShell(workspacePath)}; ");
+        script.Append("} ");
+        script.Append("if ($LASTEXITCODE -ne 0) { Write-Warning 'Project bootstrap did not complete automatically. Authenticate in this terminal and rerun the command if needed.'; } ");
+        script.Append($"if (Test-Path -LiteralPath {QuotePowerShell(workspacePath)}) {{ Set-Location -LiteralPath {QuotePowerShell(workspacePath)}; }} ");
+    }
+
+    script.Append("if ($null -eq $AgentDeckGitPromptBackup) { Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue; } else { $env:GIT_TERMINAL_PROMPT = $AgentDeckGitPromptBackup; }");
+    script.Append("\r\n");
+    return script.ToString();
+}
+
+static string BuildPosixFallbackBootstrapInput(ProjectDefinition project, string workspacePath)
+{
+    var script = new StringBuilder();
+    script.Append("AGENTDECK_GIT_TERMINAL_PROMPT_BACKUP=${GIT_TERMINAL_PROMPT-__AGENTDECK_UNSET__}; ");
+    script.Append("export GIT_TERMINAL_PROMPT=0; ");
+
+    if (string.IsNullOrWhiteSpace(project.Repository.Url))
+    {
+        script.Append($"mkdir -p {QuotePosix(workspacePath)} && cd {QuotePosix(workspacePath)}; ");
+    }
+    else
+    {
+        var repositoryHost = GetRepositoryHostOrDefault(project.Repository.Url);
+        script.Append("if command -v gh >/dev/null 2>&1 && ");
+        script.Append($"gh auth status --active --hostname {QuotePosix(repositoryHost)} >/dev/null 2>&1; then ");
+        script.Append($"gh repo clone {QuotePosix(project.Repository.Url)} {QuotePosix(workspacePath)}");
+        if (!string.IsNullOrWhiteSpace(project.Repository.DefaultBranch))
+        {
+            script.Append($" -- --branch {QuotePosix(project.Repository.DefaultBranch)}");
+        }
+
+        script.Append("; ");
+        script.Append("else ");
+        script.Append("echo 'GitHub CLI is not authenticated in this terminal context. Falling back to git clone.'; ");
+        script.Append($"git clone{BuildPosixBranchArgument(project.Repository.DefaultBranch)} {QuotePosix(project.Repository.Url)} {QuotePosix(workspacePath)}; ");
+        script.Append("fi; ");
+        script.Append("if [ $? -ne 0 ]; then echo 'Project bootstrap did not complete automatically. Authenticate in this terminal and rerun the command if needed.'; fi; ");
+        script.Append($"if [ -d {QuotePosix(workspacePath)} ]; then cd {QuotePosix(workspacePath)} || true; fi; ");
+    }
+
+    script.Append("if [ \"$AGENTDECK_GIT_TERMINAL_PROMPT_BACKUP\" = \"__AGENTDECK_UNSET__\" ]; then unset GIT_TERMINAL_PROMPT; else export GIT_TERMINAL_PROMPT=\"$AGENTDECK_GIT_TERMINAL_PROMPT_BACKUP\"; fi");
+    script.Append('\n');
+    return script.ToString();
+}
+
+static string BuildWindowsBranchArgument(string branch) =>
+    string.IsNullOrWhiteSpace(branch)
+        ? string.Empty
+        : $" --branch {QuotePowerShell(branch)}";
+
+static string BuildPosixBranchArgument(string branch) =>
+    string.IsNullOrWhiteSpace(branch)
+        ? string.Empty
+        : $" --branch {QuotePosix(branch)}";
+
+static string GetRepositoryHostOrDefault(string? repositoryUrl) =>
+    Uri.TryCreate(repositoryUrl, UriKind.Absolute, out var repositoryUri) && !string.IsNullOrWhiteSpace(repositoryUri.Host)
+        ? repositoryUri.Host
+        : "github.com";
+
+static string QuotePowerShell(string value) =>
+    $"'{value.Replace("'", "''")}'";
+
+static string QuotePosix(string value) =>
+    $"'{value.Replace("'", "'\"'\"'")}'";
 
 static string BuildRemoteControlConflictMessage(MachineRemoteControlState state) =>
     $"Machine '{state.MachineName ?? state.MachineId}' is currently remotely controlled by companion '{state.ControllerDisplayName ?? state.ControllerCompanionId}' through viewer session '{state.ViewerSessionId}'. Use force takeover to replace that remote controller.";

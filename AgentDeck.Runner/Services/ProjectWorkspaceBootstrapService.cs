@@ -108,7 +108,7 @@ public sealed class ProjectWorkspaceBootstrapService : IProjectWorkspaceBootstra
 
     private static string BuildWorkspaceFolderName(OpenProjectOnRunnerRequest request)
     {
-        var projectId = SanitizePathComponent(request.ProjectId);
+        var projectId = SanitizePathComponent(request.ProjectId).ToLowerInvariant();
         var displayName = FirstNonEmpty(request.Repository.Name, request.ProjectName);
         if (string.IsNullOrWhiteSpace(displayName))
         {
