@@ -33,4 +33,10 @@ public sealed class CoordinatorOptions
     public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 
     public TimeSpan WorkerExpiry { get; set; } = TimeSpan.FromSeconds(45);
+
+    public TimeSpan RunnerControlKeepAliveInterval { get; set; } = TimeSpan.FromSeconds(15);
+
+    public TimeSpan RunnerControlClientTimeoutInterval { get; set; } = TimeSpan.FromSeconds(60);
+
+    public TimeSpan RunnerControlHandshakeTimeout { get; set; } = TimeSpan.FromSeconds(30);
 }

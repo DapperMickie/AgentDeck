@@ -3,6 +3,7 @@ using AgentDeck.Shared;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
+using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Options;
 using RdpPoc.Contracts;
@@ -164,15 +165,31 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
             }
 
             var hubUrl = $"{coordinatorUrl}/hubs/runners?{AgentDeckQueryNames.Machine}={Uri.EscapeDataString(_options.MachineId)}";
+            var transportPolicy = ResolveControlChannelTransport(_options.ControlChannelTransport);
             var connection = new HubConnectionBuilder()
                 .WithUrl(hubUrl, options =>
                 {
                     options.Headers[AgentDeckHeaderNames.Machine] = _options.MachineId;
+                    options.Transports = transportPolicy.Transports;
+                    options.SkipNegotiation = transportPolicy.SkipNegotiation;
                 })
                 .WithAutomaticReconnect()
                 .Build();
+            connection.KeepAliveInterval = _options.ControlChannelKeepAliveInterval;
+            connection.ServerTimeout = _options.ControlChannelServerTimeout;
+            connection.HandshakeTimeout = _options.ControlChannelHandshakeTimeout;
 
             RegisterHandlers(connection);
+            _logger.LogInformation(
+                "Connecting runner control channel to coordinator at {CoordinatorUrl} for machine {MachineId} using transport policy {TransportPolicy} (transports: {Transports}; skip negotiation: {SkipNegotiation}; keepalive: {KeepAliveInterval}; server timeout: {ServerTimeout}; handshake timeout: {HandshakeTimeout})",
+                coordinatorUrl,
+                _options.MachineId,
+                _options.ControlChannelTransport,
+                transportPolicy.Transports,
+                transportPolicy.SkipNegotiation,
+                _options.ControlChannelKeepAliveInterval,
+                _options.ControlChannelServerTimeout,
+                _options.ControlChannelHandshakeTimeout);
             await connection.StartAsync(cancellationToken);
             _connectionState.Connection = connection;
             shouldRepublishState = true;
@@ -303,6 +320,14 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         connection.On<VirtualDeviceLaunchSelection, Task<VirtualDeviceLaunchResolution?>>(nameof(IRunnerControlClient.ResolveVirtualDeviceAsync),
             selection => ResolveVirtualDeviceAsync(selection));
     }
+
+    private static (HttpTransportType Transports, bool SkipNegotiation) ResolveControlChannelTransport(RunnerControlChannelTransport transport) =>
+        transport switch
+        {
+            RunnerControlChannelTransport.WebSockets => (HttpTransportType.WebSockets, true),
+            RunnerControlChannelTransport.LongPolling => (HttpTransportType.LongPolling, false),
+            _ => (HttpTransportType.WebSockets | HttpTransportType.LongPolling, false)
+        };
 
     private async Task<OpenProjectOnRunnerResult?> OpenProjectAsync(OpenProjectOnRunnerRequest request, string actorId)
     {
