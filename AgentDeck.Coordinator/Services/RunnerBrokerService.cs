@@ -231,11 +231,6 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
             result?.BootstrapPending,
             result?.WorkspaceCreated,
             result?.RepositoryCloned);
-        if (result is not null && string.IsNullOrWhiteSpace(result.ProjectPath))
-        {
-            throw new InvalidOperationException($"Runner machine '{entry.Machine?.MachineName ?? entry.MachineId}' returned an empty workspace path while opening project '{request.ProjectId}'.");
-        }
-
         return result;
     }
 
