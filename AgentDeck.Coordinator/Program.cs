@@ -221,6 +221,11 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
                 return Results.NotFound();
             }
 
+            if (string.IsNullOrWhiteSpace(openedWorkspace.ProjectPath))
+            {
+                throw new InvalidOperationException($"Runner machine '{machine.MachineName}' returned an empty workspace path while opening project '{project.Id}'.");
+            }
+
             logger.LogInformation(
                 "Runner opened project {ProjectId} on machine {MachineId} at {ProjectPath} (created: {WorkspaceCreated}, cloned: {RepositoryCloned})",
                 project.Id,
