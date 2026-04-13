@@ -12,7 +12,7 @@ public interface IRunnerControlClient
 
     Task<WorkspaceInfo?> GetWorkspaceAsync();
     Task<OpenProjectOnRunnerResult?> OpenProjectAsync(OpenProjectOnRunnerRequest request, string actorId);
-    Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync();
+    Task<MachineCapabilitiesSnapshot> GetMachineCapabilitiesAsync();
     Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string capabilityId, MachineCapabilityInstallRequest request, string actorId);
     Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string capabilityId, string actorId);
     Task RetryMachineWorkflowPackAsync(string actorId);

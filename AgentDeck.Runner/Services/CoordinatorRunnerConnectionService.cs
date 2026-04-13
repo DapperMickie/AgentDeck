@@ -278,7 +278,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         connection.On<OpenProjectOnRunnerRequest, string, OpenProjectOnRunnerResult?>(nameof(IRunnerControlClient.OpenProjectAsync),
             (request, actorId) => OpenProjectAsync(request, actorId));
 
-        connection.On<MachineCapabilitiesSnapshot?>(nameof(IRunnerControlClient.GetMachineCapabilitiesAsync),
+        connection.On<MachineCapabilitiesSnapshot>(nameof(IRunnerControlClient.GetMachineCapabilitiesAsync),
             async () => await _capabilities.GetSnapshotAsync());
 
         connection.On<string, MachineCapabilityInstallRequest, string, MachineCapabilityInstallResult?>(nameof(IRunnerControlClient.InstallMachineCapabilityAsync),

@@ -72,7 +72,7 @@ public interface IAgentDeckClient
     Task<WorkspaceInfo?> GetWorkspaceAsync(string machineId, CancellationToken ct = default);
 
     /// <summary>Get supported CLI/SDK detection results for the selected runner machine via the coordinator.</summary>
-    Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken ct = default);
+    Task<MachineCapabilitiesSnapshot> GetMachineCapabilitiesAsync(string machineId, CancellationToken ct = default);
 
     /// <summary>Install a supported CLI or SDK on the selected runner machine via the coordinator.</summary>
     Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string machineId, string capabilityId, string? version = null, CancellationToken ct = default);

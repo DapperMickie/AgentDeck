@@ -238,7 +238,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
         return await _client.GetWorkspaceAsync(machine.Id, cancellationToken);
     }
 
-    public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default)
+    public async Task<MachineCapabilitiesSnapshot> GetMachineCapabilitiesAsync(RunnerMachineSettings machine, CancellationToken cancellationToken = default)
     {
         await EnsureMachineConnectedAsync(machine, cancellationToken);
         return await _client.GetMachineCapabilitiesAsync(machine.Id, cancellationToken);
