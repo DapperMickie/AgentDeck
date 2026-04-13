@@ -1,0 +1,407 @@
+@page "/machines/{MachineId}/viewers/{ViewerSessionId}"
+@inject IConnectionSettingsService SettingsService
+@inject ICoordinatorApiClient CoordinatorClient
+@inject IAgentDeckClient AgentClient
+@inject IToastService Toasts
+@inject NavigationManager Nav
+@inject RemoteViewerRelayClient ViewerClient
+@inject RemoteViewerInterop ViewerInterop
+@implements IAsyncDisposable
+
+<div class="project-page">
+    @if (_loading)
+    {
+        <div class="project-page__content">
+            <div class="empty-state">
+                <div class="empty-icon">◌</div>
+                <h2>Loading viewer</h2>
+            </div>
+        </div>
+    }
+    else if (ViewerClient.CurrentSession is null)
+    {
+        <div class="project-page__content">
+            <div class="empty-state">
+                <div class="empty-icon">⌂</div>
+                <h2>Viewer session not found</h2>
+                <p>The coordinator could no longer find that viewer session.</p>
+                <button class="btn btn-accent" @onclick="NavigateBack">Back</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        var session = ViewerClient.CurrentSession;
+        <div class="page-header project-page__header">
+            <div>
+                <h1>@session.Target.DisplayName</h1>
+                <p>@GetViewerSummary(session)</p>
+                @if (GetViewerControlNotice() is { } viewerControlNotice)
+                {
+                    <p class="project-template-target__note">@viewerControlNotice</p>
+                }
+            </div>
+            <div class="project-page__actions">
+                <button class="btn btn-accent" @onclick="NavigateBack">Back</button>
+                <button class="btn btn-accent" @onclick="RefreshAsync" disabled="@_busy">Refresh</button>
+                @if (CanOpenControlActions())
+                {
+                    @if (IsCurrentViewerControlledByCurrentCompanion())
+                    {
+                        <button class="btn btn-accent" @onclick="YieldControlAsync" disabled="@_busy">Yield control</button>
+                    }
+                    else if (HasAnotherCompanionControllingMachine())
+                    {
+                        <button class="btn btn-danger" @onclick="ForceTakeoverAsync" disabled="@_busy">Force take over</button>
+                    }
+                    else if (!ViewerClient.CanSendInput)
+                    {
+                        <button class="btn btn-accent" @onclick="TakeControlAsync" disabled="@_busy">Take control</button>
+                    }
+                }
+                <button class="btn btn-danger" @onclick="CloseViewerAsync" disabled="@_busy">Close viewer</button>
+            </div>
+        </div>
+
+        <div class="project-page__content remote-viewer-page">
+            <section class="dashboard-section-card remote-viewer-page__surface-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Live view</h2>
+                        <p>@ViewerClient.StatusMessage</p>
+                    </div>
+                    <span class="machine-badge">@session.Status</span>
+                </div>
+                <div id="@_viewerSurfaceId"
+                     class="remote-viewer-surface @(ViewerClient.CanSendInput ? "remote-viewer-surface--interactive" : "remote-viewer-surface--readonly")"
+                     tabindex="0">
+                    @if (!string.IsNullOrWhiteSpace(ViewerClient.CurrentFrameDataUrl))
+                    {
+                        <img src="@ViewerClient.CurrentFrameDataUrl" alt="Remote frame" draggable="false" />
+                    }
+                    else
+                    {
+                        <div class="viewer-placeholder">
+                            <p>No live frame yet.</p>
+                            <p>@GetViewerPlaceholderMessage()</p>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <section class="dashboard-section-card remote-viewer-page__details-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <h2>Session details</h2>
+                        <p>Coordinator-managed viewer metadata for this live relay session.</p>
+                    </div>
+                </div>
+                <dl class="surface-details-list">
+                    <div>
+                        <dt>Machine</dt>
+                        <dd>@(session.MachineName ?? session.MachineId ?? "Unknown machine")</dd>
+                    </div>
+                    <div>
+                        <dt>Target</dt>
+                        <dd>@session.Target.Kind • @session.Target.DisplayName</dd>
+                    </div>
+                    <div>
+                        <dt>Provider</dt>
+                        <dd>@session.Provider</dd>
+                    </div>
+                    <div>
+                        <dt>Status</dt>
+                        <dd>@(session.StatusMessage ?? session.Status.ToString())</dd>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(session.ConnectionUri))
+                    {
+                        <div>
+                            <dt>Relay</dt>
+                            <dd><code>@session.ConnectionUri</code></dd>
+                        </div>
+                    }
+                    @if (ViewerClient.RemoteControlState is { } remoteControlState)
+                    {
+                        <div>
+                            <dt>Controller</dt>
+                            <dd>@(IsCurrentRemoteController(remoteControlState) ? "You" : (remoteControlState.ControllerDisplayName ?? remoteControlState.ControllerCompanionId))</dd>
+                        </div>
+                    }
+                    <div>
+                        <dt>Input</dt>
+                        <dd>@(ViewerClient.CanSendInput ? "Interactive" : "View-only")</dd>
+                    </div>
+                </dl>
+                @if (!ViewerClient.SupportsInAppViewer)
+                {
+                    <p class="surface-details-card__note">This viewer session does not expose the managed relay details the in-app viewer needs.</p>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string MachineId { get; set; } = string.Empty;
+    [Parameter] public string ViewerSessionId { get; set; } = string.Empty;
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    private readonly string _viewerSurfaceId = $"viewer-{Guid.NewGuid():N}";
+    private DotNetObjectReference<RemoteViewer>? _dotNetReference;
+    private bool _loading = true;
+    private bool _busy;
+    private string? _coordinatorUrl;
+
+    protected override Task OnInitializedAsync()
+    {
+        ViewerClient.Changed += OnViewerChanged;
+        return Task.CompletedTask;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        try
+        {
+            _coordinatorUrl = (await SettingsService.LoadAsync()).CoordinatorUrl;
+            if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+            {
+                Toasts.Show("Connect to a coordinator before opening viewers.", ToastKind.Warning);
+                await ViewerClient.DisconnectAsync();
+                return;
+            }
+
+            await ViewerClient.LoadAsync(_coordinatorUrl, MachineId, ViewerSessionId);
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _dotNetReference = DotNetObjectReference.Create(this);
+        await ViewerInterop.AttachAsync(_viewerSurfaceId, _dotNetReference);
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        await RunBusyAsync(() => ViewerClient.RefreshAsync());
+    }
+
+    private async Task TakeControlAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await CoordinatorClient.UpdateMachineViewerControlAsync(_coordinatorUrl, MachineId, ViewerSessionId, ProjectSessionControlRequestMode.Request);
+            await ViewerClient.RefreshAsync();
+            await ViewerInterop.FocusAsync(_viewerSurfaceId);
+        });
+    }
+
+    private async Task ForceTakeoverAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await CoordinatorClient.UpdateMachineViewerControlAsync(_coordinatorUrl, MachineId, ViewerSessionId, ProjectSessionControlRequestMode.ForceTakeover);
+            await ViewerClient.RefreshAsync();
+            await ViewerInterop.FocusAsync(_viewerSurfaceId);
+        });
+    }
+
+    private async Task YieldControlAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await CoordinatorClient.UpdateMachineViewerControlAsync(_coordinatorUrl, MachineId, ViewerSessionId, ProjectSessionControlRequestMode.Yield);
+            await ViewerClient.RefreshAsync();
+        });
+    }
+
+    private async Task CloseViewerAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_coordinatorUrl))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            var closed = await CoordinatorClient.CloseMachineViewerSessionAsync(_coordinatorUrl, MachineId, ViewerSessionId);
+            if (closed is not null)
+            {
+                Toasts.Show(closed.StatusMessage ?? "Viewer session closed.", ToastKind.Info);
+            }
+
+            NavigateBack();
+        });
+    }
+
+    [JSInvokable]
+    public Task HandlePointer(
+        string eventType,
+        double x,
+        double y,
+        string? button,
+        int clickCount,
+        int wheelDeltaX,
+        int wheelDeltaY) =>
+        ViewerClient.SendPointerAsync(eventType, x, y, button, clickCount, wheelDeltaX, wheelDeltaY);
+
+    [JSInvokable]
+    public Task HandleKeyboard(string eventType, string code, bool alt, bool control, bool shift) =>
+        ViewerClient.SendKeyboardAsync(eventType, code, alt, control, shift);
+
+    private void NavigateBack()
+    {
+        Nav.NavigateTo(string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl);
+    }
+
+    private bool CanOpenControlActions() =>
+        ViewerClient.CurrentSession is not null &&
+        ViewerClient.CurrentSession.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+
+    private bool IsCurrentViewerControlledByCurrentCompanion() =>
+        ViewerClient.CurrentSession is not null &&
+        ViewerClient.RemoteControlState is not null &&
+        string.Equals(ViewerClient.RemoteControlState.ViewerSessionId, ViewerClient.CurrentSession.Id, StringComparison.OrdinalIgnoreCase) &&
+        IsCurrentRemoteController(ViewerClient.RemoteControlState);
+
+    private bool HasAnotherCompanionControllingMachine() =>
+        ViewerClient.RemoteControlState is not null && !IsCurrentRemoteController(ViewerClient.RemoteControlState);
+
+    private bool IsCurrentRemoteController(MachineRemoteControlState state) =>
+        !string.IsNullOrWhiteSpace(AgentClient.CompanionId) &&
+        string.Equals(state.ControllerCompanionId, AgentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
+
+    private string GetViewerPlaceholderMessage()
+    {
+        if (ViewerClient.CurrentSession is null)
+        {
+            return "The viewer session no longer exists.";
+        }
+
+        if (!ViewerClient.SupportsInAppViewer)
+        {
+            return "This viewer is not using the managed relay transport required for in-app viewing.";
+        }
+
+        return ViewerClient.StatusMessage;
+    }
+
+    private string GetViewerSummary(RemoteViewerSession session) =>
+        session.StatusMessage
+        ?? $"{session.Provider} • {session.Target.Kind} • {session.Status}";
+
+    private string? GetViewerControlNotice()
+    {
+        if (ViewerClient.CurrentSession is null)
+        {
+            return null;
+        }
+
+        var state = ViewerClient.RemoteControlState;
+        if (state is null)
+        {
+            return ViewerClient.CanSendInput
+                ? "You can interact with this viewer session."
+                : "This viewer session is currently view-only.";
+        }
+
+        var controllerLabel = string.IsNullOrWhiteSpace(state.ControllerDisplayName)
+            ? "Another companion"
+            : state.ControllerDisplayName;
+
+        if (string.Equals(state.ViewerSessionId, ViewerClient.CurrentSession.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return IsCurrentRemoteController(state)
+                ? "You currently control this viewer session."
+                : $"{controllerLabel} currently controls this viewer session.";
+        }
+
+        var activeTarget = state.TargetDisplayName ?? state.TargetKind.ToString();
+        return IsCurrentRemoteController(state)
+            ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote target."
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this viewer requires force takeover.";
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await action();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void OnViewerChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public async ValueTask DisposeAsync()
+    {
+        ViewerClient.Changed -= OnViewerChanged;
+        await ViewerClient.DisconnectAsync();
+
+        if (_dotNetReference is not null)
+        {
+            try
+            {
+                await ViewerInterop.DetachAsync(_viewerSurfaceId);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            _dotNetReference.Dispose();
+        }
+    }
+}

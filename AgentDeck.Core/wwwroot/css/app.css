@@ -685,6 +685,7 @@ main {
     display: flex;
     align-items: flex-start;
     justify-content: flex-end;
+    gap: 0.5rem;
 }
 
 .orchestration-form {
@@ -760,6 +761,45 @@ main {
     margin: 0.35rem 0 0;
     color: var(--color-subtext);
     font-size: 0.84rem;
+}
+
+.remote-viewer-page {
+    display: grid;
+    gap: 1rem;
+}
+
+.remote-viewer-surface {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    background: #0e1320;
+    overflow: hidden;
+    outline: none;
+}
+
+.remote-viewer-surface--interactive {
+    cursor: crosshair;
+}
+
+.remote-viewer-surface--readonly {
+    cursor: default;
+}
+
+.remote-viewer-surface img {
+    display: block;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    user-select: none;
+}
+
+.viewer-placeholder {
+    padding: 2rem;
+    text-align: center;
+    color: var(--color-subtext);
 }
 
 .surface-details-list {

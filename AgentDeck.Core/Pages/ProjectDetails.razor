@@ -361,6 +361,13 @@
                                     }
                                 </div>
                                 <div class="project-runtime-card__actions">
+                                    @if (CanOpenInAppViewer(viewer))
+                                    {
+                                        <button class="btn btn-accent"
+                                                @onclick="() => OpenViewerAsync(viewer)">
+                                            Open viewer
+                                        </button>
+                                    }
                                     @if (!string.IsNullOrWhiteSpace(viewer.MachineId) && CanControlViewer(viewer))
                                     {
                                         @if (remoteControlState is not null &&
@@ -936,6 +943,18 @@
         }
     }
 
+    private Task OpenViewerAsync(RemoteViewerSession viewer)
+    {
+        if (string.IsNullOrWhiteSpace(viewer.MachineId))
+        {
+            return Task.CompletedTask;
+        }
+
+        var returnUrl = Uri.EscapeDataString(Nav.Uri);
+        Nav.NavigateTo($"/machines/{Uri.EscapeDataString(viewer.MachineId)}/viewers/{Uri.EscapeDataString(viewer.Id)}?returnUrl={returnUrl}");
+        return Task.CompletedTask;
+    }
+
     private async Task<VirtualDeviceLaunchSelection?> BuildDeviceSelectionAsync(ProjectLaunchProfile profile, string machineId)
     {
         var selectedValue = GetSelectedDeviceChoice(profile, GetDeviceChoices(profile, machineId));
@@ -1381,6 +1400,12 @@
 
     private static bool CanControlViewer(RemoteViewerSession viewer) =>
         viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+
+    private static bool CanOpenInAppViewer(RemoteViewerSession viewer) =>
+        viewer.Provider == RemoteViewerProviderKind.Managed &&
+        viewer.Status == RemoteViewerSessionStatus.Ready &&
+        !string.IsNullOrWhiteSpace(viewer.MachineId) &&
+        !string.IsNullOrWhiteSpace(viewer.ConnectionUri);
 
     private bool CanCancelJob(OrchestrationJob job) =>
         _cancellingJobId != job.Id &&
