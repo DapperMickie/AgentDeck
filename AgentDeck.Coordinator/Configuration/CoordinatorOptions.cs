@@ -39,4 +39,6 @@ public sealed class CoordinatorOptions
     public TimeSpan RunnerControlClientTimeoutInterval { get; set; } = TimeSpan.FromSeconds(60);
 
     public TimeSpan RunnerControlHandshakeTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    public long RunnerControlMaximumReceiveMessageSize { get; set; } = 1024 * 1024;
 }

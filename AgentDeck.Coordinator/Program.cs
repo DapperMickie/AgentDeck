@@ -25,6 +25,7 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = coordinatorOptions.RunnerControlKeepAliveInterval;
     options.ClientTimeoutInterval = coordinatorOptions.RunnerControlClientTimeoutInterval;
     options.HandshakeTimeout = coordinatorOptions.RunnerControlHandshakeTimeout;
+    options.MaximumReceiveMessageSize = coordinatorOptions.RunnerControlMaximumReceiveMessageSize;
 });
 builder.Services.AddSingleton<ICoordinatorArtifactService, CoordinatorArtifactService>();
 builder.Services.AddSingleton<IRunnerDefinitionCatalogService, RunnerDefinitionCatalogService>();

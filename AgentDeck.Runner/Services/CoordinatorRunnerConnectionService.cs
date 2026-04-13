@@ -12,6 +12,10 @@ namespace AgentDeck.Runner.Services;
 
 public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsyncDisposable
 {
+    // Keep a bounded recent history so coordinator/app surfaces retain context without replaying full PTY-scale logs.
+    private const int CoordinatorTransportJobLogCountLimit = 10;
+    private const int CoordinatorTransportMessageLengthLimit = 2048;
+
     private readonly WorkerCoordinatorOptions _options;
     private readonly ITerminalSessionService _terminalSessions;
     private readonly IPtyProcessManager _ptyManager;
@@ -291,7 +295,8 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
             actorId => RetryWorkflowPackAsync(actorId));
 
         connection.On<IReadOnlyList<OrchestrationJob>>(nameof(IRunnerControlClient.GetOrchestrationJobsAsync),
-            () => Task.FromResult(_jobs.GetAll()));
+            () => Task.FromResult<IReadOnlyList<OrchestrationJob>>(
+                [.. _jobs.GetAll().Select(job => SanitizeOrchestrationJobForCoordinatorTransport(job))]));
 
         connection.On<CreateOrchestrationJobRequest, string, OrchestrationJob?>(nameof(IRunnerControlClient.QueueOrchestrationJobAsync),
             (request, actorId) => QueueOrchestrationJobAsync(request, actorId));
@@ -473,7 +478,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         var job = _jobs.Queue(request);
         _execution.Start(job.Id);
         _audit.Record(decision, RunnerAuditOutcome.Succeeded, $"Queued orchestration job '{job.Id}' for launch profile '{request.LaunchProfileId}'.");
-        return Task.FromResult<OrchestrationJob?>(job);
+        return Task.FromResult<OrchestrationJob?>(SanitizeOrchestrationJobForCoordinatorTransport(job));
     }
 
     private async Task<OrchestrationJob?> CancelOrchestrationJobAsync(string jobId, string actorId)
@@ -493,7 +498,10 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
 
         await _execution.RequestCancellationAsync(jobId);
         _audit.Record(decision, RunnerAuditOutcome.Succeeded, $"Requested cancellation for orchestration job '{jobId}'.");
-        return _jobs.Get(jobId);
+        var job = _jobs.Get(jobId);
+        return job is null
+            ? null
+            : SanitizeOrchestrationJobForCoordinatorTransport(job);
     }
 
     private async Task<RemoteViewerSession> CreateViewerSessionAsync(CreateRemoteViewerSessionRequest request, string actorId)
@@ -596,7 +604,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
     {
         try
         {
-            await _publisher.PublishOrchestrationJobUpdatedAsync(job);
+            await _publisher.PublishOrchestrationJobUpdatedAsync(SanitizeOrchestrationJobForCoordinatorTransport(job));
         }
         catch (Exception ex)
         {
@@ -613,7 +621,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
 
         foreach (var job in _jobs.GetAll())
         {
-            await _publisher.PublishOrchestrationJobUpdatedAsync(job, cancellationToken);
+            await _publisher.PublishOrchestrationJobUpdatedAsync(SanitizeOrchestrationJobForCoordinatorTransport(job), cancellationToken);
         }
 
         foreach (var viewer in _viewers.GetAll())
@@ -635,5 +643,70 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
                     cancellationToken);
             }
         }
+    }
+
+    private static OrchestrationJob SanitizeOrchestrationJobForCoordinatorTransport(OrchestrationJob job)
+    {
+        return new OrchestrationJob
+        {
+            Id = job.Id,
+            ProjectId = job.ProjectId,
+            ProjectName = job.ProjectName,
+            ProjectSessionId = job.ProjectSessionId,
+            LaunchProfileId = job.LaunchProfileId,
+            LaunchProfileName = job.LaunchProfileName,
+            Platform = job.Platform,
+            Mode = job.Mode,
+            LaunchDriver = job.LaunchDriver,
+            TargetMachineRole = job.TargetMachineRole,
+            TargetMachineId = job.TargetMachineId,
+            TargetMachineName = job.TargetMachineName,
+            WorkingDirectory = job.WorkingDirectory,
+            BuildCommand = job.BuildCommand,
+            LaunchCommand = job.LaunchCommand,
+            BootstrapCommand = job.BootstrapCommand,
+            DebugConfigurationName = job.DebugConfigurationName,
+            DeviceSelection = job.DeviceSelection,
+            Status = job.Status,
+            SessionId = job.SessionId,
+            ViewerSessionId = job.ViewerSessionId,
+            ExitCode = job.ExitCode,
+            StatusMessage = TrimCoordinatorTransportText(job.StatusMessage),
+            CreatedAt = job.CreatedAt,
+            UpdatedAt = job.UpdatedAt,
+            Steps =
+            [
+                .. job.Steps.Select(step => new OrchestrationJobStep
+                {
+                    Name = step.Name,
+                    Status = step.Status,
+                    Message = TrimCoordinatorTransportText(step.Message),
+                    StartedAt = step.StartedAt,
+                    CompletedAt = step.CompletedAt
+                })
+            ],
+            Logs =
+            [
+                .. job.Logs
+                    .TakeLast(CoordinatorTransportJobLogCountLimit)
+                    .Select(log => new OrchestrationJobLogEntry
+                    {
+                        Timestamp = log.Timestamp,
+                        Level = log.Level,
+                        Message = TrimCoordinatorTransportText(log.Message) ?? string.Empty,
+                        MachineId = log.MachineId
+                    })
+            ]
+        };
+    }
+
+    private static string? TrimCoordinatorTransportText(string? value)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= CoordinatorTransportMessageLengthLimit)
+        {
+            return value;
+        }
+
+        return $"{value[..CoordinatorTransportMessageLengthLimit]}...";
     }
 }
