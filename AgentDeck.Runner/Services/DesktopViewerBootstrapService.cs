@@ -153,15 +153,21 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
     private static readonly TimeSpan OutputDrainTimeout = TimeSpan.FromSeconds(5);
     private readonly ConcurrentDictionary<string, ActiveDesktopTransport> _activeTransports = new();
     private readonly IRemoteViewerSessionService _viewers;
+    private readonly IManagedViewerRelayService _managedRelay;
+    private readonly IRunnerConnectionUrlResolver _connectionUrlResolver;
     private readonly DesktopViewerTransportOptions _transportOptions;
     private readonly ILogger<DesktopViewerBootstrapService> _logger;
 
     public DesktopViewerBootstrapService(
         IRemoteViewerSessionService viewers,
+        IManagedViewerRelayService managedRelay,
+        IRunnerConnectionUrlResolver connectionUrlResolver,
         IOptions<DesktopViewerTransportOptions> transportOptions,
         ILogger<DesktopViewerBootstrapService> logger)
     {
         _viewers = viewers;
+        _managedRelay = managedRelay;
+        _connectionUrlResolver = connectionUrlResolver;
         _transportOptions = transportOptions.Value;
         _logger = logger;
     }
@@ -169,6 +175,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
     public async Task<RemoteViewerSession?> BootstrapAsync(
         string sessionId,
         string? connectionHost = null,
+        string? connectionBaseUri = null,
         CancellationToken cancellationToken = default)
     {
         var session = _viewers.Get(sessionId);
@@ -185,10 +192,11 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
         session = preparingResult.Session ?? session;
         var connectionTarget = ResolveConnectionHost(connectionHost);
+        var resolvedConnectionBaseUri = _connectionUrlResolver.ResolveBaseUrl(connectionBaseUri);
 
         try
         {
-            var outcome = await BootstrapTransportAsync(session, connectionTarget, cancellationToken);
+            var outcome = await BootstrapTransportAsync(session, connectionTarget, resolvedConnectionBaseUri, cancellationToken);
             if (outcome.Process is not null)
             {
                 await RegisterActiveTransportAsync(session, outcome.Process, outcome.OutputCapture);
@@ -201,6 +209,10 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
                 AccessToken = outcome.AccessToken,
                 Message = outcome.Message
             });
+            if (updateResult.Session is not null && session.Provider == RemoteViewerProviderKind.Managed)
+            {
+                await _managedRelay.PublishSessionUpdatedAsync(updateResult.Session, cancellationToken);
+            }
 
             if (updateResult.Session is null && outcome.Process is not null)
             {
@@ -224,6 +236,11 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
         catch (OperationCanceledException)
         {
+            if (session.Provider == RemoteViewerProviderKind.Managed)
+            {
+                await _managedRelay.StopAsync(sessionId, CancellationToken.None);
+            }
+
             if (_activeTransports.TryRemove(sessionId, out var activeTransport))
             {
                 await activeTransport.StopAsync();
@@ -239,6 +256,10 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
                 Status = RemoteViewerSessionStatus.Failed,
                 Message = ex.Message
             });
+            if (failedResult.Session is not null && session.Provider == RemoteViewerProviderKind.Managed)
+            {
+                await _managedRelay.PublishSessionUpdatedAsync(failedResult.Session, cancellationToken);
+            }
 
             return failedResult.Session ?? _viewers.Get(sessionId);
         }
@@ -249,17 +270,30 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         string? message = null,
         CancellationToken cancellationToken = default)
     {
+        var existingSession = _viewers.Get(sessionId);
+        if (existingSession?.Provider == RemoteViewerProviderKind.Managed)
+        {
+            await _managedRelay.StopAsync(sessionId, cancellationToken);
+        }
+
         if (_activeTransports.TryRemove(sessionId, out var activeTransport))
         {
             await activeTransport.StopAsync();
         }
 
-        return _viewers.Close(sessionId, message ?? "Viewer session closed.");
+        var result = _viewers.Close(sessionId, message ?? "Viewer session closed.");
+        if (result.Session is not null && existingSession?.Provider == RemoteViewerProviderKind.Managed)
+        {
+            await _managedRelay.PublishSessionUpdatedAsync(result.Session, cancellationToken);
+        }
+
+        return result;
     }
 
     private async Task<BootstrapOutcome> BootstrapTransportAsync(
         RemoteViewerSession session,
         string connectionHost,
+        string connectionBaseUri,
         CancellationToken cancellationToken)
     {
         if (session.Provider != RemoteViewerProviderKind.Managed &&
@@ -271,7 +305,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
 
         return session.Provider switch
         {
-            RemoteViewerProviderKind.Managed => await BootstrapManagedAsync(session, connectionHost, cancellationToken),
+            RemoteViewerProviderKind.Managed => await BootstrapManagedAsync(session, connectionHost, connectionBaseUri, cancellationToken),
             RemoteViewerProviderKind.Rdp => BootstrapRdp(session, connectionHost),
             RemoteViewerProviderKind.ScreenSharing => BootstrapScreenSharing(session, connectionHost),
             RemoteViewerProviderKind.Vnc => await BootstrapVncAsync(session, connectionHost, cancellationToken),
@@ -284,6 +318,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
     private async Task<BootstrapOutcome> BootstrapManagedAsync(
         RemoteViewerSession session,
         string connectionHost,
+        string connectionBaseUri,
         CancellationToken cancellationToken)
     {
         var options = _transportOptions.Managed;
@@ -291,6 +326,15 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         {
             throw new InvalidOperationException(
                 "AgentDeck-managed viewer transport is not configured on this runner. Set DesktopViewerTransport:Managed options before requesting the managed provider.");
+        }
+
+        if (options.UseEmbeddedRelay)
+        {
+            var relay = await _managedRelay.StartAsync(session, connectionBaseUri, cancellationToken);
+            return new BootstrapOutcome(
+                ConnectionUri: relay.ConnectionUri,
+                AccessToken: relay.AccessToken,
+                Message: relay.Message);
         }
 
         var port = ReserveTcpPort();

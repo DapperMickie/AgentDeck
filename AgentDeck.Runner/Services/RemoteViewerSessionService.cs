@@ -313,7 +313,9 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
                 RemoteViewerTargetKind.VsCode
             ],
             RequiresInteractiveDesktop = true,
-            Notes = "Runner launches a configured AgentDeck-managed helper and advertises its connection URI for supported viewer targets."
+            Notes = _desktopTransportOptions.Managed.UseEmbeddedRelay
+                ? "Runner captures desktop/window targets directly through the embedded AgentDeck-managed relay transport."
+                : "Runner launches a configured AgentDeck-managed helper and advertises its connection URI for supported viewer targets."
         };
     }
 
