@@ -6,6 +6,7 @@
 @inject IActiveSessionService ActiveSession
 @inject IAgentDeckClient AgentClient
 @inject IToastService Toasts
+@inject NavigationManager Nav
 @implements IAsyncDisposable
 
 <div class="project-page">
@@ -205,6 +206,13 @@
                         @if (_activeSurface.Viewer is not null && CanControlActiveViewer())
                         {
                             <div class="project-runtime-card__actions">
+                                @if (CanOpenInAppViewer(_activeSurface.Viewer))
+                                {
+                                    <button class="btn btn-accent"
+                                            @onclick="() => OpenViewerAsync(_activeSurface.Viewer)">
+                                        Open viewer
+                                    </button>
+                                }
                                 @if (IsActiveViewerControlledByCurrentCompanion())
                                 {
                                     <button class="btn btn-accent"
@@ -822,6 +830,18 @@
         }
     }
 
+    private Task OpenViewerAsync(RemoteViewerSession viewer)
+    {
+        if (string.IsNullOrWhiteSpace(viewer.MachineId))
+        {
+            return Task.CompletedTask;
+        }
+
+        var returnUrl = Uri.EscapeDataString(Nav.Uri);
+        Nav.NavigateTo($"/machines/{Uri.EscapeDataString(viewer.MachineId)}/viewers/{Uri.EscapeDataString(viewer.Id)}?returnUrl={returnUrl}");
+        return Task.CompletedTask;
+    }
+
     private async Task CloseActiveViewerAsync()
     {
         if (string.IsNullOrWhiteSpace(_coordinatorUrl) ||
@@ -889,6 +909,12 @@
     private bool CanControlActiveViewer() =>
         _activeSurface?.Viewer is not null &&
         _activeSurface.Viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+
+    private static bool CanOpenInAppViewer(RemoteViewerSession viewer) =>
+        viewer.Provider == RemoteViewerProviderKind.Managed &&
+        viewer.Status == RemoteViewerSessionStatus.Ready &&
+        !string.IsNullOrWhiteSpace(viewer.MachineId) &&
+        !string.IsNullOrWhiteSpace(viewer.ConnectionUri);
 
     private bool IsActiveViewerControlledByCurrentCompanion() =>
         _activeSurface?.Viewer is not null &&
