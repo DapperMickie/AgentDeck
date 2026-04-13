@@ -249,9 +249,16 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
             return GetCachedOrchestrationJobs(machineId);
         }
 
-        var jobs = await InvokeRunnerAsync(entry, "list orchestration jobs", client => client.GetOrchestrationJobsAsync(), retryOnReconnect: true, cancellationToken);
-        ReplaceOrchestrationJobs(entry.MachineId, jobs);
-        return jobs;
+        try
+        {
+            var jobs = await InvokeRunnerAsync(entry, "list orchestration jobs", client => client.GetOrchestrationJobsAsync(), retryOnReconnect: true, cancellationToken);
+            ReplaceOrchestrationJobs(entry.MachineId, jobs);
+            return jobs;
+        }
+        catch (InvalidOperationException)
+        {
+            return GetCachedOrchestrationJobs(machineId);
+        }
     }
 
     public async Task<OrchestrationJob?> QueueOrchestrationJobAsync(string machineId, CreateOrchestrationJobRequest request, string actorId, CancellationToken cancellationToken = default)
@@ -286,10 +293,17 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
             return GetCachedViewerSessions(machineId);
         }
 
-        var sessions = await InvokeRunnerAsync(entry, "list viewer sessions", client => client.GetViewerSessionsAsync(), retryOnReconnect: true, cancellationToken);
-        var annotated = sessions.Select(session => AnnotateViewerSession(entry.MachineId, session)).ToArray();
-        ReplaceViewerSessions(entry.MachineId, annotated);
-        return annotated;
+        try
+        {
+            var sessions = await InvokeRunnerAsync(entry, "list viewer sessions", client => client.GetViewerSessionsAsync(), retryOnReconnect: true, cancellationToken);
+            var annotated = sessions.Select(session => AnnotateViewerSession(entry.MachineId, session)).ToArray();
+            ReplaceViewerSessions(entry.MachineId, annotated);
+            return annotated;
+        }
+        catch (InvalidOperationException)
+        {
+            return GetCachedViewerSessions(machineId);
+        }
     }
 
     public async Task<RemoteViewerSession> CreateViewerSessionAsync(string machineId, CreateRemoteViewerSessionRequest request, string actorId, CancellationToken cancellationToken = default)
