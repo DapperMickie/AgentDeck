@@ -29,7 +29,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     private readonly ConcurrentDictionary<string, ActiveRelaySession> _activeSessions = new(StringComparer.Ordinal);
     private readonly IRemoteViewerSessionService _viewers;
     private readonly IHubContext<ManagedViewerRelayHub> _hubContext;
-    private readonly CoordinatorRunnerConnectionService _coordinatorConnection;
+    private readonly ICoordinatorRunnerPublisher _coordinatorPublisher;
     private readonly ManagedDesktopViewerTransportOptions _options;
     private readonly ILogger<ManagedViewerRelayService> _logger;
     private readonly IHostCapturePlatform _capturePlatform;
@@ -38,13 +38,13 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     public ManagedViewerRelayService(
         IRemoteViewerSessionService viewers,
         IHubContext<ManagedViewerRelayHub> hubContext,
-        CoordinatorRunnerConnectionService coordinatorConnection,
+        ICoordinatorRunnerPublisher coordinatorPublisher,
         IOptions<DesktopViewerTransportOptions> transportOptions,
         ILogger<ManagedViewerRelayService> logger)
     {
         _viewers = viewers;
         _hubContext = hubContext;
-        _coordinatorConnection = coordinatorConnection;
+        _coordinatorPublisher = coordinatorPublisher;
         _options = transportOptions.Value.Managed;
         _logger = logger;
         _capturePlatform = HostCapturePlatformFactory.Create();
@@ -380,14 +380,14 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     {
         await _hubContext.Clients.Group(ManagedViewerRelayHub.GetViewerGroupName(session.Id))
             .SendAsync("SessionUpdated", session, cancellationToken);
-        await _coordinatorConnection.PublishViewerSessionUpdatedAsync(session, cancellationToken);
+        await _coordinatorPublisher.PublishViewerSessionUpdatedAsync(session, cancellationToken);
     }
 
     private async Task PublishFrameAsync(string sessionId, RelayFrame frame, CancellationToken cancellationToken)
     {
         await _hubContext.Clients.Group(ManagedViewerRelayHub.GetViewerGroupName(sessionId))
             .SendAsync("FramePublished", frame, cancellationToken);
-        await _coordinatorConnection.PublishViewerFrameAsync(
+        await _coordinatorPublisher.PublishViewerFrameAsync(
             new RemoteViewerRelayFrame(
                 sessionId,
                 frame.SequenceId,
