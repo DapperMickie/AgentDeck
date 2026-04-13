@@ -250,12 +250,16 @@ export function attach(elementId, dotNetReference) {
     const preventDefault = event => event.preventDefault();
 
     const onKeyDown = event => {
-        dotNetReference.invokeMethodAsync("HandleKeyboard", "keydown", event.code, event.altKey, event.ctrlKey, event.shiftKey);
+        dotNetReference
+            .invokeMethodAsync("HandleKeyboard", "keydown", event.code, event.altKey, event.ctrlKey, event.shiftKey)
+            .catch(() => {});
         event.preventDefault();
     };
 
     const onKeyUp = event => {
-        dotNetReference.invokeMethodAsync("HandleKeyboard", "keyup", event.code, event.altKey, event.ctrlKey, event.shiftKey);
+        dotNetReference
+            .invokeMethodAsync("HandleKeyboard", "keyup", event.code, event.altKey, event.ctrlKey, event.shiftKey)
+            .catch(() => {});
         event.preventDefault();
     };
 
