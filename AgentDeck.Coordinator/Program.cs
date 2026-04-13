@@ -189,6 +189,16 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
         TerminalSession? session = null;
         try
         {
+            logger.LogInformation(
+                "Opening project {ProjectId} ({ProjectName}) on machine {MachineId} ({MachineName}); existing workspace: {ExistingWorkspacePath}; companion: {CompanionId}; session: {ProjectSessionId}",
+                project.Id,
+                project.Name,
+                machine.MachineId,
+                machine.MachineName,
+                existingWorkspace?.ProjectPath ?? "<none>",
+                companionId ?? "<none>",
+                projectSession.Id);
+
             openedWorkspace = await runners.OpenProjectAsync(
                 machineId,
                 new OpenProjectOnRunnerRequest
@@ -203,9 +213,21 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
 
             if (openedWorkspace is null)
             {
+                logger.LogWarning(
+                    "Runner returned no workspace while opening project {ProjectId} on machine {MachineId}",
+                    project.Id,
+                    machine.MachineId);
                 projectSessions.RemoveSession(projectSession.Id);
                 return Results.NotFound();
             }
+
+            logger.LogInformation(
+                "Runner opened project {ProjectId} on machine {MachineId} at {ProjectPath} (created: {WorkspaceCreated}, cloned: {RepositoryCloned})",
+                project.Id,
+                machine.MachineId,
+                openedWorkspace.ProjectPath,
+                openedWorkspace.WorkspaceCreated,
+                openedWorkspace.RepositoryCloned);
 
             workspaceMapping = new ProjectWorkspaceMapping
             {
@@ -220,6 +242,14 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
                 Name = $"{project.Name} ({machine.MachineName})",
                 WorkingDirectory = openedWorkspace.ProjectPath
             }, cancellationToken);
+
+            logger.LogInformation(
+                "Created project terminal session {TerminalSessionId} for project {ProjectId} on machine {MachineId} in {WorkingDirectory}",
+                session.Id,
+                project.Id,
+                machine.MachineId,
+                openedWorkspace.ProjectPath);
+
             if (!string.IsNullOrWhiteSpace(companionId))
             {
                 companions.AttachSession(companionId, session.Id);
@@ -249,6 +279,14 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
         }
         catch (Exception ex)
         {
+            logger.LogError(
+                ex,
+                "Open-project flow failed for project {ProjectId} on machine {MachineId}; workspacePath: {ProjectPath}; terminalSession: {TerminalSessionId}; projectSession: {ProjectSessionId}",
+                project.Id,
+                machine.MachineId,
+                openedWorkspace?.ProjectPath ?? workspaceMapping?.ProjectPath ?? "<unknown>",
+                session?.Id ?? "<none>",
+                projectSession.Id);
             try
             {
                 projectSessions.RemoveSession(projectSession.Id);

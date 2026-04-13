@@ -213,7 +213,23 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     public async Task<OpenProjectOnRunnerResult?> OpenProjectAsync(string machineId, OpenProjectOnRunnerRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        return await InvokeRunnerAsync(entry, "open project", client => client.OpenProjectAsync(request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
+        _logger.LogInformation(
+            "Brokering project open for project {ProjectId} ({ProjectName}) on machine {MachineName} ({MachineId}); existing workspace: {ExistingWorkspacePath}; repository: {RepositoryUrl}",
+            request.ProjectId,
+            request.ProjectName,
+            entry.Machine?.MachineName ?? machineId,
+            machineId,
+            request.ExistingWorkspacePath ?? "<none>",
+            string.IsNullOrWhiteSpace(request.Repository.Url) ? "<none>" : request.Repository.Url);
+        var result = await InvokeRunnerAsync(entry, "open project", client => client.OpenProjectAsync(request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
+        _logger.LogInformation(
+            "Runner responded to project open for {ProjectId} on machine {MachineId} with path {ProjectPath} (created: {WorkspaceCreated}, cloned: {RepositoryCloned})",
+            request.ProjectId,
+            machineId,
+            result?.ProjectPath ?? "<none>",
+            result?.WorkspaceCreated,
+            result?.RepositoryCloned);
+        return result;
     }
 
     public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken cancellationToken = default)
