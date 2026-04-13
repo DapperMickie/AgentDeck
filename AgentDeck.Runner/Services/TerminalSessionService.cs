@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
@@ -12,6 +13,7 @@ public sealed class TerminalSessionService : ITerminalSessionService
     private readonly IWorkspaceService _workspaceService;
     private readonly RunnerOptions _options;
     private readonly ILogger<TerminalSessionService> _logger;
+    private readonly ConcurrentDictionary<string, Task<TerminalSession>> _pendingCreates = new(StringComparer.OrdinalIgnoreCase);
 
     public TerminalSessionService(
         IPtyProcessManager ptyManager,
@@ -29,7 +31,39 @@ public sealed class TerminalSessionService : ITerminalSessionService
 
     public async Task<TerminalSession> CreateSessionAsync(CreateTerminalRequest request, CancellationToken cancellationToken = default)
     {
-        var sessionId = Guid.NewGuid().ToString("N");
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!string.IsNullOrWhiteSpace(request.RequestedSessionId))
+        {
+            var requestedSessionId = request.RequestedSessionId.Trim();
+            if (_sessionStore.Get(requestedSessionId) is { } existingSession &&
+                _ptyManager.IsActive(requestedSessionId))
+            {
+                _logger.LogInformation(
+                    "Reusing existing terminal session {SessionId} ({Name}) for idempotent create request.",
+                    existingSession.Id,
+                    existingSession.Name);
+                return existingSession;
+            }
+
+            var createTask = _pendingCreates.GetOrAdd(
+                requestedSessionId,
+                _ => CreateSessionCoreAsync(request, requestedSessionId, cancellationToken));
+            try
+            {
+                return await createTask;
+            }
+            finally
+            {
+                _pendingCreates.TryRemove(requestedSessionId, out _);
+            }
+        }
+
+        return await CreateSessionCoreAsync(request, Guid.NewGuid().ToString("N"), cancellationToken);
+    }
+
+    private async Task<TerminalSession> CreateSessionCoreAsync(CreateTerminalRequest request, string sessionId, CancellationToken cancellationToken)
+    {
         var workingDir = ResolveWorkingDirectory(request.WorkingDirectory);
         var command = ResolveCommand(request.Command);
         var arguments = request.Arguments;
@@ -78,6 +112,7 @@ public sealed class TerminalSessionService : ITerminalSessionService
                 FormatArguments(launchArguments));
             session.Status = TerminalStatus.Error;
             _sessionStore.Update(session);
+            _sessionStore.Remove(sessionId);
             throw new TerminalSessionStartException(session, ex);
         }
 

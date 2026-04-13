@@ -3,6 +3,9 @@ namespace AgentDeck.Shared.Models;
 /// <summary>Request payload for creating a new terminal session.</summary>
 public sealed class CreateTerminalRequest
 {
+    /// <summary>Optional stable identifier for idempotent terminal creation across reconnect retries.</summary>
+    public string? RequestedSessionId { get; init; }
+
     /// <summary>Human-readable display name for the session.</summary>
     public required string Name { get; init; }
 
