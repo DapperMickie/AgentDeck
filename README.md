@@ -156,7 +156,11 @@ Coordinator configuration (`AgentDeck.Coordinator/appsettings.json`):
       "AllowUpdateApply": false
     },
     "WorkerHeartbeatInterval": "00:00:15",
-    "WorkerExpiry": "00:00:45"
+    "WorkerExpiry": "00:00:45",
+    "RunnerControlKeepAliveInterval": "00:00:15",
+    "RunnerControlClientTimeoutInterval": "00:01:00",
+    "RunnerControlHandshakeTimeout": "00:00:30",
+    "RunnerControlMaximumReceiveMessageSize": 1048576
   }
 }
 ```
