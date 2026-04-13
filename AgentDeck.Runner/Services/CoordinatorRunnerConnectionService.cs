@@ -31,6 +31,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
     private readonly ICoordinatorRunnerPublisher _publisher;
     private readonly ILogger<CoordinatorRunnerConnectionService> _logger;
     private readonly CoordinatorRunnerConnectionState _connectionState;
+    private CancellationToken _serviceStoppingToken;
 
     public CoordinatorRunnerConnectionService(
         IOptions<WorkerCoordinatorOptions> options,
@@ -79,6 +80,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _serviceStoppingToken = stoppingToken;
         if (string.IsNullOrWhiteSpace(_options.CoordinatorUrl))
         {
             return;
@@ -189,14 +191,48 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
 
     private void RegisterHandlers(HubConnection connection)
     {
+        connection.Reconnecting += exception =>
+        {
+            _logger.LogWarning(
+                exception,
+                "Runner control channel reconnecting for machine {MachineId}. Previous connection id: {ConnectionId}; state: {ConnectionState}",
+                _options.MachineId,
+                connection.ConnectionId ?? "<none>",
+                connection.State);
+            return Task.CompletedTask;
+        };
+
         connection.Reconnected += async _ =>
         {
-            await RepublishCoordinatorStateAsync(CancellationToken.None);
-            _logger.LogInformation("Replayed runner state after reconnecting coordinator control channel for machine {MachineId}", _options.MachineId);
+            _logger.LogInformation(
+                "Runner control channel reconnected for machine {MachineId}. New connection id: {ConnectionId}; state: {ConnectionState}",
+                _options.MachineId,
+                connection.ConnectionId ?? "<none>",
+                connection.State);
+            try
+            {
+                await RepublishCoordinatorStateAsync(_serviceStoppingToken);
+                _logger.LogInformation("Replayed runner state after reconnecting coordinator control channel for machine {MachineId}", _options.MachineId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to replay runner state after reconnecting coordinator control channel for machine {MachineId}", _options.MachineId);
+            }
+        };
+
+        connection.Closed += exception =>
+        {
+            _logger.LogWarning(
+                exception,
+                "Runner control channel closed for machine {MachineId}. Last connection id: {ConnectionId}; state: {ConnectionState}",
+                _options.MachineId,
+                connection.ConnectionId ?? "<none>",
+                connection.State);
+            return Task.CompletedTask;
         };
 
         connection.On<CreateTerminalRequest, Task<TerminalSession>>(nameof(IRunnerControlClient.CreateSessionAsync),
-            request => _terminalSessions.CreateSessionAsync(request));
+            request => CreateSessionWithDiagnosticsAsync(request));
 
         connection.On<string, Task>(nameof(IRunnerControlClient.CloseSessionAsync), async sessionId =>
         {
@@ -211,7 +247,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         });
 
         connection.On<Task<IReadOnlyList<TerminalSession>>>(nameof(IRunnerControlClient.GetSessionsAsync),
-            () => Task.FromResult(_sessionStore.GetAll()));
+            () => GetSessionsWithDiagnosticsAsync());
 
         connection.On<string, string, Task>(nameof(IRunnerControlClient.SendInputAsync),
             (sessionId, data) => _ptyManager.WriteAsync(sessionId, data));
@@ -277,17 +313,75 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
             request.ExistingWorkspacePath ?? "<none>",
             string.IsNullOrWhiteSpace(request.Repository.Url) ? "<none>" : request.Repository.Url,
             actorId);
+        try
+        {
+            var result = await _projectBootstrap.OpenProjectAsync(request);
 
-        var result = await _projectBootstrap.OpenProjectAsync(request);
+            _logger.LogInformation(
+                "Runner completed brokered project open for {ProjectId} with path {ProjectPath} (created: {WorkspaceCreated}, cloned: {RepositoryCloned})",
+                request.ProjectId,
+                result.ProjectPath,
+                result.WorkspaceCreated,
+                result.RepositoryCloned);
 
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Runner brokered project open failed for {ProjectId} ({ProjectName}); existing workspace: {ExistingWorkspacePath}; repository: {RepositoryUrl}; actor: {ActorId}",
+                request.ProjectId,
+                request.ProjectName ?? "<unnamed>",
+                request.ExistingWorkspacePath ?? "<none>",
+                string.IsNullOrWhiteSpace(request.Repository.Url) ? "<none>" : request.Repository.Url,
+                actorId);
+            throw;
+        }
+    }
+
+    private Task<IReadOnlyList<TerminalSession>> GetSessionsWithDiagnosticsAsync()
+    {
+        var sessions = _sessionStore.GetAll();
         _logger.LogInformation(
-            "Runner completed brokered project open for {ProjectId} with path {ProjectPath} (created: {WorkspaceCreated}, cloned: {RepositoryCloned})",
-            request.ProjectId,
-            result.ProjectPath,
-            result.WorkspaceCreated,
-            result.RepositoryCloned);
+            "Runner handling brokered terminal session list for machine {MachineId}; active sessions: {SessionCount}",
+            _options.MachineId,
+            sessions.Count);
+        return Task.FromResult(sessions);
+    }
 
-        return result;
+    private async Task<TerminalSession> CreateSessionWithDiagnosticsAsync(CreateTerminalRequest request)
+    {
+        _logger.LogInformation(
+            "Runner received brokered terminal create for machine {MachineId}; requested session id: {RequestedSessionId}; name: {SessionName}; working directory: {WorkingDirectory}; command: {Command}",
+            _options.MachineId,
+            request.RequestedSessionId ?? "<none>",
+            request.Name,
+            request.WorkingDirectory,
+            request.Command ?? "<default>");
+        try
+        {
+            var session = await _terminalSessions.CreateSessionAsync(request);
+            _logger.LogInformation(
+                "Runner completed brokered terminal create for machine {MachineId}; session id: {SessionId}; working directory: {WorkingDirectory}; status: {Status}",
+                _options.MachineId,
+                session.Id,
+                session.WorkingDirectory,
+                session.Status);
+            return session;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Runner brokered terminal create failed for machine {MachineId}; requested session id: {RequestedSessionId}; name: {SessionName}; working directory: {WorkingDirectory}; command: {Command}",
+                _options.MachineId,
+                request.RequestedSessionId ?? "<none>",
+                request.Name,
+                request.WorkingDirectory,
+                request.Command ?? "<default>");
+            throw;
+        }
     }
 
     private async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string capabilityId, MachineCapabilityInstallRequest request, string actorId)
