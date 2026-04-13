@@ -290,6 +290,8 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         await _sync.WaitAsync(cancellationToken);
         try
         {
+            _machineId = machineId;
+            _viewerSessionId = session.Id;
             _connection = connection;
             CurrentFrameDataUrl = null;
             StatusMessage = $"Connecting to {session.Target.DisplayName} through the coordinator...";

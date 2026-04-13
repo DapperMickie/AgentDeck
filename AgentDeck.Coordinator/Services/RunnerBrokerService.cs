@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using AgentDeck.Coordinator.Hubs;
+using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
 using Microsoft.AspNetCore.SignalR;
@@ -113,8 +114,18 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     {
         ArgumentNullException.ThrowIfNull(session);
         var sanitized = AnnotateViewerSession(machineId, session);
-        _viewerSessions[sanitized.Id] = sanitized;
-        _viewerMachineMap[sanitized.Id] = machineId.Trim();
+        if (sanitized.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
+        {
+            _viewerSessions.TryRemove(sanitized.Id, out _);
+            _viewerFrames.TryRemove(sanitized.Id, out _);
+            _viewerMachineMap.TryRemove(sanitized.Id, out _);
+        }
+        else
+        {
+            _viewerSessions[sanitized.Id] = sanitized;
+            _viewerMachineMap[sanitized.Id] = machineId.Trim();
+        }
+
         _logger.LogDebug("Runner {MachineId} published viewer session update for {ViewerSessionId}", machineId, session.Id);
         return _viewerHubContext.Clients.Group(CoordinatorViewerHub.GetViewerGroupName(sanitized.Id))
             .ViewerSessionUpdatedAsync(sanitized);
@@ -271,8 +282,18 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         }
 
         var annotated = AnnotateViewerSession(entry.MachineId, session);
-        _viewerMachineMap[annotated.Id] = entry.MachineId;
-        _viewerSessions[annotated.Id] = annotated;
+        if (annotated.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
+        {
+            _viewerSessions.TryRemove(annotated.Id, out _);
+            _viewerFrames.TryRemove(annotated.Id, out _);
+            _viewerMachineMap.TryRemove(annotated.Id, out _);
+        }
+        else
+        {
+            _viewerMachineMap[annotated.Id] = entry.MachineId;
+            _viewerSessions[annotated.Id] = annotated;
+        }
+
         await _viewerHubContext.Clients.Group(CoordinatorViewerHub.GetViewerGroupName(annotated.Id))
             .ViewerSessionUpdatedAsync(annotated);
         return annotated;
