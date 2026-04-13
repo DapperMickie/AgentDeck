@@ -49,10 +49,12 @@ builder.Services.AddSignalR(opts =>
 
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IAgentSessionStore, AgentSessionStore>();
+builder.Services.AddSingleton<CoordinatorRunnerConnectionState>();
 builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>();
 builder.Services.AddSingleton<IOrchestrationExecutionService, OrchestrationExecutionService>();
 builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionService>();
 builder.Services.AddSingleton<IRunnerConnectionUrlResolver, RunnerConnectionUrlResolver>();
+builder.Services.AddSingleton<ICoordinatorRunnerPublisher, CoordinatorRunnerPublisher>();
 builder.Services.AddSingleton<CoordinatorRunnerConnectionService>();
 builder.Services.AddSingleton<IManagedViewerRelayService, ManagedViewerRelayService>();
 builder.Services.AddSingleton<IDesktopViewerBootstrapService, DesktopViewerBootstrapService>();

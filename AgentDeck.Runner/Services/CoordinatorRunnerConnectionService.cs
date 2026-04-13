@@ -29,8 +29,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
     private readonly IRunnerTrustPolicy _trustPolicy;
     private readonly IRunnerAuditService _audit;
     private readonly ILogger<CoordinatorRunnerConnectionService> _logger;
-    private readonly SemaphoreSlim _connectionGate = new(1, 1);
-    private HubConnection? _connection;
+    private readonly CoordinatorRunnerConnectionState _connectionState;
 
     public CoordinatorRunnerConnectionService(
         IOptions<WorkerCoordinatorOptions> options,
@@ -50,6 +49,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         IVirtualDeviceCatalogService devices,
         IRunnerTrustPolicy trustPolicy,
         IRunnerAuditService audit,
+        CoordinatorRunnerConnectionState connectionState,
         ILogger<CoordinatorRunnerConnectionService> logger)
     {
         _options = options.Value;
@@ -69,6 +69,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         _devices = devices;
         _trustPolicy = trustPolicy;
         _audit = audit;
+        _connectionState = connectionState;
         _logger = logger;
     }
 
@@ -99,87 +100,58 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         }
     }
 
-    public async Task PublishTerminalOutputAsync(TerminalOutput output, CancellationToken cancellationToken = default)
-    {
-        var connection = _connection;
-        if (connection is null || !connection.State.Equals(HubConnectionState.Connected))
-        {
-            return;
-        }
-
-        await connection.SendAsync(nameof(ICoordinatorRunnerHub.PublishTerminalOutputAsync), output, cancellationToken);
-    }
-
-    public async Task PublishTerminalSessionUpdatedAsync(TerminalSession session, CancellationToken cancellationToken = default)
-    {
-        var connection = _connection;
-        if (connection is null || !connection.State.Equals(HubConnectionState.Connected))
-        {
-            return;
-        }
-
-        await connection.SendAsync(nameof(ICoordinatorRunnerHub.PublishTerminalSessionUpdatedAsync), session, cancellationToken);
-    }
-
-    public async Task PublishTerminalSessionClosedAsync(string sessionId, CancellationToken cancellationToken = default)
-    {
-        var connection = _connection;
-        if (connection is null || !connection.State.Equals(HubConnectionState.Connected))
-        {
-            return;
-        }
-
-        await connection.SendAsync(nameof(ICoordinatorRunnerHub.PublishTerminalSessionClosedAsync), sessionId, cancellationToken);
-    }
-
-    public async Task PublishViewerSessionUpdatedAsync(RemoteViewerSession session, CancellationToken cancellationToken = default)
-    {
-        var connection = _connection;
-        if (connection is null || !connection.State.Equals(HubConnectionState.Connected))
-        {
-            return;
-        }
-
-        await connection.SendAsync(nameof(ICoordinatorRunnerHub.PublishViewerSessionUpdatedAsync), session, cancellationToken);
-    }
-
-    public async Task PublishViewerFrameAsync(RemoteViewerRelayFrame frame, CancellationToken cancellationToken = default)
-    {
-        var connection = _connection;
-        if (connection is null || !connection.State.Equals(HubConnectionState.Connected))
-        {
-            return;
-        }
-
-        await connection.SendAsync(nameof(ICoordinatorRunnerHub.PublishViewerFrameAsync), frame, cancellationToken);
-    }
-
     public async ValueTask DisposeAsync()
     {
-        if (_connection is not null)
+        if (_connectionState.IsDisposed)
         {
-            await _connection.DisposeAsync();
-            _connection = null;
+            return;
         }
 
-        _connectionGate.Dispose();
+        await _connectionState.Gate.WaitAsync();
+        try
+        {
+            _connectionState.IsDisposed = true;
+            if (_connectionState.Connection is not null)
+            {
+                await _connectionState.Connection.DisposeAsync();
+                _connectionState.Connection = null;
+            }
+        }
+        finally
+        {
+            _connectionState.Gate.Release();
+            _connectionState.Gate.Dispose();
+        }
     }
 
     private async Task EnsureConnectedAsync(string coordinatorUrl, CancellationToken cancellationToken)
     {
-        await _connectionGate.WaitAsync(cancellationToken);
         try
         {
-            if (_connection is not null &&
-                _connection.State is HubConnectionState.Connected or HubConnectionState.Connecting or HubConnectionState.Reconnecting)
+            await _connectionState.Gate.WaitAsync(cancellationToken);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_connectionState.IsDisposed)
             {
                 return;
             }
 
-            if (_connection is not null)
+            if (_connectionState.Connection is not null &&
+                _connectionState.Connection.State is HubConnectionState.Connected or HubConnectionState.Connecting or HubConnectionState.Reconnecting)
             {
-                await _connection.DisposeAsync();
-                _connection = null;
+                return;
+            }
+
+            if (_connectionState.Connection is not null)
+            {
+                await _connectionState.Connection.DisposeAsync();
+                _connectionState.Connection = null;
             }
 
             var hubUrl = $"{coordinatorUrl}/hubs/runners?{AgentDeckQueryNames.Machine}={Uri.EscapeDataString(_options.MachineId)}";
@@ -193,12 +165,12 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
 
             RegisterHandlers(connection);
             await connection.StartAsync(cancellationToken);
-            _connection = connection;
+            _connectionState.Connection = connection;
             _logger.LogInformation("Connected runner control channel to coordinator at {CoordinatorUrl} for machine {MachineId}", coordinatorUrl, _options.MachineId);
         }
         finally
         {
-            _connectionGate.Release();
+            _connectionState.Gate.Release();
         }
     }
 
@@ -234,7 +206,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         connection.On<OpenProjectOnRunnerRequest, string, Task<OpenProjectOnRunnerResult?>>(nameof(IRunnerControlClient.OpenProjectAsync),
             (request, actorId) => OpenProjectAsync(request, actorId));
 
-        connection.On<Task<MachineCapabilitiesSnapshot?>>(nameof(IRunnerControlClient.GetMachineCapabilitiesAsync),
+        connection.On<Task<MachineCapabilitiesSnapshot>>(nameof(IRunnerControlClient.GetMachineCapabilitiesAsync),
             () => _capabilities.GetSnapshotAsync());
 
         connection.On<string, MachineCapabilityInstallRequest, string, Task<MachineCapabilityInstallResult?>>(nameof(IRunnerControlClient.InstallMachineCapabilityAsync),
