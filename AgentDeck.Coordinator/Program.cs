@@ -19,7 +19,13 @@ builder.Services.AddOptions<CoordinatorOptions>()
     .Bind(builder.Configuration.GetSection(CoordinatorOptions.SectionName));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient();
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+    options.KeepAliveInterval = coordinatorOptions.RunnerControlKeepAliveInterval;
+    options.ClientTimeoutInterval = coordinatorOptions.RunnerControlClientTimeoutInterval;
+    options.HandshakeTimeout = coordinatorOptions.RunnerControlHandshakeTimeout;
+});
 builder.Services.AddSingleton<ICoordinatorArtifactService, CoordinatorArtifactService>();
 builder.Services.AddSingleton<IRunnerDefinitionCatalogService, RunnerDefinitionCatalogService>();
 builder.Services.AddSingleton<IWorkerRegistryService, WorkerRegistryService>();

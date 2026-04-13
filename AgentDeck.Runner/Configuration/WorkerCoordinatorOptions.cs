@@ -19,6 +19,18 @@ public sealed class WorkerCoordinatorOptions
     /// <summary>Optional runner URL the worker advertises back to the coordinator for future dispatch.</summary>
     public string? AdvertisedRunnerUrl { get; set; }
 
+    /// <summary>Transport policy for the outbound runner control channel to the coordinator.</summary>
+    public RunnerControlChannelTransport ControlChannelTransport { get; set; } = RunnerControlChannelTransport.WebSockets;
+
+    /// <summary>How often the runner control channel should send keepalive pings while idle.</summary>
+    public TimeSpan ControlChannelKeepAliveInterval { get; set; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>How long the runner waits without receiving messages before treating the coordinator control channel as timed out.</summary>
+    public TimeSpan ControlChannelServerTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>How long the runner allows the initial SignalR control-channel handshake to complete.</summary>
+    public TimeSpan ControlChannelHandshakeTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
     /// <summary>Protocol version this runner uses when talking to the coordinator.</summary>
     public int ProtocolVersion { get; set; } = 1;
 
