@@ -8,6 +8,7 @@ namespace AgentDeck.Runner.Services;
 public sealed class OrchestrationExecutionService : IOrchestrationExecutionService, IHostedService
 {
     private const string CtrlC = "\u0003";
+    private const int FailureOutputTailLimit = 8192;
 
     private sealed class ActiveSession
     {
@@ -19,6 +20,8 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         public string? ProcessIdMarker { get; init; }
         public bool IsVsCode { get; init; }
         public string MarkerBuffer { get; set; } = string.Empty;
+        public string RecentOutputTail { get; set; } = string.Empty;
+        public string? CompletionOutputTail { get; set; }
     }
 
     private readonly IOrchestrationJobService _jobs;
@@ -433,6 +436,33 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             }
 
             var exitCode = await completion.Task;
+            if (exitCode != 0)
+            {
+                var recentOutputTail = string.IsNullOrWhiteSpace(activeSession.CompletionOutputTail)
+                    ? activeSession.RecentOutputTail
+                    : activeSession.CompletionOutputTail;
+                recentOutputTail = string.IsNullOrWhiteSpace(recentOutputTail)
+                    ? null
+                    : recentOutputTail.Trim();
+                if (!string.IsNullOrWhiteSpace(recentOutputTail))
+                {
+                    _logger.LogWarning(
+                        "Orchestration job {JobId} phase {Status} failed on terminal {TerminalSessionId} with exit code {ExitCode}. Recent output:{NewLine}{RecentOutput}",
+                        job.Id,
+                        status,
+                        sessionId,
+                        exitCode,
+                        Environment.NewLine,
+                        recentOutputTail);
+                    _jobs.AppendLog(job.Id, new AppendOrchestrationJobLogRequest
+                    {
+                        Level = OrchestrationLogLevel.Error,
+                        Message = $"Recent terminal output before failure:{Environment.NewLine}{recentOutputTail}",
+                        MachineId = job.TargetMachineId
+                    });
+                }
+            }
+
             _logger.LogInformation(
                 "Orchestration job {JobId} phase {Status} finished on terminal {TerminalSessionId} with exit code {ExitCode}.",
                 job.Id,
@@ -802,6 +832,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             Message = e.Data,
             MachineId = session.MachineId
         });
+        session.RecentOutputTail = TruncateRecentOutput(session.RecentOutputTail + e.Data);
 
         var markerBuffer = session.MarkerBuffer + e.Data;
         if (!string.IsNullOrWhiteSpace(session.ProcessIdMarker) &&
@@ -812,6 +843,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         if (TryReadMarkedInt(ref markerBuffer, session.CompletionMarker, out var exitCode))
         {
+            session.CompletionOutputTail = session.RecentOutputTail;
             _logger.LogInformation(
                 "Detected orchestration completion marker for job {JobId} on terminal {TerminalSessionId} with exit code {ExitCode}.",
                 session.JobId,
@@ -827,6 +859,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     {
         if (_sessions.TryGetValue(e.SessionId, out var session))
         {
+            session.CompletionOutputTail = session.RecentOutputTail;
             _logger.LogInformation(
                 "Terminal {TerminalSessionId} exited while orchestration job {JobId} was active; using process exit code {ExitCode}.",
                 e.SessionId,
@@ -873,6 +906,11 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             : buffer.LastIndexOf("__AGENTDECK_", StringComparison.Ordinal) is var markerIndex && markerIndex >= 0 && buffer.Length - markerIndex <= 512
                 ? buffer[markerIndex..]
                 : buffer[^4096..];
+
+    private static string TruncateRecentOutput(string value) =>
+        value.Length <= FailureOutputTailLimit
+            ? value
+            : value[^FailureOutputTailLimit..];
 
     private async Task NotifyHostStartedAsync(string jobId, int processId)
     {
