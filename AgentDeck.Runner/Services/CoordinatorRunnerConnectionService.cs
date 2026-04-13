@@ -102,20 +102,46 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
 
     public async ValueTask DisposeAsync()
     {
-        if (_connectionState.Connection is not null)
+        if (_connectionState.IsDisposed)
         {
-            await _connectionState.Connection.DisposeAsync();
-            _connectionState.Connection = null;
+            return;
         }
 
-        _connectionState.Gate.Dispose();
+        await _connectionState.Gate.WaitAsync();
+        try
+        {
+            _connectionState.IsDisposed = true;
+            if (_connectionState.Connection is not null)
+            {
+                await _connectionState.Connection.DisposeAsync();
+                _connectionState.Connection = null;
+            }
+        }
+        finally
+        {
+            _connectionState.Gate.Release();
+            _connectionState.Gate.Dispose();
+        }
     }
 
     private async Task EnsureConnectedAsync(string coordinatorUrl, CancellationToken cancellationToken)
     {
-        await _connectionState.Gate.WaitAsync(cancellationToken);
         try
         {
+            await _connectionState.Gate.WaitAsync(cancellationToken);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_connectionState.IsDisposed)
+            {
+                return;
+            }
+
             if (_connectionState.Connection is not null &&
                 _connectionState.Connection.State is HubConnectionState.Connected or HubConnectionState.Connecting or HubConnectionState.Reconnecting)
             {
@@ -180,7 +206,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         connection.On<OpenProjectOnRunnerRequest, string, Task<OpenProjectOnRunnerResult?>>(nameof(IRunnerControlClient.OpenProjectAsync),
             (request, actorId) => OpenProjectAsync(request, actorId));
 
-        connection.On<Task<MachineCapabilitiesSnapshot?>>(nameof(IRunnerControlClient.GetMachineCapabilitiesAsync),
+        connection.On<Task<MachineCapabilitiesSnapshot>>(nameof(IRunnerControlClient.GetMachineCapabilitiesAsync),
             () => _capabilities.GetSnapshotAsync());
 
         connection.On<string, MachineCapabilityInstallRequest, string, Task<MachineCapabilityInstallResult?>>(nameof(IRunnerControlClient.InstallMachineCapabilityAsync),

@@ -30,12 +30,41 @@ public sealed class CoordinatorRunnerPublisher : ICoordinatorRunnerPublisher
 
     private async Task SendAsync(string methodName, object?[] args, CancellationToken cancellationToken)
     {
-        var connection = _state.Connection;
-        if (connection is null || !connection.State.Equals(HubConnectionState.Connected))
+        if (_state.IsDisposed)
         {
             return;
         }
 
-        await connection.SendCoreAsync(methodName, args, cancellationToken);
+        var gateHeld = false;
+        try
+        {
+            await _state.Gate.WaitAsync(cancellationToken);
+            gateHeld = true;
+            if (_state.IsDisposed)
+            {
+                return;
+            }
+
+            var connection = _state.Connection;
+            if (connection is null || !connection.State.Equals(HubConnectionState.Connected))
+            {
+                return;
+            }
+
+            await connection.SendCoreAsync(methodName, args, cancellationToken);
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException) when (_state.Connection is null || !_state.Connection.State.Equals(HubConnectionState.Connected))
+        {
+        }
+        finally
+        {
+            if (gateHeld)
+            {
+                _state.Gate.Release();
+            }
+        }
     }
 }
