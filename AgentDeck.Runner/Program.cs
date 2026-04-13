@@ -53,6 +53,7 @@ builder.Services.AddSingleton<IOrchestrationJobService, OrchestrationJobService>
 builder.Services.AddSingleton<IOrchestrationExecutionService, OrchestrationExecutionService>();
 builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionService>();
 builder.Services.AddSingleton<IRunnerConnectionUrlResolver, RunnerConnectionUrlResolver>();
+builder.Services.AddSingleton<CoordinatorRunnerConnectionService>();
 builder.Services.AddSingleton<IManagedViewerRelayService, ManagedViewerRelayService>();
 builder.Services.AddSingleton<IDesktopViewerBootstrapService, DesktopViewerBootstrapService>();
 builder.Services.AddSingleton<IRunnerAuditService, RunnerAuditService>();
@@ -71,6 +72,7 @@ builder.Services.AddSingleton<IMachineCapabilityService, MachineCapabilityServic
 builder.Services.AddSingleton<IMachineSetupService, MachineSetupService>();
 builder.Services.AddSingleton<IPtyProcessManager, PtyProcessManager>();
 builder.Services.AddHostedService<HubOutputForwarder>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CoordinatorRunnerConnectionService>());
 builder.Services.AddHostedService(sp => (OrchestrationExecutionService)sp.GetRequiredService<IOrchestrationExecutionService>());
 builder.Services.AddHostedService<WorkerCoordinatorRegistrationService>();
 

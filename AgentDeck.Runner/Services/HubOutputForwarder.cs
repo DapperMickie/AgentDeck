@@ -14,6 +14,7 @@ public sealed class HubOutputForwarder : IHostedService
     private readonly IPtyProcessManager _ptyManager;
     private readonly IAgentSessionStore _sessionStore;
     private readonly IHubContext<AgentHub, IAgentHubClient> _hubContext;
+    private readonly CoordinatorRunnerConnectionService _coordinatorConnection;
     private readonly ILogger<HubOutputForwarder> _logger;
     private readonly ConcurrentDictionary<string, string> _recentOutputBySession = new();
 
@@ -21,11 +22,13 @@ public sealed class HubOutputForwarder : IHostedService
         IPtyProcessManager ptyManager,
         IAgentSessionStore sessionStore,
         IHubContext<AgentHub, IAgentHubClient> hubContext,
+        CoordinatorRunnerConnectionService coordinatorConnection,
         ILogger<HubOutputForwarder> logger)
     {
         _ptyManager = ptyManager;
         _sessionStore = sessionStore;
         _hubContext = hubContext;
+        _coordinatorConnection = coordinatorConnection;
         _logger = logger;
     }
 
@@ -53,6 +56,7 @@ public sealed class HubOutputForwarder : IHostedService
 
         var output = new TerminalOutput { SessionId = e.SessionId, Data = e.Data };
         _ = _hubContext.Clients.Group(e.SessionId).ReceiveOutputAsync(output);
+        _ = _coordinatorConnection.PublishTerminalOutputAsync(output);
     }
 
     private void OnProcessExited(object? sender, (string SessionId, int ExitCode) e)
@@ -92,6 +96,7 @@ public sealed class HubOutputForwarder : IHostedService
             session.ExitCode = e.ExitCode;
             _sessionStore.Update(session);
             _ = _hubContext.Clients.All.SessionUpdatedAsync(session);
+            _ = _coordinatorConnection.PublishTerminalSessionUpdatedAsync(session);
         }
     }
 

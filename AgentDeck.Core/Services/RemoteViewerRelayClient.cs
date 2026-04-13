@@ -1,4 +1,4 @@
-using AgentDeck.Core.Models;
+using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -14,8 +14,6 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
     private string? _coordinatorUrl;
     private string? _machineId;
     private string? _viewerSessionId;
-    private string? _viewerAccessToken;
-    private string? _connectionUri;
 
     public RemoteViewerRelayClient(
         ICoordinatorApiClient coordinatorClient,
@@ -41,11 +39,9 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         {
             var connection = _connection;
             var currentSession = CurrentSession;
-            var viewerAccessToken = _viewerAccessToken;
             return connection is not null &&
-                   connection.State.Equals(HubConnectionState.Connected) &&
-                   currentSession is not null &&
-                   !string.IsNullOrWhiteSpace(viewerAccessToken);
+                   connection.State.Equals(Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected) &&
+                   currentSession is not null;
         }
     }
 
@@ -54,9 +50,7 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         get
         {
             var currentSession = CurrentSession;
-            return currentSession?.Provider == RemoteViewerProviderKind.Managed &&
-                   !string.IsNullOrWhiteSpace(currentSession.ConnectionUri) &&
-                   !string.IsNullOrWhiteSpace(currentSession.AccessToken);
+            return currentSession?.Provider == RemoteViewerProviderKind.Managed;
         }
     }
 
@@ -68,8 +62,6 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
             var remoteControlState = RemoteControlState;
             return currentSession?.Status == RemoteViewerSessionStatus.Ready &&
                    currentSession.Provider == RemoteViewerProviderKind.Managed &&
-                   !string.IsNullOrWhiteSpace(currentSession.ConnectionUri) &&
-                   !string.IsNullOrWhiteSpace(currentSession.AccessToken) &&
                    (remoteControlState is null || IsCurrentCompanionController(remoteControlState, currentSession.Id));
         }
     }
@@ -149,16 +141,14 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
 
         if (session is null ||
             session.Status != RemoteViewerSessionStatus.Ready ||
-            session.Provider != RemoteViewerProviderKind.Managed ||
-            string.IsNullOrWhiteSpace(session.ConnectionUri) ||
-            string.IsNullOrWhiteSpace(session.AccessToken))
+            session.Provider != RemoteViewerProviderKind.Managed)
         {
             await DisconnectConnectionAsync(cancellationToken);
             NotifyChanged();
             return;
         }
 
-        await EnsureConnectionAsync(session, cancellationToken);
+        await EnsureConnectionAsync(coordinatorUrl, machineId, session, cancellationToken);
         NotifyChanged();
     }
 
@@ -195,7 +185,7 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         int wheelDeltaY)
     {
         HubConnection? connection;
-        string? viewerAccessToken;
+        string? machineId;
         string? sessionId;
         var canSendInput = false;
 
@@ -203,7 +193,7 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         try
         {
             connection = _connection;
-            viewerAccessToken = _viewerAccessToken;
+            machineId = _machineId;
             sessionId = CurrentSession?.Id;
             canSendInput = CanSendInput;
         }
@@ -214,23 +204,23 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
 
         if (!canSendInput ||
             connection is null ||
-            string.IsNullOrWhiteSpace(viewerAccessToken) ||
+            string.IsNullOrWhiteSpace(machineId) ||
             string.IsNullOrWhiteSpace(sessionId))
         {
             return;
         }
 
         await connection.InvokeAsync(
-            "SendPointerInput",
+            nameof(ICoordinatorViewerHub.SendViewerPointerInputAsync),
+            machineId,
             sessionId,
-            viewerAccessToken,
             new RemoteViewerPointerInputEvent(sessionId, eventType, x, y, button, clickCount, wheelDeltaX, wheelDeltaY));
     }
 
     public async Task SendKeyboardAsync(string eventType, string code, bool alt, bool control, bool shift)
     {
         HubConnection? connection;
-        string? viewerAccessToken;
+        string? machineId;
         string? sessionId;
         var canSendInput = false;
 
@@ -238,7 +228,7 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         try
         {
             connection = _connection;
-            viewerAccessToken = _viewerAccessToken;
+            machineId = _machineId;
             sessionId = CurrentSession?.Id;
             canSendInput = CanSendInput;
         }
@@ -249,16 +239,16 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
 
         if (!canSendInput ||
             connection is null ||
-            string.IsNullOrWhiteSpace(viewerAccessToken) ||
+            string.IsNullOrWhiteSpace(machineId) ||
             string.IsNullOrWhiteSpace(sessionId))
         {
             return;
         }
 
         await connection.InvokeAsync(
-            "SendKeyboardInput",
+            nameof(ICoordinatorViewerHub.SendViewerKeyboardInputAsync),
+            machineId,
             sessionId,
-            viewerAccessToken,
             new RemoteViewerKeyboardInputEvent(sessionId, eventType, code, alt, control, shift));
     }
 
@@ -268,7 +258,7 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         _sync.Dispose();
     }
 
-    private async Task EnsureConnectionAsync(RemoteViewerSession session, CancellationToken cancellationToken)
+    private async Task EnsureConnectionAsync(string coordinatorUrl, string machineId, RemoteViewerSession session, CancellationToken cancellationToken)
     {
         var needsReconnect = false;
 
@@ -277,10 +267,8 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         {
             needsReconnect =
                 _connection is null ||
-                _connection.State.Equals(HubConnectionState.Disconnected) ||
-                !string.Equals(_viewerSessionId, session.Id, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(_connectionUri, session.ConnectionUri, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(_viewerAccessToken, session.AccessToken, StringComparison.Ordinal);
+                _connection.State.Equals(Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Disconnected) ||
+                !string.Equals(_viewerSessionId, session.Id, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -294,16 +282,17 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
 
         await DisconnectConnectionAsync(cancellationToken);
 
-        var connection = BuildConnection(session.ConnectionUri!);
+        await _agentClient.ConnectAsync(coordinatorUrl, cancellationToken);
+        var companionId = _agentClient.CompanionId
+            ?? throw new InvalidOperationException("Coordinator companion identity is required before opening the viewer relay.");
+        var connection = BuildConnection(coordinatorUrl, companionId);
 
         await _sync.WaitAsync(cancellationToken);
         try
         {
             _connection = connection;
-            _connectionUri = session.ConnectionUri;
-            _viewerAccessToken = session.AccessToken;
             CurrentFrameDataUrl = null;
-            StatusMessage = $"Connecting to {session.Target.DisplayName}...";
+            StatusMessage = $"Connecting to {session.Target.DisplayName} through the coordinator...";
         }
         finally
         {
@@ -314,9 +303,9 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         {
             await connection.StartAsync(cancellationToken);
             await connection.InvokeAsync(
-                "JoinSessionAsViewer",
+                nameof(ICoordinatorViewerHub.JoinViewerSessionAsync),
+                machineId,
                 session.Id,
-                session.AccessToken!,
                 cancellationToken);
         }
         catch
@@ -326,15 +315,21 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         }
     }
 
-    private HubConnection BuildConnection(string connectionUri)
+    private HubConnection BuildConnection(string coordinatorUrl, string companionId)
     {
+        var connectionUri = $"{coordinatorUrl.TrimEnd('/')}/hubs/viewers?{AgentDeck.Shared.AgentDeckQueryNames.Companion}={Uri.EscapeDataString(companionId)}";
         var connection = new HubConnectionBuilder()
-            .WithUrl(connectionUri)
+            .WithUrl(connectionUri, options =>
+            {
+                options.Headers[AgentDeck.Shared.AgentDeckHeaderNames.Companion] = companionId;
+                options.Headers[AgentDeck.Shared.AgentDeckHeaderNames.Actor] = companionId;
+            })
             .WithAutomaticReconnect()
             .Build();
 
-        connection.On<RemoteViewerSession>("SessionUpdated", session => HandleSessionUpdatedAsync(connection, session));
-        connection.On<RemoteViewerRelayFrame>("FramePublished", frame => HandleFramePublishedAsync(connection, frame));
+        connection.On<RemoteViewerSession>(nameof(IViewerHubClient.ViewerSessionUpdatedAsync), session => HandleSessionUpdatedAsync(connection, session));
+        connection.On<RemoteViewerRelayFrame>(nameof(IViewerHubClient.ViewerFramePublishedAsync), frame => HandleFramePublishedAsync(connection, frame));
+        connection.Reconnected += _ => RejoinViewerSessionAsync(connection);
         connection.Closed += exception => HandleConnectionClosedAsync(connection, exception);
         return connection;
     }
@@ -433,8 +428,6 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         {
             connection = _connection;
             _connection = null;
-            _connectionUri = null;
-            _viewerAccessToken = null;
             CurrentFrameDataUrl = null;
         }
         finally
@@ -444,8 +437,48 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
 
         if (connection is not null)
         {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(_viewerSessionId))
+                {
+                    await connection.InvokeAsync(nameof(ICoordinatorViewerHub.LeaveViewerSessionAsync), _viewerSessionId, cancellationToken);
+                }
+            }
+            catch
+            {
+            }
+
             await connection.DisposeAsync();
         }
+    }
+
+    private async Task RejoinViewerSessionAsync(HubConnection sourceConnection)
+    {
+        string? machineId;
+        string? viewerSessionId;
+
+        await _sync.WaitAsync();
+        try
+        {
+            if (!ReferenceEquals(_connection, sourceConnection))
+            {
+                return;
+            }
+
+            machineId = _machineId;
+            viewerSessionId = _viewerSessionId;
+        }
+        finally
+        {
+            _sync.Release();
+        }
+
+        if (string.IsNullOrWhiteSpace(machineId) || string.IsNullOrWhiteSpace(viewerSessionId))
+        {
+            return;
+        }
+
+        await sourceConnection.InvokeAsync(nameof(ICoordinatorViewerHub.JoinViewerSessionAsync), machineId, viewerSessionId);
     }
 
     private bool IsCurrentCompanionController(MachineRemoteControlState remoteControlState, string viewerSessionId) =>

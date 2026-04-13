@@ -24,28 +24,32 @@ public sealed class RunnerTrustPolicy : IRunnerTrustPolicy
         var actorHeaderName = string.IsNullOrWhiteSpace(_options.ActorHeaderName)
             ? "X-AgentDeck-Actor"
             : _options.ActorHeaderName;
-        var actorId = httpContext.Request.Headers[actorHeaderName]
-            .FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value))
-            ?.Trim();
-        var remoteAddress = httpContext.Connection.RemoteIpAddress;
-        var remoteAddressText = remoteAddress?.ToString();
-        var isLoopback = remoteAddress is null || IPAddress.IsLoopback(remoteAddress);
-        var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+        return Evaluate(RunnerActionContext.FromHttpContext(httpContext, actorHeaderName), action, targetType, targetId, targetDisplayName);
+    }
 
+    public RunnerTrustDecision Evaluate(
+        RunnerActionContext context,
+        string action,
+        string targetType,
+        string? targetId = null,
+        string? targetDisplayName = null)
+    {
         string? denialMessage = null;
-        if (_options.RequireActorHeaderForPrivilegedActions && string.IsNullOrWhiteSpace(actorId))
+        if (_options.RequireActorHeaderForPrivilegedActions && string.IsNullOrWhiteSpace(context.ActorId))
         {
-            denialMessage = $"The '{actorHeaderName}' header is required for privileged runner actions.";
+            denialMessage = $"The '{_options.ActorHeaderName}' header is required for privileged runner actions.";
         }
         else if (_options.RequireLoopbackForMachineSetup &&
             action is "capability.install" or "capability.update" &&
-            !isLoopback)
+            !context.IsLoopback &&
+            !context.IsCoordinatorBrokered)
         {
             denialMessage = "Machine setup actions are restricted to loopback clients by the current trust policy.";
         }
         else if (_options.RequireLoopbackForDesktopViewerBootstrap &&
             action == "viewer.desktop.create" &&
-            !isLoopback)
+            !context.IsLoopback &&
+            !context.IsCoordinatorBrokered)
         {
             denialMessage = "Desktop viewer bootstrap is restricted to loopback clients by the current trust policy.";
         }
@@ -54,11 +58,11 @@ public sealed class RunnerTrustPolicy : IRunnerTrustPolicy
         {
             Allowed = denialMessage is null,
             Action = action,
-            ActorId = string.IsNullOrWhiteSpace(actorId) ? "anonymous" : actorId,
-            ActorDisplayName = string.IsNullOrWhiteSpace(actorId) ? "Anonymous" : actorId,
-            RemoteAddress = remoteAddressText,
-            UserAgent = string.IsNullOrWhiteSpace(userAgent) ? null : userAgent,
-            IsLoopback = isLoopback,
+            ActorId = context.ActorId,
+            ActorDisplayName = context.ActorDisplayName,
+            RemoteAddress = context.RemoteAddress,
+            UserAgent = context.UserAgent,
+            IsLoopback = context.IsLoopback,
             TargetType = targetType,
             TargetId = targetId,
             TargetDisplayName = targetDisplayName,

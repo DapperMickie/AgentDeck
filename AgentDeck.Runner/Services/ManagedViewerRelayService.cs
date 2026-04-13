@@ -29,6 +29,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     private readonly ConcurrentDictionary<string, ActiveRelaySession> _activeSessions = new(StringComparer.Ordinal);
     private readonly IRemoteViewerSessionService _viewers;
     private readonly IHubContext<ManagedViewerRelayHub> _hubContext;
+    private readonly CoordinatorRunnerConnectionService _coordinatorConnection;
     private readonly ManagedDesktopViewerTransportOptions _options;
     private readonly ILogger<ManagedViewerRelayService> _logger;
     private readonly IHostCapturePlatform _capturePlatform;
@@ -37,11 +38,13 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     public ManagedViewerRelayService(
         IRemoteViewerSessionService viewers,
         IHubContext<ManagedViewerRelayHub> hubContext,
+        CoordinatorRunnerConnectionService coordinatorConnection,
         IOptions<DesktopViewerTransportOptions> transportOptions,
         ILogger<ManagedViewerRelayService> logger)
     {
         _viewers = viewers;
         _hubContext = hubContext;
+        _coordinatorConnection = coordinatorConnection;
         _options = transportOptions.Value.Managed;
         _logger = logger;
         _capturePlatform = HostCapturePlatformFactory.Create();
@@ -129,8 +132,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     }
 
     public Task PublishSessionUpdatedAsync(RemoteViewerSession session, CancellationToken cancellationToken = default) =>
-        _hubContext.Clients.Group(ManagedViewerRelayHub.GetViewerGroupName(session.Id))
-            .SendAsync("SessionUpdated", session, cancellationToken);
+        PublishSessionUpdatedCoreAsync(session, cancellationToken);
 
     public RemoteViewerSession JoinViewer(string sessionId, string accessToken)
     {
@@ -150,6 +152,26 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     {
         var activeSession = GetActiveSession(sessionId);
         ValidateAccessToken(activeSession, accessToken);
+        await SendPointerInputAsync(sessionId, input, cancellationToken);
+    }
+
+    public async Task SendKeyboardInputAsync(
+        string sessionId,
+        string accessToken,
+        KeyboardInputEvent input,
+        CancellationToken cancellationToken = default)
+    {
+        var activeSession = GetActiveSession(sessionId);
+        ValidateAccessToken(activeSession, accessToken);
+        await SendKeyboardInputAsync(sessionId, input, cancellationToken);
+    }
+
+    public async Task SendPointerInputAsync(
+        string sessionId,
+        PointerInputEvent input,
+        CancellationToken cancellationToken = default)
+    {
+        var activeSession = GetActiveSession(sessionId);
 
         await Task.Run(() =>
         {
@@ -165,12 +187,10 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
 
     public async Task SendKeyboardInputAsync(
         string sessionId,
-        string accessToken,
         KeyboardInputEvent input,
         CancellationToken cancellationToken = default)
     {
         var activeSession = GetActiveSession(sessionId);
-        ValidateAccessToken(activeSession, accessToken);
 
         await Task.Run(() =>
         {
@@ -221,8 +241,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
 
                 activeSession.LatestFrame = frame;
                 activeSession.FirstFrameReady.TrySetResult(true);
-                await _hubContext.Clients.Group(ManagedViewerRelayHub.GetViewerGroupName(activeSession.Session.Id))
-                    .SendAsync("FramePublished", frame, activeSession.Cancellation.Token);
+                await PublishFrameAsync(activeSession.Session.Id, frame, activeSession.Cancellation.Token);
                 await Task.Delay(_options.FrameInterval, activeSession.Cancellation.Token);
             }
         }
@@ -355,5 +374,28 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
             ? _options.RelayHubPath
             : $"/{_options.RelayHubPath}";
         return $"{baseUri}{hubPath}";
+    }
+
+    private async Task PublishSessionUpdatedCoreAsync(RemoteViewerSession session, CancellationToken cancellationToken)
+    {
+        await _hubContext.Clients.Group(ManagedViewerRelayHub.GetViewerGroupName(session.Id))
+            .SendAsync("SessionUpdated", session, cancellationToken);
+        await _coordinatorConnection.PublishViewerSessionUpdatedAsync(session, cancellationToken);
+    }
+
+    private async Task PublishFrameAsync(string sessionId, RelayFrame frame, CancellationToken cancellationToken)
+    {
+        await _hubContext.Clients.Group(ManagedViewerRelayHub.GetViewerGroupName(sessionId))
+            .SendAsync("FramePublished", frame, cancellationToken);
+        await _coordinatorConnection.PublishViewerFrameAsync(
+            new RemoteViewerRelayFrame(
+                sessionId,
+                frame.SequenceId,
+                frame.CapturedAt,
+                frame.ContentType,
+                frame.Width,
+                frame.Height,
+                frame.Payload),
+            cancellationToken);
     }
 }

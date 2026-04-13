@@ -1,4 +1,4 @@
-namespace AgentDeck.Core.Models;
+namespace AgentDeck.Shared.Models;
 
 public sealed record RemoteViewerRelayFrame(
     string SessionId,

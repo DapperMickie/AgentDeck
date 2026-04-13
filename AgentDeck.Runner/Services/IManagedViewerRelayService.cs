@@ -24,9 +24,19 @@ public interface IManagedViewerRelayService
         PointerInputEvent input,
         CancellationToken cancellationToken = default);
 
+    Task SendPointerInputAsync(
+        string sessionId,
+        PointerInputEvent input,
+        CancellationToken cancellationToken = default);
+
     Task SendKeyboardInputAsync(
         string sessionId,
         string accessToken,
+        KeyboardInputEvent input,
+        CancellationToken cancellationToken = default);
+
+    Task SendKeyboardInputAsync(
+        string sessionId,
         KeyboardInputEvent input,
         CancellationToken cancellationToken = default);
 }

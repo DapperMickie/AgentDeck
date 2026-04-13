@@ -6,4 +6,5 @@ namespace AgentDeck.Runner.Services;
 public interface IRunnerTrustPolicy
 {
     RunnerTrustDecision Evaluate(HttpContext httpContext, string action, string targetType, string? targetId = null, string? targetDisplayName = null);
+    RunnerTrustDecision Evaluate(RunnerActionContext context, string action, string targetType, string? targetId = null, string? targetDisplayName = null);
 }

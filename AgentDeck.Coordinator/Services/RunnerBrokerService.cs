@@ -1,329 +1,305 @@
 using System.Collections.Concurrent;
-using System.Net.Http.Json;
 using AgentDeck.Coordinator.Hubs;
-using AgentDeck.Shared;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.AspNetCore.SignalR.Client;
 
 namespace AgentDeck.Coordinator.Services;
 
-public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
+public sealed class RunnerBrokerService : IRunnerBrokerService
 {
     private sealed class RunnerEntry
     {
         public required string MachineId { get; init; }
         public required SemaphoreSlim Gate { get; init; }
         public RegisteredRunnerMachine? Machine { get; set; }
-        public string RunnerUrl { get; set; } = string.Empty;
-        public HttpClient? HttpClient { get; set; }
-        public HubConnection? HubConnection { get; set; }
+        public string? ConnectionId { get; set; }
     }
 
     private readonly ConcurrentDictionary<string, RunnerEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _sessionMachineMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _viewerMachineMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _connectionMachineMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, RemoteViewerSession> _viewerSessions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, RemoteViewerRelayFrame> _viewerFrames = new(StringComparer.OrdinalIgnoreCase);
     private readonly ICompanionRegistryService _companions;
     private readonly IWorkerRegistryService _registry;
-    private readonly IHubContext<CoordinatorAgentHub, IAgentHubClient> _hubContext;
+    private readonly IHubContext<CoordinatorAgentHub, IAgentHubClient> _agentHubContext;
+    private readonly IHubContext<CoordinatorViewerHub, IViewerHubClient> _viewerHubContext;
+    private readonly IHubContext<CoordinatorRunnerHub, IRunnerControlClient> _runnerHubContext;
     private readonly ILogger<RunnerBrokerService> _logger;
 
     public RunnerBrokerService(
         ICompanionRegistryService companions,
         IWorkerRegistryService registry,
-        IHubContext<CoordinatorAgentHub, IAgentHubClient> hubContext,
+        IHubContext<CoordinatorAgentHub, IAgentHubClient> agentHubContext,
+        IHubContext<CoordinatorViewerHub, IViewerHubClient> viewerHubContext,
+        IHubContext<CoordinatorRunnerHub, IRunnerControlClient> runnerHubContext,
         ILogger<RunnerBrokerService> logger)
     {
         _companions = companions;
         _registry = registry;
-        _hubContext = hubContext;
+        _agentHubContext = agentHubContext;
+        _viewerHubContext = viewerHubContext;
+        _runnerHubContext = runnerHubContext;
         _logger = logger;
     }
+
+    public void AttachRunnerConnection(string machineId, string connectionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionId);
+
+        var entry = _entries.GetOrAdd(machineId.Trim(), static id => new RunnerEntry
+        {
+            MachineId = id,
+            Gate = new SemaphoreSlim(1, 1)
+        });
+
+        if (!string.IsNullOrWhiteSpace(entry.ConnectionId) &&
+            !string.Equals(entry.ConnectionId, connectionId, StringComparison.OrdinalIgnoreCase))
+        {
+            _connectionMachineMap.TryRemove(entry.ConnectionId, out _);
+        }
+
+        entry.ConnectionId = connectionId.Trim();
+        _connectionMachineMap[entry.ConnectionId] = entry.MachineId;
+        _logger.LogInformation("Attached coordinator runner connection {ConnectionId} to machine {MachineId}", entry.ConnectionId, entry.MachineId);
+    }
+
+    public void DetachRunnerConnection(string connectionId)
+    {
+        if (string.IsNullOrWhiteSpace(connectionId) ||
+            !_connectionMachineMap.TryRemove(connectionId.Trim(), out var machineId))
+        {
+            return;
+        }
+
+        if (_entries.TryGetValue(machineId, out var entry) &&
+            string.Equals(entry.ConnectionId, connectionId.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            entry.ConnectionId = null;
+        }
+
+        _logger.LogInformation("Detached coordinator runner connection {ConnectionId} from machine {MachineId}", connectionId, machineId);
+    }
+
+    public async Task PublishTerminalOutputAsync(string machineId, TerminalOutput output, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        _logger.LogDebug("Runner {MachineId} published terminal output for session {SessionId}", machineId, output.SessionId);
+        await _agentHubContext.Clients.Group(output.SessionId).ReceiveOutputAsync(output);
+    }
+
+    public async Task PublishTerminalSessionUpdatedAsync(string machineId, TerminalSession session, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        var annotated = AnnotateSession(session, entry.Machine!);
+        _logger.LogDebug("Runner {MachineId} published terminal session update for {SessionId}", machineId, session.Id);
+        await _agentHubContext.Clients.All.SessionUpdatedAsync(annotated);
+    }
+
+    public async Task PublishTerminalSessionClosedAsync(string machineId, string sessionId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        _sessionMachineMap.TryRemove(sessionId, out _);
+        _companions.RemoveSessionFromAll(sessionId);
+        _logger.LogInformation("Runner {MachineId} published terminal session close for {SessionId}", machineId, sessionId);
+        await _agentHubContext.Clients.All.SessionClosedAsync(sessionId.Trim());
+    }
+
+    public Task PublishViewerSessionUpdatedAsync(string machineId, RemoteViewerSession session, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var sanitized = AnnotateViewerSession(machineId, session);
+        _viewerSessions[sanitized.Id] = sanitized;
+        _viewerMachineMap[sanitized.Id] = machineId.Trim();
+        _logger.LogDebug("Runner {MachineId} published viewer session update for {ViewerSessionId}", machineId, session.Id);
+        return _viewerHubContext.Clients.Group(CoordinatorViewerHub.GetViewerGroupName(sanitized.Id))
+            .ViewerSessionUpdatedAsync(sanitized);
+    }
+
+    public Task PublishViewerFrameAsync(string machineId, RemoteViewerRelayFrame frame, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        _viewerFrames[frame.SessionId] = frame;
+        _viewerMachineMap[frame.SessionId] = machineId.Trim();
+        return _viewerHubContext.Clients.Group(CoordinatorViewerHub.GetViewerGroupName(frame.SessionId))
+            .ViewerFramePublishedAsync(frame);
+    }
+
+    public RemoteViewerSession? GetCachedViewerSession(string viewerSessionId) =>
+        string.IsNullOrWhiteSpace(viewerSessionId) || !_viewerSessions.TryGetValue(viewerSessionId.Trim(), out var session)
+            ? null
+            : session;
+
+    public RemoteViewerRelayFrame? GetLatestViewerFrame(string viewerSessionId) =>
+        string.IsNullOrWhiteSpace(viewerSessionId) || !_viewerFrames.TryGetValue(viewerSessionId.Trim(), out var frame)
+            ? null
+            : frame;
 
     public async Task<TerminalSession> CreateSessionAsync(string machineId, CreateTerminalRequest request, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering session creation '{SessionName}' for machine {MachineName} ({MachineId}) in {WorkingDirectory}",
-            request.Name,
-            entry.Machine?.MachineName ?? machineId,
-            machineId,
-            request.WorkingDirectory);
-        var session = await entry.HubConnection!.InvokeAsync<TerminalSession>(
-            nameof(IAgentHub.CreateSessionAsync),
-            request,
-            cancellationToken);
-
-        return AnnotateSession(session, entry.Machine!);
+        _logger.LogInformation("Brokering terminal session creation '{SessionName}' on machine {MachineName} ({MachineId})", request.Name, entry.Machine?.MachineName ?? machineId, machineId);
+        var session = await GetRunnerClient(entry).CreateSessionAsync(request);
+        var annotated = AnnotateSession(session, entry.Machine!);
+        await _agentHubContext.Clients.All.SessionCreatedAsync(annotated);
+        return annotated;
     }
 
     public async Task CloseSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering close for session {SessionId} on machine {MachineName} ({MachineId})",
-            sessionId,
-            entry.Machine?.MachineName ?? entry.MachineId,
-            entry.MachineId);
-        await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.CloseSessionAsync), sessionId, cancellationToken);
+        _logger.LogInformation("Brokering terminal session close {SessionId} on machine {MachineName} ({MachineId})", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId);
+        await GetRunnerClient(entry).CloseSessionAsync(sessionId);
+        _sessionMachineMap.TryRemove(sessionId, out _);
+        _companions.RemoveSessionFromAll(sessionId);
+        await _agentHubContext.Clients.All.SessionClosedAsync(sessionId);
     }
 
     public async Task<IReadOnlyList<TerminalSession>> GetSessionsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogDebug("Brokering session list request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
-        var sessions = await entry.HubConnection!.InvokeAsync<IReadOnlyList<TerminalSession>>(
-            nameof(IAgentHub.GetSessionsAsync),
-            cancellationToken);
-
+        var sessions = await GetRunnerClient(entry).GetSessionsAsync();
         return sessions.Select(session => AnnotateSession(session, entry.Machine!)).ToArray();
     }
 
-    public async Task JoinSessionAsync(string sessionId, CancellationToken cancellationToken = default)
-    {
-        var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
-        _logger.LogDebug("Broker joining session {SessionId} on machine {MachineName} ({MachineId})", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId);
-        await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.JoinSessionAsync), sessionId, cancellationToken);
-    }
+    public Task JoinSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-    public async Task LeaveSessionAsync(string sessionId, CancellationToken cancellationToken = default)
-    {
-        var entry = await TryResolveEntryBySessionAsync(sessionId, cancellationToken);
-        if (entry is null)
-        {
-            _logger.LogDebug("Broker leave ignored for unknown session {SessionId}", sessionId);
-            return;
-        }
-
-        _logger.LogDebug("Broker leaving session {SessionId} on machine {MachineName} ({MachineId})", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId);
-        await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.LeaveSessionAsync), sessionId, cancellationToken);
-    }
+    public Task LeaveSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public async Task ResizeTerminalAsync(string sessionId, int cols, int rows, CancellationToken cancellationToken = default)
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
-        _logger.LogDebug("Broker resizing session {SessionId} on machine {MachineName} ({MachineId}) to {Cols}x{Rows}", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId, cols, rows);
-        await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.ResizeTerminalAsync), sessionId, cols, rows, cancellationToken);
+        await GetRunnerClient(entry).ResizeTerminalAsync(sessionId, cols, rows);
     }
 
     public async Task SendInputAsync(string sessionId, string data, CancellationToken cancellationToken = default)
     {
         var entry = await ResolveEntryBySessionAsync(sessionId, cancellationToken);
-        _logger.LogDebug("Broker sending input to session {SessionId} on machine {MachineName} ({MachineId}) ({CharacterCount} chars)", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId, data.Length);
-        await entry.HubConnection!.InvokeAsync(nameof(IAgentHub.SendInputAsync), sessionId, data, cancellationToken);
+        await GetRunnerClient(entry).SendInputAsync(sessionId, data);
     }
 
     public async Task<WorkspaceInfo?> GetWorkspaceAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation("Brokering workspace request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
-        return await entry.HttpClient!.GetFromJsonAsync<WorkspaceInfo>("api/workspace", cancellationToken);
+        return await GetRunnerClient(entry).GetWorkspaceAsync();
     }
 
     public async Task<OpenProjectOnRunnerResult?> OpenProjectAsync(string machineId, OpenProjectOnRunnerRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering project open for {ProjectId} on machine {MachineName} ({MachineId}) requested by {ActorId}",
-            request.ProjectId,
-            entry.Machine?.MachineName ?? machineId,
-            machineId,
-            actorId);
-        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, "api/projects/open", actorId)
-            .WithJsonContent(request)
-            .SendAsync(entry.HttpClient!, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
-            var message = string.IsNullOrWhiteSpace(responseText)
-                ? $"Runner open-project request failed with HTTP {(int)response.StatusCode}."
-                : responseText;
-            throw new InvalidOperationException(message);
-        }
-
-        return await response.Content.ReadFromJsonAsync<OpenProjectOnRunnerResult>(cancellationToken: cancellationToken);
+        return await GetRunnerClient(entry).OpenProjectAsync(request, NormalizeActorId(actorId));
     }
 
     public async Task<MachineCapabilitiesSnapshot?> GetMachineCapabilitiesAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation("Brokering capability snapshot request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
-        return await entry.HttpClient!.GetFromJsonAsync<MachineCapabilitiesSnapshot>("api/capabilities", cancellationToken);
+        return await GetRunnerClient(entry).GetMachineCapabilitiesAsync();
     }
 
     public async Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string machineId, string capabilityId, MachineCapabilityInstallRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering capability install {CapabilityId} for machine {MachineName} ({MachineId}) requested by {ActorId} version {RequestedVersion}",
-            capabilityId,
-            entry.Machine?.MachineName ?? machineId,
-            machineId,
-            actorId,
-            request.Version ?? "<default>");
-        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, $"api/capabilities/{Uri.EscapeDataString(capabilityId)}/install", actorId)
-            .WithJsonContent(request)
-            .SendAsync(entry.HttpClient!, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<MachineCapabilityInstallResult>(cancellationToken: cancellationToken);
+        return await GetRunnerClient(entry).InstallMachineCapabilityAsync(capabilityId, request, NormalizeActorId(actorId));
     }
 
     public async Task<MachineCapabilityInstallResult?> UpdateMachineCapabilityAsync(string machineId, string capabilityId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering capability update {CapabilityId} for machine {MachineName} ({MachineId}) requested by {ActorId}",
-            capabilityId,
-            entry.Machine?.MachineName ?? machineId,
-            machineId,
-            actorId);
-        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, $"api/capabilities/{Uri.EscapeDataString(capabilityId)}/update", actorId)
-            .SendAsync(entry.HttpClient!, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<MachineCapabilityInstallResult>(cancellationToken: cancellationToken);
+        return await GetRunnerClient(entry).UpdateMachineCapabilityAsync(capabilityId, NormalizeActorId(actorId));
     }
 
     public async Task<bool> RetryMachineWorkflowPackAsync(string machineId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering workflow-pack retry for machine {MachineName} ({MachineId}) requested by {ActorId}",
-            entry.Machine?.MachineName ?? machineId,
-            machineId,
-            actorId);
-        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, "api/workflow-packs/current/retry", actorId)
-            .SendAsync(entry.HttpClient!, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await GetRunnerClient(entry).RetryMachineWorkflowPackAsync(NormalizeActorId(actorId));
         return true;
     }
 
     public async Task<IReadOnlyList<OrchestrationJob>> GetOrchestrationJobsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation("Brokering orchestration job list request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
-        return await entry.HttpClient!.GetFromJsonAsync<IReadOnlyList<OrchestrationJob>>("api/orchestration/jobs", cancellationToken) ?? [];
+        return await GetRunnerClient(entry).GetOrchestrationJobsAsync();
     }
 
     public async Task<OrchestrationJob?> QueueOrchestrationJobAsync(string machineId, CreateOrchestrationJobRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering orchestration queue for project {ProjectId} profile {LaunchProfileId} on machine {MachineName} ({MachineId}) requested by {ActorId}",
-            request.ProjectId,
-            request.LaunchProfileId,
-            entry.Machine?.MachineName ?? machineId,
-            machineId,
-            actorId);
-        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, "api/orchestration/jobs", actorId)
-            .WithJsonContent(request)
-            .SendAsync(entry.HttpClient!, cancellationToken);
-        await EnsureBrokerSuccessAsync(response, "queue orchestration job", cancellationToken);
-        return await response.Content.ReadFromJsonAsync<OrchestrationJob>(cancellationToken: cancellationToken);
+        return await GetRunnerClient(entry).QueueOrchestrationJobAsync(request, NormalizeActorId(actorId));
     }
 
     public async Task<OrchestrationJob?> CancelOrchestrationJobAsync(string machineId, string jobId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering orchestration cancel for job {JobId} on machine {MachineName} ({MachineId}) requested by {ActorId}",
-            jobId,
-            entry.Machine?.MachineName ?? machineId,
-            machineId,
-            actorId);
-        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, $"api/orchestration/jobs/{Uri.EscapeDataString(jobId)}/cancel", actorId)
-            .SendAsync(entry.HttpClient!, cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-
-        await EnsureBrokerSuccessAsync(response, "cancel orchestration job", cancellationToken);
-        return await response.Content.ReadFromJsonAsync<OrchestrationJob>(cancellationToken: cancellationToken);
+        return await GetRunnerClient(entry).CancelOrchestrationJobAsync(jobId, NormalizeActorId(actorId));
     }
 
     public async Task<IReadOnlyList<RemoteViewerSession>> GetViewerSessionsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation("Brokering viewer session list request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
-        return await entry.HttpClient!.GetFromJsonAsync<IReadOnlyList<RemoteViewerSession>>("api/viewers/sessions", cancellationToken) ?? [];
+        var sessions = await GetRunnerClient(entry).GetViewerSessionsAsync();
+        var annotated = sessions.Select(session => AnnotateViewerSession(entry.MachineId, session)).ToArray();
+        foreach (var session in annotated)
+        {
+            _viewerMachineMap[session.Id] = entry.MachineId;
+            _viewerSessions[session.Id] = session;
+        }
+
+        return annotated;
     }
 
     public async Task<RemoteViewerSession> CreateViewerSessionAsync(string machineId, CreateRemoteViewerSessionRequest request, string actorId, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(request);
-
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering viewer create for machine {MachineName} ({MachineId}) target {TargetKind} requested by {ActorId}",
-            entry.Machine?.MachineName ?? machineId,
-            machineId,
-            request.Target.Kind,
-            actorId);
-        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, "api/viewers/sessions", actorId)
-            .WithJsonContent(request)
-            .SendAsync(entry.HttpClient!, cancellationToken);
-        await EnsureBrokerSuccessAsync(response, "create viewer session", cancellationToken);
-        return (await response.Content.ReadFromJsonAsync<RemoteViewerSession>(cancellationToken: cancellationToken))!;
+        var session = await GetRunnerClient(entry).CreateViewerSessionAsync(request, NormalizeActorId(actorId));
+        var annotated = AnnotateViewerSession(entry.MachineId, session);
+        _viewerMachineMap[annotated.Id] = entry.MachineId;
+        _viewerSessions[annotated.Id] = annotated;
+        return annotated;
     }
 
     public async Task<RemoteViewerSession?> CloseViewerSessionAsync(string machineId, string viewerSessionId, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation(
-            "Brokering viewer close for session {ViewerSessionId} on machine {MachineName} ({MachineId}) requested by {ActorId}",
-            viewerSessionId,
-            entry.Machine?.MachineName ?? machineId,
-            machineId,
-            actorId);
-        using var response = await CreateRunnerRequest(entry, HttpMethod.Post, $"api/viewers/sessions/{Uri.EscapeDataString(viewerSessionId)}/close", actorId)
-            .SendAsync(entry.HttpClient!, cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        var session = await GetRunnerClient(entry).CloseViewerSessionAsync(viewerSessionId, NormalizeActorId(actorId));
+        if (session is null)
         {
             return null;
         }
 
-        await EnsureBrokerSuccessAsync(response, "close viewer session", cancellationToken);
-        return await response.Content.ReadFromJsonAsync<RemoteViewerSession>(cancellationToken: cancellationToken);
+        var annotated = AnnotateViewerSession(entry.MachineId, session);
+        _viewerMachineMap[annotated.Id] = entry.MachineId;
+        _viewerSessions[annotated.Id] = annotated;
+        await _viewerHubContext.Clients.Group(CoordinatorViewerHub.GetViewerGroupName(annotated.Id))
+            .ViewerSessionUpdatedAsync(annotated);
+        return annotated;
+    }
+
+    public async Task SendViewerPointerInputAsync(string machineId, string viewerSessionId, string actorId, RemoteViewerPointerInputEvent input, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        await GetRunnerClient(entry).SendViewerPointerInputAsync(viewerSessionId, NormalizeActorId(actorId), input);
+    }
+
+    public async Task SendViewerKeyboardInputAsync(string machineId, string viewerSessionId, string actorId, RemoteViewerKeyboardInputEvent input, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        await GetRunnerClient(entry).SendViewerKeyboardInputAsync(viewerSessionId, NormalizeActorId(actorId), input);
     }
 
     public async Task<IReadOnlyList<VirtualDeviceCatalogSnapshot>> GetVirtualDeviceCatalogsAsync(string machineId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation("Brokering virtual device catalog request for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
-        return await entry.HttpClient!.GetFromJsonAsync<IReadOnlyList<VirtualDeviceCatalogSnapshot>>("api/virtual-devices/catalogs", cancellationToken) ?? [];
+        return await GetRunnerClient(entry).GetVirtualDeviceCatalogsAsync();
     }
 
     public async Task<VirtualDeviceLaunchResolution?> ResolveVirtualDeviceAsync(string machineId, VirtualDeviceLaunchSelection selection, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
-        _logger.LogInformation("Brokering virtual device resolution for machine {MachineName} ({MachineId})", entry.Machine?.MachineName ?? machineId, machineId);
-        using var response = await new HttpRequestMessage(HttpMethod.Post, "api/virtual-devices/resolve")
-            .WithJsonContent(selection)
-            .SendAsync(entry.HttpClient!, cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-
-        await EnsureBrokerSuccessAsync(response, "resolve virtual device", cancellationToken);
-        return await response.Content.ReadFromJsonAsync<VirtualDeviceLaunchResolution>(cancellationToken: cancellationToken);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        foreach (var entry in _entries.Values)
-        {
-            if (entry.HubConnection is not null)
-            {
-                await entry.HubConnection.DisposeAsync();
-            }
-
-            entry.HttpClient?.Dispose();
-            entry.Gate.Dispose();
-        }
-
-        _entries.Clear();
-        _sessionMachineMap.Clear();
+        return await GetRunnerClient(entry).ResolveVirtualDeviceAsync(selection);
     }
 
     private async Task<RunnerEntry> EnsureEntryAsync(string machineId, CancellationToken cancellationToken)
@@ -333,12 +309,6 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         var machine = await _registry.GetMachineAsync(machineId, cancellationToken)
             ?? throw new InvalidOperationException($"Coordinator does not know runner machine '{machineId}'.");
 
-        if (string.IsNullOrWhiteSpace(machine.RunnerUrl))
-        {
-            throw new InvalidOperationException($"Runner machine '{machine.MachineName}' does not advertise a runner URL for coordinator brokering.");
-        }
-
-        var normalizedRunnerUrl = machine.RunnerUrl.Trim().TrimEnd('/');
         var entry = _entries.GetOrAdd(machine.MachineId, static id => new RunnerEntry
         {
             MachineId = id,
@@ -349,36 +319,12 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         try
         {
             entry.Machine = machine;
-            if (entry.HubConnection is not null &&
-                string.Equals(entry.RunnerUrl, normalizedRunnerUrl, StringComparison.OrdinalIgnoreCase) &&
-                entry.HubConnection.State is HubConnectionState.Connected or HubConnectionState.Connecting or HubConnectionState.Reconnecting)
+            if (!string.IsNullOrWhiteSpace(entry.ConnectionId))
             {
                 return entry;
             }
 
-            if (entry.HubConnection is not null)
-            {
-                await entry.HubConnection.DisposeAsync();
-                entry.HubConnection = null;
-            }
-
-            entry.HttpClient?.Dispose();
-            entry.HttpClient = new HttpClient
-            {
-                BaseAddress = new Uri($"{normalizedRunnerUrl}/", UriKind.Absolute)
-            };
-            entry.RunnerUrl = normalizedRunnerUrl;
-
-            var hubConnection = new HubConnectionBuilder()
-                .WithUrl($"{normalizedRunnerUrl}/hubs/agent")
-                .WithAutomaticReconnect()
-                .Build();
-
-            RegisterRunnerCallbacks(hubConnection, entry);
-            await hubConnection.StartAsync(cancellationToken);
-            entry.HubConnection = hubConnection;
-            _logger.LogInformation("Coordinator connected broker channel to runner {MachineName} at {RunnerUrl}", machine.MachineName, normalizedRunnerUrl);
-            return entry;
+            throw new InvalidOperationException($"Runner machine '{machine.MachineName}' does not currently have an active coordinator control connection.");
         }
         finally
         {
@@ -386,30 +332,9 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         }
     }
 
-    private void RegisterRunnerCallbacks(HubConnection hubConnection, RunnerEntry entry)
-    {
-        hubConnection.On<TerminalOutput>(
-            nameof(IAgentHubClient.ReceiveOutputAsync),
-            output => _hubContext.Clients.Group(output.SessionId).ReceiveOutputAsync(output));
-
-        hubConnection.On<TerminalSession>(
-            nameof(IAgentHubClient.SessionCreatedAsync),
-            session => _hubContext.Clients.All.SessionCreatedAsync(AnnotateSession(session, entry.Machine!)));
-
-        hubConnection.On<TerminalSession>(
-            nameof(IAgentHubClient.SessionUpdatedAsync),
-            session => _hubContext.Clients.All.SessionUpdatedAsync(AnnotateSession(session, entry.Machine!)));
-
-        hubConnection.On<string>(
-            nameof(IAgentHubClient.SessionClosedAsync),
-            sessionId =>
-            {
-                _sessionMachineMap.TryRemove(sessionId, out _);
-                _companions.RemoveSessionFromAll(sessionId);
-                _logger.LogInformation("Runner reported closed session {SessionId} on machine {MachineName} ({MachineId})", sessionId, entry.Machine?.MachineName ?? entry.MachineId, entry.MachineId);
-                return _hubContext.Clients.All.SessionClosedAsync(sessionId);
-            });
-    }
+    private IRunnerControlClient GetRunnerClient(RunnerEntry entry) =>
+        _runnerHubContext.Clients.Client(entry.ConnectionId
+            ?? throw new InvalidOperationException($"Runner machine '{entry.Machine?.MachineName ?? entry.MachineId}' does not currently have an active coordinator control connection."));
 
     private TerminalSession AnnotateSession(TerminalSession session, RegisteredRunnerMachine machine)
     {
@@ -429,6 +354,17 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         };
     }
 
+    private RemoteViewerSession AnnotateViewerSession(string machineId, RemoteViewerSession session)
+    {
+        _viewerMachineMap[session.Id] = machineId;
+        return new RemoteViewerSession(session)
+        {
+            MachineId = machineId,
+            AccessToken = null,
+            ConnectionUri = null
+        };
+    }
+
     private async Task<RunnerEntry> ResolveEntryBySessionAsync(string sessionId, CancellationToken cancellationToken)
     {
         if (await TryResolveEntryBySessionAsync(sessionId, cancellationToken) is { } entry)
@@ -436,7 +372,6 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
             return entry;
         }
 
-        _logger.LogWarning("Coordinator could not resolve runner ownership for session {SessionId}", sessionId);
         throw new InvalidOperationException($"Coordinator could not resolve runner ownership for session '{sessionId}'.");
     }
 
@@ -451,10 +386,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         foreach (var machine in machines.Where(machine => machine.IsOnline))
         {
             var entry = await EnsureEntryAsync(machine.MachineId, cancellationToken);
-            var sessions = await entry.HubConnection!.InvokeAsync<IReadOnlyList<TerminalSession>>(
-                nameof(IAgentHub.GetSessionsAsync),
-                cancellationToken);
-
+            var sessions = await GetRunnerClient(entry).GetSessionsAsync();
             foreach (var session in sessions)
             {
                 AnnotateSession(session, machine);
@@ -468,37 +400,6 @@ public sealed class RunnerBrokerService : IRunnerBrokerService, IAsyncDisposable
         return null;
     }
 
-    private static HttpRequestMessage CreateRunnerRequest(RunnerEntry entry, HttpMethod method, string relativePath, string actorId)
-    {
-        var request = new HttpRequestMessage(method, relativePath);
-        request.Headers.TryAddWithoutValidation(AgentDeckHeaderNames.Actor, string.IsNullOrWhiteSpace(actorId) ? "coordinator" : actorId.Trim());
-        request.Headers.TryAddWithoutValidation("User-Agent", "AgentDeck.Coordinator");
-        return request;
-    }
-
-    private static async Task EnsureBrokerSuccessAsync(HttpResponseMessage response, string operation, CancellationToken cancellationToken)
-    {
-        if (response.IsSuccessStatusCode)
-        {
-            return;
-        }
-
-        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
-        var message = string.IsNullOrWhiteSpace(responseText)
-            ? $"Runner {operation} request failed with HTTP {(int)response.StatusCode}."
-            : responseText;
-        throw new InvalidOperationException(message);
-    }
-}
-
-internal static class HttpRequestMessageJsonExtensions
-{
-    public static HttpRequestMessage WithJsonContent<T>(this HttpRequestMessage request, T value)
-    {
-        request.Content = JsonContent.Create(value);
-        return request;
-    }
-
-    public static Task<HttpResponseMessage> SendAsync(this HttpRequestMessage request, HttpClient httpClient, CancellationToken cancellationToken) =>
-        httpClient.SendAsync(request, cancellationToken);
+    private static string NormalizeActorId(string actorId) =>
+        string.IsNullOrWhiteSpace(actorId) ? "coordinator" : actorId.Trim();
 }

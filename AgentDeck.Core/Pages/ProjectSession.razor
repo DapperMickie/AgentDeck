@@ -913,8 +913,7 @@
     private static bool CanOpenInAppViewer(RemoteViewerSession viewer) =>
         viewer.Provider == RemoteViewerProviderKind.Managed &&
         viewer.Status == RemoteViewerSessionStatus.Ready &&
-        !string.IsNullOrWhiteSpace(viewer.MachineId) &&
-        !string.IsNullOrWhiteSpace(viewer.ConnectionUri);
+        !string.IsNullOrWhiteSpace(viewer.MachineId);
 
     private bool IsActiveViewerControlledByCurrentCompanion() =>
         _activeSurface?.Viewer is not null &&
