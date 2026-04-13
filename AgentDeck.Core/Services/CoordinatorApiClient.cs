@@ -232,9 +232,16 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         using var httpClient = CreateClient(coordinatorUrl);
         try
         {
-            return await httpClient.GetFromJsonAsync<IReadOnlyList<OrchestrationJob>>(
+            using var response = await httpClient.GetAsync(
                 $"api/machines/{Uri.EscapeDataString(machineId)}/orchestration/jobs",
-                cancellationToken) ?? [];
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return [];
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<IReadOnlyList<OrchestrationJob>>(cancellationToken: cancellationToken) ?? [];
         }
         catch (Exception ex)
         {
@@ -312,9 +319,16 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         using var httpClient = CreateClient(coordinatorUrl);
         try
         {
-            return await httpClient.GetFromJsonAsync<IReadOnlyList<RemoteViewerSession>>(
+            using var response = await httpClient.GetAsync(
                 $"api/machines/{Uri.EscapeDataString(machineId)}/viewers/sessions",
-                cancellationToken) ?? [];
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return [];
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<IReadOnlyList<RemoteViewerSession>>(cancellationToken: cancellationToken) ?? [];
         }
         catch (Exception ex)
         {
