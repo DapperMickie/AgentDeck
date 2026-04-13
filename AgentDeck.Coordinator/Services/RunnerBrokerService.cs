@@ -223,10 +223,12 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
             string.IsNullOrWhiteSpace(request.Repository.Url) ? "<none>" : request.Repository.Url);
         var result = await InvokeRunnerAsync(entry, "open project", client => client.OpenProjectAsync(request, NormalizeActorId(actorId)), retryOnReconnect: false, cancellationToken);
         _logger.LogInformation(
-            "Runner responded to project open for {ProjectId} on machine {MachineId} with path {ProjectPath} (created: {WorkspaceCreated}, cloned: {RepositoryCloned})",
+            "Runner responded to project open for {ProjectId} on machine {MachineId} with path {ProjectPath}; terminal working directory {TerminalWorkingDirectory}; bootstrap pending: {BootstrapPending}; created: {WorkspaceCreated}; cloned: {RepositoryCloned}",
             request.ProjectId,
             machineId,
             result?.ProjectPath ?? "<none>",
+            result?.TerminalWorkingDirectory ?? "<none>",
+            result?.BootstrapPending,
             result?.WorkspaceCreated,
             result?.RepositoryCloned);
         if (result is not null && string.IsNullOrWhiteSpace(result.ProjectPath))

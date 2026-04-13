@@ -227,10 +227,11 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             }
 
             logger.LogInformation(
-                "Runner opened project {ProjectId} on machine {MachineId} at {ProjectPath} (created: {WorkspaceCreated}, cloned: {RepositoryCloned})",
+                "Runner prepared project open for {ProjectId} on machine {MachineId} at {ProjectPath} (bootstrap pending: {BootstrapPending}, created: {WorkspaceCreated}, cloned: {RepositoryCloned})",
                 project.Id,
                 machine.MachineId,
                 openedWorkspace.ProjectPath,
+                openedWorkspace.BootstrapPending,
                 openedWorkspace.WorkspaceCreated,
                 openedWorkspace.RepositoryCloned);
 
@@ -245,7 +246,11 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
             session = await runners.CreateSessionAsync(machineId, new CreateTerminalRequest
             {
                 Name = $"{project.Name} ({machine.MachineName})",
-                WorkingDirectory = openedWorkspace.ProjectPath
+                WorkingDirectory = string.IsNullOrWhiteSpace(openedWorkspace.TerminalWorkingDirectory)
+                    ? openedWorkspace.ProjectPath
+                    : openedWorkspace.TerminalWorkingDirectory,
+                Command = openedWorkspace.TerminalCommand,
+                Arguments = openedWorkspace.TerminalArguments
             }, cancellationToken);
 
             logger.LogInformation(
@@ -267,8 +272,10 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
                 MachineId = machine.MachineId,
                 MachineName = machine.MachineName,
                 ReferenceId = session.Id,
-                Status = ProjectSessionSurfaceStatus.Ready,
-                StatusMessage = $"Terminal ready in '{openedWorkspace.ProjectPath}'."
+                Status = openedWorkspace.BootstrapPending ? ProjectSessionSurfaceStatus.Requested : ProjectSessionSurfaceStatus.Ready,
+                StatusMessage = openedWorkspace.BootstrapPending
+                    ? openedWorkspace.BootstrapMessage ?? $"Terminal created and bootstrapping '{openedWorkspace.ProjectPath}'."
+                    : $"Terminal ready in '{openedWorkspace.ProjectPath}'."
             });
             var updatedProject = projects.UpsertWorkspace(projectId, workspaceMapping);
 
@@ -278,6 +285,8 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
                 ProjectSession = projectSession,
                 Workspace = workspaceMapping,
                 Session = session,
+                BootstrapPending = openedWorkspace.BootstrapPending,
+                BootstrapMessage = openedWorkspace.BootstrapMessage,
                 WorkspaceCreated = openedWorkspace.WorkspaceCreated,
                 RepositoryCloned = openedWorkspace.RepositoryCloned
             });

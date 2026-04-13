@@ -707,7 +707,11 @@
 
             SessionState.AddOrUpdate(result.Session);
             ActiveSession.SetActiveSession(result.Session.Id);
-            Toasts.Show($"Opened {result.Project.Name} on {result.Workspace.MachineName ?? result.Workspace.MachineId}.", ToastKind.Success);
+            Toasts.Show(
+                result.BootstrapPending
+                    ? result.BootstrapMessage ?? $"Opened a project terminal for {result.Project.Name} on {result.Workspace.MachineName ?? result.Workspace.MachineId}. Workspace bootstrap is continuing in that terminal."
+                    : $"Opened {result.Project.Name} on {result.Workspace.MachineName ?? result.Workspace.MachineId}.",
+                result.BootstrapPending ? ToastKind.Info : ToastKind.Success);
             await LoadAsync();
             if (navigateToSession)
             {
