@@ -186,18 +186,74 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
 
         var existingWorkspace = project.Workspaces.FirstOrDefault(workspace =>
             string.Equals(workspace.MachineId, machineId, StringComparison.OrdinalIgnoreCase));
-        var projectSession = projectSessions.CreateSession(
-            project.Id,
-            project.Name,
-            machine.MachineId,
-            machine.MachineName,
-            companionId);
+        var latestProjectSession = GetLatestProjectSession(projectSessions, project.Id, machine.MachineId);
+        if (latestProjectSession is not null &&
+            !string.IsNullOrWhiteSpace(latestProjectSession.CompanionId) &&
+            !string.Equals(latestProjectSession.CompanionId, companionId, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Conflict(new
+            {
+                message = $"Project '{project.Id}' on machine '{machine.MachineId}' is currently controlled by companion '{latestProjectSession.CompanionId}'. Take control of session '{latestProjectSession.Id}' before opening another live session on that machine."
+            });
+        }
+
+        var createdProjectSession = false;
+        var projectSession = latestProjectSession is not null
+            ? (!string.IsNullOrWhiteSpace(companionId)
+                ? projectSessions.AttachCompanion(latestProjectSession.Id, companionId, viewerOnly: false)
+                : latestProjectSession)
+            : projectSessions.CreateSession(
+                project.Id,
+                project.Name,
+                machine.MachineId,
+                machine.MachineName,
+                companionId);
+        createdProjectSession = latestProjectSession is null;
         OpenProjectOnRunnerResult? openedWorkspace = null;
         ProjectWorkspaceMapping? workspaceMapping = null;
         TerminalSession? session = null;
         try
         {
             var requestedWorkspacePath = existingWorkspace?.ProjectPath ?? BuildDefaultProjectWorkspacePath(project.Id);
+            var existingTerminalSurface = GetLatestProjectTerminalSurface(projectSession);
+            if (!string.IsNullOrWhiteSpace(existingTerminalSurface?.ReferenceId))
+            {
+                var existingSessions = await runners.GetSessionsAsync(machineId, cancellationToken);
+                session = existingSessions.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, existingTerminalSurface.ReferenceId, StringComparison.OrdinalIgnoreCase));
+                if (session is not null)
+                {
+                    workspaceMapping = existingWorkspace ?? BuildWorkspaceMapping(machine, session.WorkingDirectory, isPrimary: false);
+                    var reusedProject = existingWorkspace is null
+                        ? projects.UpsertWorkspace(projectId, workspaceMapping)
+                        : project;
+
+                    if (!string.IsNullOrWhiteSpace(companionId))
+                    {
+                        companions.AttachSession(companionId, session.Id);
+                    }
+
+                    logger.LogInformation(
+                        "Reusing project session {ProjectSessionId} and terminal {TerminalSessionId} for project {ProjectId} on machine {MachineId}",
+                        projectSession.Id,
+                        session.Id,
+                        project.Id,
+                        machine.MachineId);
+
+                    return Results.Ok(new OpenProjectOnMachineResult
+                    {
+                        Project = reusedProject,
+                        ProjectSession = projectSession,
+                        Workspace = workspaceMapping,
+                        Session = session,
+                        BootstrapPending = existingTerminalSurface.Status == ProjectSessionSurfaceStatus.Requested,
+                        BootstrapMessage = existingTerminalSurface.StatusMessage,
+                        WorkspaceCreated = false,
+                        RepositoryCloned = false
+                    });
+                }
+            }
+
             logger.LogInformation(
                 "Opening project {ProjectId} ({ProjectName}) on machine {MachineId} ({MachineName}); existing workspace: {ExistingWorkspacePath}; companion: {CompanionId}; session: {ProjectSessionId}",
                 project.Id,
@@ -226,7 +282,10 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
                     "Runner returned no workspace while opening project {ProjectId} on machine {MachineId}",
                     project.Id,
                     machine.MachineId);
-                projectSessions.RemoveSession(projectSession.Id);
+                if (createdProjectSession)
+                {
+                    projectSessions.RemoveSession(projectSession.Id);
+                }
                 return Results.NotFound();
             }
 
@@ -260,6 +319,7 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
 
             session = await runners.CreateSessionAsync(machineId, new CreateTerminalRequest
             {
+                RequestedSessionId = existingTerminalSurface?.ReferenceId,
                 Name = $"{project.Name} ({machine.MachineName})",
                 WorkingDirectory = string.IsNullOrWhiteSpace(openedWorkspace.TerminalWorkingDirectory)
                     ? openedWorkspace.ProjectPath
@@ -328,7 +388,10 @@ app.MapPost("/api/projects/{projectId}/open/{machineId}", async (string projectI
                 projectSession.Id);
             try
             {
-                projectSessions.RemoveSession(projectSession.Id);
+                if (createdProjectSession)
+                {
+                    projectSessions.RemoveSession(projectSession.Id);
+                }
             }
             catch (Exception cleanupEx)
             {
@@ -925,6 +988,23 @@ static ProjectSessionRecord? GetLatestProjectSession(
         .OrderByDescending(session => session.UpdatedAt)
         .FirstOrDefault();
 }
+
+static ProjectSessionSurface? GetLatestProjectTerminalSurface(ProjectSessionRecord projectSession) =>
+    projectSession.Surfaces
+        .Where(surface =>
+            surface.Kind == ProjectSessionSurfaceKind.Terminal &&
+            !string.IsNullOrWhiteSpace(surface.ReferenceId))
+        .OrderByDescending(surface => surface.UpdatedAt)
+        .FirstOrDefault();
+
+static ProjectWorkspaceMapping BuildWorkspaceMapping(RegisteredRunnerMachine machine, string projectPath, bool isPrimary) =>
+    new()
+    {
+        MachineId = machine.MachineId,
+        MachineName = machine.MachineName,
+        ProjectPath = projectPath,
+        IsPrimary = isPrimary
+    };
 
 static OpenProjectOnRunnerResult BuildFallbackOpenProjectResult(
     RegisteredRunnerMachine machine,

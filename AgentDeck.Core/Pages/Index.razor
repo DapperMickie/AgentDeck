@@ -9,7 +9,7 @@
     <div class="page-header workspace-dashboard__header">
         <div>
             <h1>Projects</h1>
-            <p>Track runner readiness, open projects on workers, and jump into live project sessions without mixing the dashboard with terminal-only views.</p>
+            <p>Track runner readiness, open projects on workers, and reopen live project sessions through Project Links without mixing them into standalone terminals.</p>
         </div>
     </div>
 
@@ -32,8 +32,8 @@
             </article>
             <article class="dashboard-summary-card">
                 <span class="dashboard-summary-card__label">Active terminals</span>
-                <strong>@SessionState.Sessions.Count</strong>
-                <span class="dashboard-summary-card__subtext">Visible through dedicated terminal pages</span>
+                <strong>@GetStandaloneTerminalCount()</strong>
+                <span class="dashboard-summary-card__subtext">Standalone sessions visible through dedicated terminal pages</span>
             </article>
         </section>
 
@@ -53,41 +53,6 @@
         }
         else
         {
-            <section class="dashboard-section-card">
-                <div class="dashboard-section-card__header">
-                    <div>
-                        <h2>Live project sessions</h2>
-                        <p>Project sessions become the shared surface container for terminals, VS Code, simulators, emulators, and future viewer tabs.</p>
-                    </div>
-                </div>
-
-                @if (_dashboard.ProjectSessions.Count == 0)
-                {
-                    <p>No live project sessions are registered yet.</p>
-                }
-                else
-                {
-                    <div class="project-session-grid">
-                        @foreach (var session in _dashboard.ProjectSessions.OrderByDescending(session => session.UpdatedAt))
-                        {
-                            <a class="project-session-card project-session-card--link" href="/project-sessions/@Uri.EscapeDataString(session.Id)">
-                                <div class="project-session-card__header">
-                                    <div>
-                                        <h3>@session.ProjectName</h3>
-                                        <p>@GetProjectSessionControllerLabel(session)</p>
-                                    </div>
-                                    <span class="machine-badge">@session.Surfaces.Count tabs</span>
-                                </div>
-                                <p class="project-session-card__meta">
-                                    @GetProjectSessionLocationLabel(session)
-                                    <span>• updated @session.UpdatedAt.ToLocalTime().ToString("g")</span>
-                                </p>
-                            </a>
-                        }
-                    </div>
-                }
-            </section>
-
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
@@ -216,7 +181,7 @@
                                         <div class="project-template-target">
                                             <div class="project-template-target__header">
                                                 <strong>@target.DisplayName</strong>
-                                                <span class="project-template-target__status">
+                                                <span class="project-template-target__status project-template-target__status--@GetTargetAvailabilityClass(target)">
                                                     @GetTargetAvailabilityLabel(target)
                                                 </span>
                                             </div>
@@ -247,14 +212,14 @@
 
                 <div class="viewer-surface-grid">
                     @foreach (var viewerSurface in _dashboard.ViewerSurfaces)
-                    {
-                        <article class="viewer-surface-card">
-                            <h3>@viewerSurface.Title</h3>
-                            <p>@viewerSurface.Description</p>
-                            <span class="viewer-surface-card__availability">@viewerSurface.Availability</span>
-                        </article>
-                    }
-                </div>
+                        {
+                            <article class="viewer-surface-card">
+                                <h3>@viewerSurface.Title</h3>
+                                <p>@viewerSurface.Description</p>
+                                <span class="viewer-surface-card__availability viewer-surface-card__availability--@viewerSurface.AvailabilityClass">@viewerSurface.Availability</span>
+                            </article>
+                        }
+                    </div>
             </section>
         }
     </div>
@@ -276,6 +241,9 @@
 
     private int GetProjectSessionCount(string projectId) =>
         _dashboard.ProjectSessions.Count(session => string.Equals(session.ProjectId, projectId, StringComparison.OrdinalIgnoreCase));
+
+    private int GetStandaloneTerminalCount() =>
+        SessionNavigation.GetStandaloneTerminalSessions(SessionState.Sessions, _dashboard.ProjectSessions).Count;
 
     private string GetProjectSessionControllerLabel(ProjectSessionRecord session) =>
         string.IsNullOrWhiteSpace(session.CompanionId)
@@ -425,6 +393,16 @@
         }
 
         return target.SetupRequiredMachineNames.Count > 0 ? "Needs setup" : "Unavailable";
+    }
+
+    private static string GetTargetAvailabilityClass(CompanionProjectTargetSummary target)
+    {
+        if (target.ReadyMachineNames.Count > 0)
+        {
+            return "supported";
+        }
+
+        return target.SetupRequiredMachineNames.Count > 0 ? "setup" : "unsupported";
     }
 
     private async Task RefreshDashboardAsync()

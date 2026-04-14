@@ -1,8 +1,10 @@
 @page "/terminals"
+@inject ICompanionDashboardStateService DashboardState
 @inject ISessionStateService SessionState
 @inject IActiveSessionService ActiveSession
 @inject IRunnerConnectionManager Connections
 @inject NavigationManager Nav
+@implements IDisposable
 
 <div class="mobile-terminals-page">
     <div class="mobile-terminals-page__header">
@@ -13,14 +15,18 @@
         <button class="btn btn-primary" @onclick="OpenNewTerminal">New</button>
     </div>
 
-    @if (SessionState.Sessions.Count == 0)
+    @if (GetStandaloneSessions().Count == 0)
     {
         <div class="mobile-page-placeholder">
             <div class="empty-state">
                 <div class="empty-icon">▣</div>
-                <h2>No active terminals</h2>
+                <h2>No standalone terminals</h2>
                 <p>
-                    @if (Connections.ConnectedMachineCount == 0)
+                    @if (SessionState.Sessions.Count > 0)
+                    {
+                        <span>Project-owned terminals stay inside their project pages. Use Project Links to reopen them.</span>
+                    }
+                    else if (Connections.ConnectedMachineCount == 0)
                     {
                         <span>Connect to a runner in <a href="/settings">Settings</a> to create a terminal.</span>
                     }
@@ -35,7 +41,7 @@
     else
     {
         <div class="mobile-session-list">
-            @foreach (var session in SessionState.Sessions)
+            @foreach (var session in GetStandaloneSessions())
             {
                 <button class="mobile-session-card @(IsActive(session.Id) ? "mobile-session-card--active" : "")"
                         @onclick="() => SelectSession(session.Id)">
@@ -63,6 +69,14 @@
 </div>
 
 @code {
+    private IReadOnlyList<ProjectSessionRecord> _projectSessions = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        SessionState.SessionsChanged += OnSessionsChanged;
+        await RefreshProjectSessionsAsync();
+    }
+
     private void OpenNewTerminal() => ActiveSession.OpenDialog();
 
     private void SelectSession(string sessionId)
@@ -73,14 +87,33 @@
 
     private bool IsActive(string sessionId) => string.Equals(ActiveSession.ActiveSessionId, sessionId, StringComparison.Ordinal);
 
+    private IReadOnlyList<TerminalSession> GetStandaloneSessions() =>
+        SessionNavigation.GetStandaloneTerminalSessions(SessionState.Sessions, _projectSessions);
+
     private string GetHeaderSubtitle()
     {
-        var count = SessionState.Sessions.Count;
+        var count = GetStandaloneSessions().Count;
         if (count == 0)
         {
-            return "Create and switch between active sessions.";
+            return SessionState.Sessions.Count > 0
+                ? "Project-owned terminals are available through Project Links."
+                : "Create and switch between active sessions.";
         }
 
         return count == 1 ? "1 active session" : $"{count} active sessions";
+    }
+
+    private void OnSessionsChanged(object? sender, EventArgs e) =>
+        _ = InvokeAsync(RefreshProjectSessionsAsync);
+
+    private async Task RefreshProjectSessionsAsync()
+    {
+        _projectSessions = (await DashboardState.BuildAsync()).ProjectSessions;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        SessionState.SessionsChanged -= OnSessionsChanged;
     }
 }

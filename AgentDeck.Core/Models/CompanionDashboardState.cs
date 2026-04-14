@@ -60,4 +60,5 @@ public sealed class CompanionViewerSurfaceSummary
     public string Title { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public string Availability { get; init; } = string.Empty;
+    public string AvailabilityClass { get; init; } = "unsupported";
 }
