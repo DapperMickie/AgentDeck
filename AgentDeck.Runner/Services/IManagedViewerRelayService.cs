@@ -5,6 +5,8 @@ namespace AgentDeck.Runner.Services;
 
 public interface IManagedViewerRelayService
 {
+    IReadOnlyList<CaptureTargetDescriptor> GetCaptureTargets();
+
     Task<ManagedViewerRelayBootstrapResult> StartAsync(
         RemoteViewerSession session,
         string connectionBaseUri,

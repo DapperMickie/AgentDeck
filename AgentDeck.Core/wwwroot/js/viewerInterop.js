@@ -161,12 +161,13 @@ export function attach(elementId, dotNetReference) {
         moveTimer: null,
         pointerSendChain: Promise.resolve(),
         pressedButtons: [],
+        capturedPointerIds: [],
         wheelRemainderX: 0,
         wheelRemainderY: 0,
-        onMouseMove: null,
-        onDragMouseMove: null,
-        onMouseDown: null,
-        onMouseUp: null,
+        onPointerMove: null,
+        onDragPointerMove: null,
+        onPointerDown: null,
+        onPointerUp: null,
         onWheel: null,
         onContextMenu: null,
         onAuxClick: null,
@@ -187,9 +188,9 @@ export function attach(elementId, dotNetReference) {
         schedulePointerMove(elementId);
     };
 
-    const onMouseMove = event => queueMove(event);
+    const onPointerMove = event => queueMove(event);
 
-    const onDragMouseMove = event => {
+    const onDragPointerMove = event => {
         if (registration.pressedButtons.length === 0) {
             return;
         }
@@ -197,9 +198,19 @@ export function attach(elementId, dotNetReference) {
         queueMove(event);
     };
 
-    const onMouseDown = event => {
+    const onPointerDown = event => {
         element.focus();
         event.preventDefault();
+        if (typeof element.setPointerCapture === "function") {
+            try {
+                element.setPointerCapture(event.pointerId);
+                if (!registration.capturedPointerIds.includes(event.pointerId)) {
+                    registration.capturedPointerIds.push(event.pointerId);
+                }
+            } catch {
+            }
+        }
+
         const point = normalize(element, event);
         if (!point) {
             return;
@@ -211,8 +222,16 @@ export function attach(elementId, dotNetReference) {
         enqueuePointerEvent(registration, "down", point, button, getClickCount(event));
     };
 
-    const onMouseUp = event => {
+    const onPointerUp = event => {
         event.preventDefault();
+        if (typeof element.releasePointerCapture === "function") {
+            try {
+                element.releasePointerCapture(event.pointerId);
+                registration.capturedPointerIds = registration.capturedPointerIds.filter(pointerId => pointerId !== event.pointerId);
+            } catch {
+            }
+        }
+
         const point = normalize(element, event);
         if (!point) {
             return;
@@ -263,10 +282,10 @@ export function attach(elementId, dotNetReference) {
         event.preventDefault();
     };
 
-    registration.onMouseMove = onMouseMove;
-    registration.onDragMouseMove = onDragMouseMove;
-    registration.onMouseDown = onMouseDown;
-    registration.onMouseUp = onMouseUp;
+    registration.onPointerMove = onPointerMove;
+    registration.onDragPointerMove = onDragPointerMove;
+    registration.onPointerDown = onPointerDown;
+    registration.onPointerUp = onPointerUp;
     registration.onWheel = onWheel;
     registration.onContextMenu = preventDefault;
     registration.onAuxClick = preventDefault;
@@ -275,10 +294,10 @@ export function attach(elementId, dotNetReference) {
     registration.onKeyDown = onKeyDown;
     registration.onKeyUp = onKeyUp;
 
-    element.addEventListener("mousemove", onMouseMove);
-    element.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("mousemove", onDragMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    element.addEventListener("pointermove", onPointerMove);
+    element.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onDragPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
     element.addEventListener("wheel", onWheel, { passive: false });
     element.addEventListener("contextmenu", preventDefault);
     element.addEventListener("auxclick", preventDefault);
@@ -300,10 +319,22 @@ export function detach(elementId) {
         window.clearTimeout(existing.moveTimer);
     }
 
-    existing.element.removeEventListener("mousemove", existing.onMouseMove);
-    window.removeEventListener("mousemove", existing.onDragMouseMove);
-    existing.element.removeEventListener("mousedown", existing.onMouseDown);
-    window.removeEventListener("mouseup", existing.onMouseUp);
+    if (typeof existing.element.releasePointerCapture === "function") {
+        for (const pointerId of existing.capturedPointerIds) {
+            try {
+                existing.element.releasePointerCapture(pointerId);
+            } catch {
+            }
+        }
+    }
+
+    existing.capturedPointerIds = [];
+    existing.pressedButtons = [];
+
+    existing.element.removeEventListener("pointermove", existing.onPointerMove);
+    window.removeEventListener("pointermove", existing.onDragPointerMove);
+    existing.element.removeEventListener("pointerdown", existing.onPointerDown);
+    window.removeEventListener("pointerup", existing.onPointerUp);
     existing.element.removeEventListener("wheel", existing.onWheel);
     existing.element.removeEventListener("contextmenu", existing.onContextMenu);
     existing.element.removeEventListener("auxclick", existing.onAuxClick);
@@ -318,5 +349,26 @@ export function focus(elementId) {
     const element = document.getElementById(elementId);
     if (element) {
         element.focus();
+    }
+}
+
+export async function toggleFullscreen(elementId) {
+    const element = document.getElementById(elementId);
+    if (!element) {
+        return;
+    }
+
+    if (document.fullscreenElement === element) {
+        await document.exitFullscreen();
+        return;
+    }
+
+    if (document.fullscreenElement && document.fullscreenElement !== element) {
+        await document.exitFullscreen();
+        return;
+    }
+
+    if (typeof element.requestFullscreen === "function") {
+        await element.requestFullscreen();
     }
 }

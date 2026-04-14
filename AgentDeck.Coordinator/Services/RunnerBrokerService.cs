@@ -496,7 +496,8 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
                 SessionId = request.Target.SessionId,
                 WindowTitle = request.Target.WindowTitle,
                 VirtualDeviceId = request.Target.VirtualDeviceId,
-                VirtualDeviceProfileId = request.Target.VirtualDeviceProfileId
+                VirtualDeviceProfileId = request.Target.VirtualDeviceProfileId,
+                KnownWindowTargetIds = request.Target.KnownWindowTargetIds.ToArray()
             }
         };
     }

@@ -110,6 +110,14 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
             $"{target.DisplayName} is ready via AgentDeck-managed relay transport.");
     }
 
+    public IReadOnlyList<CaptureTargetDescriptor> GetCaptureTargets()
+    {
+        lock (_captureSync)
+        {
+            return _capturePlatform.GetTargets();
+        }
+    }
+
     public async Task StopAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         if (!_activeSessions.TryRemove(sessionId, out var activeSession))
@@ -318,10 +326,44 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
             return null;
         }
 
+        var baselineTargetIds = session.Target.KnownWindowTargetIds
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (baselineTargetIds.Count > 0)
+        {
+            var launchedCandidates = candidates
+                .Where(candidate => !baselineTargetIds.Contains(candidate.Id))
+                .ToArray();
+            var launchedMatch = TryMatchWindowTarget(launchedCandidates, session.Target);
+            if (launchedMatch is not null)
+            {
+                return launchedMatch;
+            }
+
+            if (launchedCandidates.Length == 1)
+            {
+                return launchedCandidates[0];
+            }
+
+            return null;
+        }
+
+        return TryMatchWindowTarget(candidates, session.Target);
+    }
+
+    private static CaptureTargetDescriptor? TryMatchWindowTarget(
+        IReadOnlyList<CaptureTargetDescriptor> candidates,
+        RemoteViewerTarget target)
+    {
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
         var exactKeys = new[]
         {
-            session.Target.WindowTitle,
-            session.Target.DisplayName
+            target.WindowTitle,
+            target.DisplayName
         }
         .Where(value => !string.IsNullOrWhiteSpace(value))
         .Select(value => value!.Trim())

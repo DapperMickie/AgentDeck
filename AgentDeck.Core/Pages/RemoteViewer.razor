@@ -44,6 +44,7 @@
             <div class="project-page__actions">
                 <button class="btn btn-accent" @onclick="NavigateBack">Back</button>
                 <button class="btn btn-accent" @onclick="RefreshAsync" disabled="@_busy">Refresh</button>
+                <button class="btn btn-accent" @onclick="ToggleFullscreenAsync" disabled="@_busy">Toggle fullscreen</button>
                 @if (CanOpenControlActions())
                 {
                     @if (IsCurrentViewerControlledByCurrentCompanion())
@@ -189,6 +190,7 @@
 
         _dotNetReference = DotNetObjectReference.Create(this);
         await ViewerInterop.AttachAsync(_viewerSurfaceId, _dotNetReference);
+        await ViewerInterop.FocusAsync(_viewerSurfaceId);
     }
 
     private async Task RefreshAsync()
@@ -282,6 +284,12 @@
     private void NavigateBack()
     {
         Nav.NavigateTo(string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl);
+    }
+
+    private async Task ToggleFullscreenAsync()
+    {
+        await RunBusyAsync(() => ViewerInterop.ToggleFullscreenAsync(_viewerSurfaceId));
+        await ViewerInterop.FocusAsync(_viewerSurfaceId);
     }
 
     private bool CanOpenControlActions() =>

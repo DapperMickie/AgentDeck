@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
+using RdpPoc.Contracts;
 
 namespace AgentDeck.Runner.Services;
 
@@ -28,6 +29,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     private readonly IPtyProcessManager _ptyManager;
     private readonly IAgentSessionStore _sessionStore;
     private readonly IRemoteViewerSessionService _viewers;
+    private readonly IManagedViewerRelayService _managedViewerRelay;
     private readonly IDesktopViewerBootstrapService _viewerBootstrap;
     private readonly IVsCodeDebugSessionService _vsCodeDebug;
     private readonly IWorkspaceService _workspace;
@@ -41,6 +43,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         IPtyProcessManager ptyManager,
         IAgentSessionStore sessionStore,
         IRemoteViewerSessionService viewers,
+        IManagedViewerRelayService managedViewerRelay,
         IDesktopViewerBootstrapService viewerBootstrap,
         IVsCodeDebugSessionService vsCodeDebug,
         IWorkspaceService workspace,
@@ -50,6 +53,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         _ptyManager = ptyManager;
         _sessionStore = sessionStore;
         _viewers = viewers;
+        _managedViewerRelay = managedViewerRelay;
         _viewerBootstrap = viewerBootstrap;
         _vsCodeDebug = vsCodeDebug;
         _workspace = workspace;
@@ -422,12 +426,16 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             MachineId = job.TargetMachineId
         });
 
+        var knownWindowTargetIds = attachRuntimeViewer
+            ? CaptureKnownWindowTargetIds()
+            : [];
+
         try
         {
             await _ptyManager.WriteAsync(sessionId, BuildTerminalPhaseInput(command, completionMarker, processIdMarker));
             if (attachRuntimeViewer)
             {
-                await TryAttachRuntimeViewerAsync(job, sessionId);
+                await TryAttachRuntimeViewerAsync(job, sessionId, knownWindowTargetIds);
             }
 
             if (onBeforeWaitAsync is not null)
@@ -668,9 +676,9 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         return false;
     }
 
-    private async Task TryAttachRuntimeViewerAsync(OrchestrationJob job, string sessionId)
+    private async Task TryAttachRuntimeViewerAsync(OrchestrationJob job, string sessionId, IReadOnlyList<string> knownWindowTargetIds)
     {
-        if (!TryBuildRuntimeViewerRequest(job, sessionId, out var request, out var targetKind))
+        if (!TryBuildRuntimeViewerRequest(job, sessionId, knownWindowTargetIds, out var request, out var targetKind))
         {
             return;
         }
@@ -723,6 +731,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     private bool TryBuildRuntimeViewerRequest(
         OrchestrationJob job,
         string sessionId,
+        IReadOnlyList<string> knownWindowTargetIds,
         out CreateRemoteViewerSessionRequest request,
         out RemoteViewerTargetKind targetKind)
     {
@@ -746,7 +755,8 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
                     JobId = job.Id,
                     SessionId = sessionId,
                     VirtualDeviceId = job.DeviceSelection.DeviceId,
-                    VirtualDeviceProfileId = job.DeviceSelection.ProfileId
+                    VirtualDeviceProfileId = job.DeviceSelection.ProfileId,
+                    KnownWindowTargetIds = knownWindowTargetIds.ToArray()
                 }
             };
 
@@ -770,7 +780,8 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
                 DisplayName = $"{job.ProjectName} {job.LaunchProfileName}",
                 JobId = job.Id,
                 SessionId = sessionId,
-                WindowTitle = job.ProjectName
+                WindowTitle = job.ProjectName,
+                KnownWindowTargetIds = knownWindowTargetIds.ToArray()
             }
         };
 
@@ -816,6 +827,21 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             default:
                 targetKind = default;
                 return false;
+        }
+    }
+
+    private IReadOnlyList<string> CaptureKnownWindowTargetIds()
+    {
+        try
+        {
+            return _managedViewerRelay.GetCaptureTargets()
+                .Where(target => target.Kind == CaptureTargetKind.Window)
+                .Select(target => target.Id)
+                .ToArray();
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return [];
         }
     }
 

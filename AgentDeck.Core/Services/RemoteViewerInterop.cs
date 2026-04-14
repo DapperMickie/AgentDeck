@@ -33,6 +33,12 @@ public sealed class RemoteViewerInterop : IAsyncDisposable
         await module.InvokeVoidAsync("focus", elementId);
     }
 
+    public async Task ToggleFullscreenAsync(string elementId)
+    {
+        var module = await _moduleTask.Value;
+        await module.InvokeVoidAsync("toggleFullscreen", elementId);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_moduleTask.IsValueCreated)

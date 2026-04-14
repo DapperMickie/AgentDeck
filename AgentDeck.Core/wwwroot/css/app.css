@@ -773,16 +773,24 @@ main {
     gap: 1rem;
 }
 
+.remote-viewer-page__surface-card {
+    max-width: 72rem;
+    width: 100%;
+    margin: 0 auto;
+}
+
 .remote-viewer-surface {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 24rem;
+    min-height: 18rem;
+    max-height: 60vh;
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 16px;
     background: #0e1320;
     overflow: hidden;
     outline: none;
+    touch-action: none;
 }
 
 .remote-viewer-surface--interactive {
@@ -799,6 +807,7 @@ main {
     height: auto;
     object-fit: contain;
     user-select: none;
+    pointer-events: none;
 }
 
 .viewer-placeholder {
