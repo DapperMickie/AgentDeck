@@ -45,6 +45,11 @@
                 <button class="btn btn-accent" @onclick="NavigateBack">Back</button>
                 <button class="btn btn-accent" @onclick="RefreshAsync" disabled="@_busy">Refresh</button>
                 <button class="btn btn-accent" @onclick="ToggleFullscreenAsync" disabled="@_busy">Toggle fullscreen</button>
+                @if (CanSendNativeWindowShortcut())
+                {
+                    <button class="btn btn-accent" @onclick="SendMacMakeSmallerAsync" disabled="@_busy">Make smaller</button>
+                    <button class="btn btn-accent" @onclick="SendEscapeAsync" disabled="@_busy">Send Esc</button>
+                }
                 @if (CanOpenControlActions())
                 {
                     @if (IsCurrentViewerControlledByCurrentCompanion())
@@ -159,6 +164,7 @@
     private string? _coordinatorUrl;
     private string? _lastInteropStatus;
     private bool _hooksRefreshedAfterFirstFrame;
+    private AgentDeck.Shared.Enums.RunnerHostPlatform _machineHostPlatform = AgentDeck.Shared.Enums.RunnerHostPlatform.Unknown;
 
     protected override Task OnInitializedAsync()
     {
@@ -174,6 +180,7 @@
             _coordinatorUrl = (await SettingsService.LoadAsync()).CoordinatorUrl;
             _hooksRefreshedAfterFirstFrame = false;
             _lastInteropStatus = null;
+            _machineHostPlatform = AgentDeck.Shared.Enums.RunnerHostPlatform.Unknown;
             if (string.IsNullOrWhiteSpace(_coordinatorUrl))
             {
                 Toasts.Show("Connect to a coordinator before opening viewers.", ToastKind.Warning);
@@ -182,6 +189,7 @@
             }
 
             await ViewerClient.LoadAsync(_coordinatorUrl, MachineId, ViewerSessionId);
+            await TryLoadMachineHostPlatformAsync(_coordinatorUrl, MachineId);
         }
         catch (Exception ex)
         {
@@ -320,9 +328,92 @@
         await ViewerInterop.FocusAsync(_viewerSurfaceId);
     }
 
+    private async Task SendMacMakeSmallerAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var metaDown = false;
+            var controlDown = false;
+            var keyFDown = false;
+            try
+            {
+                metaDown = true;
+                await ViewerClient.SendKeyboardAsync("keydown", "MetaLeft", false, false, false);
+                controlDown = true;
+                await ViewerClient.SendKeyboardAsync("keydown", "ControlLeft", false, true, false);
+                keyFDown = true;
+                await ViewerClient.SendKeyboardAsync("keydown", "KeyF", false, true, false);
+                await ViewerClient.SendKeyboardAsync("keyup", "KeyF", false, true, false);
+                keyFDown = false;
+            }
+            finally
+            {
+                await ReleaseKeyIfNeededAsync("KeyF", false, true, false, keyFDown);
+                await ReleaseKeyIfNeededAsync("ControlLeft", false, false, false, controlDown);
+                await ReleaseKeyIfNeededAsync("MetaLeft", false, false, false, metaDown);
+                await ViewerInterop.FocusAsync(_viewerSurfaceId);
+            }
+        });
+    }
+
+    private async Task SendEscapeAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            await SendKeyboardShortcutAsync(
+                ("keydown", "Escape", false, false, false),
+                ("keyup", "Escape", false, false, false));
+            await ViewerInterop.FocusAsync(_viewerSurfaceId);
+        });
+    }
+
+    private async Task SendKeyboardShortcutAsync(params (string EventType, string Code, bool Alt, bool Control, bool Shift)[] sequence)
+    {
+        foreach (var step in sequence)
+        {
+            await ViewerClient.SendKeyboardAsync(step.EventType, step.Code, step.Alt, step.Control, step.Shift);
+        }
+    }
+
+    private async Task ReleaseKeyIfNeededAsync(string code, bool alt, bool control, bool shift, bool isPressed)
+    {
+        if (!isPressed)
+        {
+            return;
+        }
+
+        try
+        {
+            await ViewerClient.SendKeyboardAsync("keyup", code, alt, control, shift);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task TryLoadMachineHostPlatformAsync(string coordinatorUrl, string machineId)
+    {
+        try
+        {
+            var machines = await CoordinatorClient.GetMachinesAsync(coordinatorUrl);
+            _machineHostPlatform = machines
+                .FirstOrDefault(machine => string.Equals(machine.MachineId, machineId, StringComparison.OrdinalIgnoreCase))
+                ?.Platform?.HostPlatform ?? AgentDeck.Shared.Enums.RunnerHostPlatform.Unknown;
+        }
+        catch
+        {
+            _machineHostPlatform = AgentDeck.Shared.Enums.RunnerHostPlatform.Unknown;
+        }
+    }
+
     private bool CanOpenControlActions() =>
         ViewerClient.CurrentSession is not null &&
         ViewerClient.CurrentSession.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+
+    private bool CanSendNativeWindowShortcut() =>
+        _machineHostPlatform == AgentDeck.Shared.Enums.RunnerHostPlatform.MacOS &&
+        ViewerClient.CurrentSession?.Target.Kind is RemoteViewerTargetKind.Window or RemoteViewerTargetKind.VsCode or RemoteViewerTargetKind.Emulator or RemoteViewerTargetKind.Simulator &&
+        ViewerClient.CanSendInput;
 
     private bool IsCurrentViewerControlledByCurrentCompanion() =>
         ViewerClient.CurrentSession is not null &&

@@ -22,7 +22,26 @@ internal interface IHostCapturePlatform : IDisposable
         ModifierKeyState currentModifierState);
 }
 
-internal readonly record struct ModifierKeyState(bool Alt, bool Control, bool Shift);
+internal readonly record struct ModifierKeyState(bool Alt, bool Control, bool Shift, bool Meta);
+
+internal static class ModifierKeyStateSupport
+{
+    public static ModifierKeyState ForNonModifierKey(ModifierKeyState current, KeyboardInputEvent input) =>
+        new(input.Alt, input.Control, input.Shift, current.Meta);
+
+    public static ModifierKeyState ApplyModifierEvent(ModifierKeyState current, KeyboardInputEvent input)
+    {
+        var isKeyDown = string.Equals(input.EventType, "keydown", StringComparison.OrdinalIgnoreCase);
+        return input.Code switch
+        {
+            "AltLeft" or "AltRight" => current with { Alt = isKeyDown },
+            "ControlLeft" or "ControlRight" => current with { Control = isKeyDown },
+            "ShiftLeft" or "ShiftRight" => current with { Shift = isKeyDown },
+            "MetaLeft" or "MetaRight" => current with { Meta = isKeyDown },
+            _ => current
+        };
+    }
+}
 
 internal static class HostCapturePlatformFactory
 {
@@ -169,10 +188,10 @@ internal sealed class WindowsHostCapturePlatform : IHostCapturePlatform
         if (TryGetModifierVirtualKey(input.Code, out _))
         {
             SendKeyboardInput(input.EventType, virtualKey);
-            return new ModifierKeyState(input.Alt, input.Control, input.Shift);
+            return ModifierKeyStateSupport.ApplyModifierEvent(currentModifierState, input);
         }
 
-        var desiredModifierState = new ModifierKeyState(input.Alt, input.Control, input.Shift);
+        var desiredModifierState = ModifierKeyStateSupport.ForNonModifierKey(currentModifierState, input);
         ApplyModifierState(currentModifierState, desiredModifierState);
         SendKeyboardInput(input.EventType, virtualKey);
         return desiredModifierState;
@@ -350,6 +369,7 @@ internal sealed class WindowsHostCapturePlatform : IHostCapturePlatform
         ApplyModifierTransition(current.Control, desired.Control, 0x11);
         ApplyModifierTransition(current.Shift, desired.Shift, 0x10);
         ApplyModifierTransition(current.Alt, desired.Alt, 0x12);
+        ApplyModifierTransition(current.Meta, desired.Meta, 0x5B);
     }
 
     private static void ApplyModifierTransition(bool current, bool desired, ushort virtualKey)
@@ -369,6 +389,8 @@ internal sealed class WindowsHostCapturePlatform : IHostCapturePlatform
             "ShiftLeft" or "ShiftRight" => 0x10,
             "ControlLeft" or "ControlRight" => 0x11,
             "AltLeft" or "AltRight" => 0x12,
+            "MetaLeft" => 0x5B,
+            "MetaRight" => 0x5C,
             _ => (ushort)0,
         };
 
@@ -409,6 +431,8 @@ internal sealed class WindowsHostCapturePlatform : IHostCapturePlatform
             "ShiftLeft" or "ShiftRight" => 0x10,
             "ControlLeft" or "ControlRight" => 0x11,
             "AltLeft" or "AltRight" => 0x12,
+            "MetaLeft" => 0x5B,
+            "MetaRight" => 0x5C,
             "F1" => 0x70,
             "F2" => 0x71,
             "F3" => 0x72,
@@ -624,7 +648,7 @@ internal sealed class LinuxHostCapturePlatform : IHostCapturePlatform
             return currentModifierState;
         }
 
-        var desiredModifierState = new ModifierKeyState(input.Alt, input.Control, input.Shift);
+        var desiredModifierState = ModifierKeyStateSupport.ForNonModifierKey(currentModifierState, input);
         if (TryMapModifierKeyCode(session.Display, input.Code, out _))
         {
             _ = XTestFakeKeyEvent(
@@ -633,7 +657,7 @@ internal sealed class LinuxHostCapturePlatform : IHostCapturePlatform
                 string.Equals(input.EventType, "keydown", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
                 IntPtr.Zero);
             _ = XFlush(session.Display);
-            return desiredModifierState;
+            return ModifierKeyStateSupport.ApplyModifierEvent(currentModifierState, input);
         }
 
         ApplyModifierState(session.Display, currentModifierState, desiredModifierState);
@@ -845,6 +869,7 @@ internal sealed class LinuxHostCapturePlatform : IHostCapturePlatform
         ApplyModifierTransition(display, current.Control, desired.Control, "ControlLeft");
         ApplyModifierTransition(display, current.Shift, desired.Shift, "ShiftLeft");
         ApplyModifierTransition(display, current.Alt, desired.Alt, "AltLeft");
+        ApplyModifierTransition(display, current.Meta, desired.Meta, "MetaLeft");
     }
 
     private static void ApplyModifierTransition(IntPtr display, bool current, bool desired, string code)
@@ -908,6 +933,8 @@ internal sealed class LinuxHostCapturePlatform : IHostCapturePlatform
             "ControlRight" => XStringToKeysym("Control_R"),
             "AltLeft" => XStringToKeysym("Alt_L"),
             "AltRight" => XStringToKeysym("Alt_R"),
+            "MetaLeft" => XStringToKeysym("Super_L"),
+            "MetaRight" => XStringToKeysym("Super_R"),
             "F1" => XStringToKeysym("F1"),
             "F2" => XStringToKeysym("F2"),
             "F3" => XStringToKeysym("F3"),
@@ -1164,6 +1191,7 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
     private const string CoreFoundationPath = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
     private const uint CgNullWindowId = 0;
     private const uint CgWindowListOptionOnScreenOnly = 1u << 0;
+    private const uint CgWindowListOptionOnScreenAboveWindow = 1u << 1;
     private const uint CgWindowListOptionIncludingWindow = 1u << 3;
     private const uint CgWindowListExcludeDesktopElements = 1u << 4;
     private const uint CgWindowImageBoundsIgnoreFraming = 1u << 0;
@@ -1216,6 +1244,7 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
 
         targets.Add(new CaptureTargetDescriptor("desktop:primary", displayName, CaptureTargetKind.Desktop));
         targets.AddRange(GetVisibleWindows()
+            .Where(window => window.Layer == 0)
             .Select(window => new CaptureTargetDescriptor(
                 CreateWindowTargetId(window.WindowId),
                 string.IsNullOrWhiteSpace(window.WindowTitle)
@@ -1236,10 +1265,13 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
         IntPtr imageHandle = IntPtr.Zero;
         try
         {
+            var visibleWindows = assignment.TargetKind == CaptureTargetKind.Window
+                ? GetVisibleWindows()
+                : null;
             imageHandle = assignment.TargetKind switch
             {
                 CaptureTargetKind.Desktop => CaptureDesktopImage(),
-                CaptureTargetKind.Window => CaptureWindowImage(ResolveWindow(assignment.TargetId)),
+                CaptureTargetKind.Window => CaptureWindowImage(ResolveWindow(assignment.TargetId, visibleWindows!), visibleWindows!),
                 _ => throw new InvalidOperationException($"Unsupported target kind '{assignment.TargetKind}'."),
             };
 
@@ -1324,11 +1356,11 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
             }
         }
 
-        var desiredModifierState = new ModifierKeyState(input.Alt, input.Control, input.Shift);
+        var desiredModifierState = ModifierKeyStateSupport.ForNonModifierKey(currentModifierState, input);
         if (TryGetModifierVirtualKey(input.Code, out _))
         {
             PostKeyboardEvent(virtualKey, string.Equals(input.EventType, "keydown", StringComparison.OrdinalIgnoreCase));
-            return desiredModifierState;
+            return ModifierKeyStateSupport.ApplyModifierEvent(currentModifierState, input);
         }
 
         ApplyModifierState(currentModifierState, desiredModifierState);
@@ -1340,14 +1372,16 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
     {
     }
 
-    private static MacWindowInfo ResolveWindow(string targetId)
+    private static MacWindowInfo ResolveWindow(string targetId) => ResolveWindow(targetId, GetVisibleWindows());
+
+    private static MacWindowInfo ResolveWindow(string targetId, IReadOnlyList<MacWindowInfo> visibleWindows)
     {
         if (!TryParseWindowTargetId(targetId, out var windowId))
         {
             throw new InvalidOperationException($"Window target '{targetId}' does not contain a valid macOS window ID.");
         }
 
-        var window = GetVisibleWindows().FirstOrDefault(candidate => candidate.WindowId == windowId);
+        var window = visibleWindows.FirstOrDefault(candidate => candidate.WindowId == windowId);
         return window.WindowId == 0
             ? throw new InvalidOperationException($"Window target '{targetId}' is not currently available.")
             : window;
@@ -1415,14 +1449,13 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
             ownerPid <= 0 ||
             bounds.Width <= 1 ||
             bounds.Height <= 1 ||
-            layer != 0 ||
             sharingState == CgWindowSharingNone ||
             string.IsNullOrWhiteSpace(ownerName))
         {
             return false;
         }
 
-        windowInfo = new MacWindowInfo(windowId, ownerPid, ownerName, title ?? string.Empty, bounds);
+        windowInfo = new MacWindowInfo(windowId, ownerPid, ownerName, title ?? string.Empty, bounds, layer);
         return true;
     }
 
@@ -1438,11 +1471,12 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
         return imageHandle;
     }
 
-    private static IntPtr CaptureWindowImage(MacWindowInfo window)
+    private static IntPtr CaptureWindowImage(MacWindowInfo window, IReadOnlyList<MacWindowInfo> visibleWindows)
     {
+        var captureBounds = GetWindowCaptureBounds(window, visibleWindows);
         var imageHandle = CGWindowListCreateImage(
-            window.Bounds.ToCGRect(),
-            CgWindowListOptionIncludingWindow,
+            captureBounds.ToCGRect(),
+            CgWindowListOptionIncludingWindow | CgWindowListOptionOnScreenAboveWindow,
             window.WindowId,
             CgWindowImageBoundsIgnoreFraming);
         if (imageHandle == IntPtr.Zero)
@@ -1452,6 +1486,42 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
         }
 
         return imageHandle;
+    }
+
+    private static DisplayBounds GetWindowCaptureBounds(MacWindowInfo window, IReadOnlyList<MacWindowInfo> visibleWindows)
+    {
+        var targetIndex = -1;
+        for (var index = 0; index < visibleWindows.Count; index++)
+        {
+            if (visibleWindows[index].WindowId == window.WindowId)
+            {
+                targetIndex = index;
+                break;
+            }
+        }
+
+        if (targetIndex <= 0)
+        {
+            return window.Bounds;
+        }
+
+        var baseBounds = window.Bounds;
+        var captureBounds = baseBounds;
+        for (var index = 0; index < targetIndex; index++)
+        {
+            var candidate = visibleWindows[index];
+            if (candidate.OwnerPid != window.OwnerPid ||
+                candidate.WindowId == window.WindowId ||
+                candidate.Layer == 0 ||
+                !baseBounds.IsNear(candidate.Bounds, 96))
+            {
+                continue;
+            }
+
+            captureBounds = captureBounds.Union(candidate.Bounds);
+        }
+
+        return captureBounds;
     }
 
     private static RelayFrame CreateFrameFromCgImage(string sessionId, long sequenceId, IntPtr imageHandle, string errorPrefix)
@@ -1748,6 +1818,7 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
         ApplyModifierTransition(current.Control, desired.Control, 59);
         ApplyModifierTransition(current.Shift, desired.Shift, 56);
         ApplyModifierTransition(current.Alt, desired.Alt, 58);
+        ApplyModifierTransition(current.Meta, desired.Meta, 55);
     }
 
     private static void ApplyModifierTransition(bool current, bool desired, ushort keyCode)
@@ -1777,6 +1848,8 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
             "ControlRight" => 62,
             "AltLeft" => 58,
             "AltRight" => 61,
+            "MetaLeft" => 55,
+            "MetaRight" => 54,
             _ => (ushort)0,
         };
 
@@ -1807,6 +1880,8 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
             "ControlRight" => 62,
             "AltLeft" => 58,
             "AltRight" => 61,
+            "MetaLeft" => 55,
+            "MetaRight" => 54,
             "F1" => 122,
             "F2" => 120,
             "F3" => 99,
@@ -2143,6 +2218,27 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
     private readonly record struct DisplayBounds(int X, int Y, int Width, int Height)
     {
         public CGRect ToCGRect() => new(new CGPoint(X, Y), new CGSize(Width, Height));
+
+        public DisplayBounds Union(DisplayBounds other)
+        {
+            var left = Math.Min(X, other.X);
+            var top = Math.Min(Y, other.Y);
+            var right = Math.Max(X + Width, other.X + other.Width);
+            var bottom = Math.Max(Y + Height, other.Y + other.Height);
+            return new DisplayBounds(left, top, right - left, bottom - top);
+        }
+
+        public bool IsNear(DisplayBounds other, int padding)
+        {
+            var left = X - padding;
+            var top = Y - padding;
+            var right = X + Width + padding;
+            var bottom = Y + Height + padding;
+            return other.X < right &&
+                other.X + other.Width > left &&
+                other.Y < bottom &&
+                other.Y + other.Height > top;
+        }
     }
 
     private readonly record struct MacWindowInfo(
@@ -2150,7 +2246,8 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
         int OwnerPid,
         string OwnerName,
         string WindowTitle,
-        DisplayBounds Bounds);
+        DisplayBounds Bounds,
+        int Layer);
 }
 
 internal sealed class UnsupportedHostCapturePlatform : IHostCapturePlatform
