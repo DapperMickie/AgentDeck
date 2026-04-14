@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using AgentDeck.Runner.Configuration;
@@ -13,6 +14,9 @@ namespace AgentDeck.Runner.Services;
 
 public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDisposable
 {
+    private static readonly TimeSpan WindowCaptureRetryWindow = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan WindowCaptureRetryDelay = TimeSpan.FromMilliseconds(250);
+
     private sealed class ActiveRelaySession
     {
         public required RemoteViewerSession Session { get; init; }
@@ -260,14 +264,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
             long sequenceId = 0;
             while (!activeSession.Cancellation.IsCancellationRequested)
             {
-                RelayFrame frame;
-                lock (activeSession.InputSync)
-                {
-                    lock (_captureSync)
-                    {
-                        frame = CaptureFrameCore(activeSession, sequenceId++);
-                    }
-                }
+                var frame = await CaptureFrameWithRetryAsync(activeSession, sequenceId++, activeSession.Cancellation.Token);
 
                 activeSession.LatestFrame = frame;
                 activeSession.FirstFrameReady.TrySetResult(true);
@@ -296,6 +293,37 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
 
             _activeSessions.TryRemove(activeSession.Session.Id, out _);
             activeSession.Cancellation.Dispose();
+        }
+    }
+
+    private async Task<RelayFrame> CaptureFrameWithRetryAsync(
+        ActiveRelaySession activeSession,
+        long sequenceId,
+        CancellationToken cancellationToken)
+    {
+        var retryStopwatch = Stopwatch.StartNew();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                lock (activeSession.InputSync)
+                {
+                    lock (_captureSync)
+                    {
+                        return CaptureFrameCore(activeSession, sequenceId);
+                    }
+                }
+            }
+            catch (InvalidOperationException ex) when (ShouldRetryWindowCapture(activeSession, ex, retryStopwatch.Elapsed))
+            {
+                _logger.LogInformation(
+                    "Managed relay retrying window capture for viewer {SessionId} after transient failure: {Reason}",
+                    activeSession.Session.Id,
+                    ex.Message);
+                await Task.Delay(WindowCaptureRetryDelay, cancellationToken);
+            }
         }
     }
 
@@ -379,6 +407,22 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
             activeSession,
             assignment => _capturePlatform.CaptureFrame(assignment, sequenceId),
             "capture");
+    }
+
+    private static bool ShouldRetryWindowCapture(
+        ActiveRelaySession activeSession,
+        InvalidOperationException exception,
+        TimeSpan retryElapsed)
+    {
+        if (retryElapsed >= WindowCaptureRetryWindow ||
+            activeSession.Assignment.TargetKind != CaptureTargetKind.Window)
+        {
+            return false;
+        }
+
+        var message = exception.Message;
+        return message.Contains("is not currently available", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("window capture failed", StringComparison.OrdinalIgnoreCase);
     }
 
     private void LogPointerInput(HostSessionAssignment assignment, string sessionId, PointerInputEvent input)
