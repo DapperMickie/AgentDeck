@@ -55,7 +55,7 @@
                     {
                         <button class="btn btn-danger" @onclick="ForceTakeoverAsync" disabled="@_busy">Force take over</button>
                     }
-                    else if (!ViewerClient.CanSendInput)
+                    else if (ViewerClient.CanTakeControlCurrentViewer)
                     {
                         <button class="btn btn-accent" @onclick="TakeControlAsync" disabled="@_busy">Take control</button>
                     }
@@ -356,7 +356,7 @@
 
         var activeTarget = state.TargetDisplayName ?? state.TargetKind.ToString();
         return IsCurrentRemoteController(state)
-            ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote target."
+            ? $"You currently control {activeTarget} on this machine. Input here is allowed, and Take control will switch the active remote target."
             : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this viewer requires force takeover.";
     }
 

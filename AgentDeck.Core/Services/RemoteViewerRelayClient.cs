@@ -62,7 +62,20 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
             var remoteControlState = RemoteControlState;
             return currentSession?.Status == RemoteViewerSessionStatus.Ready &&
                    currentSession.Provider == RemoteViewerProviderKind.Managed &&
-                   (remoteControlState is null || IsCurrentCompanionController(remoteControlState, currentSession.Id));
+                   (remoteControlState is null || IsCurrentCompanionMachineController(remoteControlState));
+        }
+    }
+
+    public bool CanTakeControlCurrentViewer
+    {
+        get
+        {
+            var currentSession = CurrentSession;
+            var remoteControlState = RemoteControlState;
+            return currentSession is not null &&
+                   remoteControlState is not null &&
+                   IsCurrentCompanionMachineController(remoteControlState) &&
+                   !string.Equals(remoteControlState.ViewerSessionId, currentSession.Id, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -483,10 +496,9 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         await sourceConnection.InvokeAsync(nameof(ICoordinatorViewerHub.JoinViewerSessionAsync), machineId, viewerSessionId);
     }
 
-    private bool IsCurrentCompanionController(MachineRemoteControlState remoteControlState, string viewerSessionId) =>
+    private bool IsCurrentCompanionMachineController(MachineRemoteControlState remoteControlState) =>
         !string.IsNullOrWhiteSpace(_agentClient.CompanionId) &&
-        string.Equals(remoteControlState.ControllerCompanionId, _agentClient.CompanionId, StringComparison.OrdinalIgnoreCase) &&
-        string.Equals(remoteControlState.ViewerSessionId, viewerSessionId, StringComparison.OrdinalIgnoreCase);
+        string.Equals(remoteControlState.ControllerCompanionId, _agentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
 
     private void NotifyChanged() => Changed?.Invoke();
 }
