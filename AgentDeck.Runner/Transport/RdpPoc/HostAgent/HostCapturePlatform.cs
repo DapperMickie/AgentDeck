@@ -69,7 +69,8 @@ internal sealed class WindowsHostCapturePlatform : IHostCapturePlatform
                 targets.Add(new CaptureTargetDescriptor(
                     $"window:{process.Id}",
                     $"{process.ProcessName} - {process.MainWindowTitle}",
-                    CaptureTargetKind.Window));
+                    CaptureTargetKind.Window,
+                    process.Id));
             }
             catch
             {
@@ -1220,7 +1221,8 @@ internal sealed class MacOsHostCapturePlatform : IHostCapturePlatform
                 string.IsNullOrWhiteSpace(window.WindowTitle)
                     ? $"{window.OwnerName} (Window {window.WindowId})"
                     : $"{window.OwnerName} - {window.WindowTitle}",
-                CaptureTargetKind.Window)));
+                CaptureTargetKind.Window,
+                window.OwnerPid)));
 
         return targets
             .DistinctBy(target => target.Id, StringComparer.OrdinalIgnoreCase)

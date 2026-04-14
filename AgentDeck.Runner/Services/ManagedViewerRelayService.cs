@@ -33,18 +33,21 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     private readonly ManagedDesktopViewerTransportOptions _options;
     private readonly ILogger<ManagedViewerRelayService> _logger;
     private readonly IHostCapturePlatform _capturePlatform;
+    private readonly IRunnerLaunchedApplicationService _launchedApplications;
     private readonly object _captureSync = new();
 
     public ManagedViewerRelayService(
         IRemoteViewerSessionService viewers,
         IHubContext<ManagedViewerRelayHub> hubContext,
         ICoordinatorRunnerPublisher coordinatorPublisher,
+        IRunnerLaunchedApplicationService launchedApplications,
         IOptions<DesktopViewerTransportOptions> transportOptions,
         ILogger<ManagedViewerRelayService> logger)
     {
         _viewers = viewers;
         _hubContext = hubContext;
         _coordinatorPublisher = coordinatorPublisher;
+        _launchedApplications = launchedApplications;
         _options = transportOptions.Value.Managed;
         _logger = logger;
         _capturePlatform = HostCapturePlatformFactory.Create();
@@ -64,6 +67,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
         }
 
         var target = await ResolveTargetAsync(session, cancellationToken);
+        _launchedApplications.UpdateResolvedTarget(session.Id, target);
         var accessToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(Math.Max(1, _options.AccessTokenBytes)))
             .ToLowerInvariant();
         var assignment = new HostSessionAssignment(
@@ -490,6 +494,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
             refreshedTarget.Id,
             refreshedTarget.DisplayName,
             failureReason);
+        _launchedApplications.UpdateResolvedTarget(activeSession.Session.Id, refreshedTarget);
         return true;
     }
 

@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
+using RdpPoc.Contracts;
 
 namespace AgentDeck.Runner.Services;
 
@@ -32,16 +33,22 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
     private readonly ConcurrentDictionary<string, ActiveDebugSession> _sessions = new();
     private readonly ConcurrentDictionary<string, VsCodeDebugSession> _sessionRecords = new();
     private readonly IRemoteViewerSessionService _viewers;
+    private readonly IManagedViewerRelayService _managedViewerRelay;
     private readonly IDesktopViewerBootstrapService _viewerBootstrap;
+    private readonly IRunnerLaunchedApplicationService _launchedApplications;
     private readonly ILogger<VsCodeDebugSessionService> _logger;
 
     public VsCodeDebugSessionService(
         IRemoteViewerSessionService viewers,
+        IManagedViewerRelayService managedViewerRelay,
         IDesktopViewerBootstrapService viewerBootstrap,
+        IRunnerLaunchedApplicationService launchedApplications,
         ILogger<VsCodeDebugSessionService> logger)
     {
         _viewers = viewers;
+        _managedViewerRelay = managedViewerRelay;
         _viewerBootstrap = viewerBootstrap;
+        _launchedApplications = launchedApplications;
         _logger = logger;
     }
 
@@ -63,6 +70,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         var debugConfigurationName = string.IsNullOrWhiteSpace(job.DebugConfigurationName)
             ? $"{job.ProjectName} Debug"
             : job.DebugConfigurationName;
+        var knownWindowTargetIds = CaptureKnownWindowTargetIds();
 
         var viewer = _viewers.Create(new CreateRemoteViewerSessionRequest
         {
@@ -76,11 +84,20 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                 DisplayName = $"{job.ProjectName} VS Code",
                 JobId = job.Id,
                 SessionId = orchestrationSessionId,
-                WindowTitle = BuildWindowTitle(job.ProjectName)
+                WindowTitle = BuildWindowTitle(job.ProjectName),
+                KnownWindowTargetIds = knownWindowTargetIds
             }
         });
-
-        viewer = await _viewerBootstrap.BootstrapAsync(viewer.Id, cancellationToken: cancellationToken) ?? viewer;
+        try
+        {
+            _launchedApplications.TrackViewerSession(viewer.Id, viewer.Target.DisplayName);
+            viewer = await _viewerBootstrap.BootstrapAsync(viewer.Id, cancellationToken: cancellationToken) ?? viewer;
+        }
+        catch
+        {
+            await CloseViewerAsync(viewer.Id, "VS Code viewer bootstrap failed.");
+            throw;
+        }
 
         var debugSessionId = Guid.NewGuid().ToString("N");
         var createdAt = DateTimeOffset.UtcNow;
@@ -162,8 +179,8 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             };
             if (!_sessions.TryAdd(orchestrationSessionId, activeSession))
             {
-                CloseViewer(viewer.Id, "VS Code session closed.");
-                CloseViewer(deviceViewer?.Id, "Device viewer session closed.");
+                await CloseViewerAsync(viewer.Id, "VS Code session closed.");
+                await CloseViewerAsync(deviceViewer?.Id, "Device viewer session closed.");
                 throw new InvalidOperationException($"A VS Code debug session is already active for orchestration session '{orchestrationSessionId}'.");
             }
 
@@ -185,12 +202,8 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to launch VS Code debug session for job {JobId}", job.Id);
-            _viewers.Update(viewer.Id, new UpdateRemoteViewerSessionRequest
-            {
-                Status = RemoteViewerSessionStatus.Failed,
-                Message = ex.Message
-            });
-            CloseViewer(deviceViewer?.Id, "Device viewer session closed because VS Code debugging failed.");
+            await CloseViewerAsync(viewer.Id, "VS Code viewer session closed because debugging failed.");
+            await CloseViewerAsync(deviceViewer?.Id, "Device viewer session closed because VS Code debugging failed.");
             UpdateSession(orchestrationSessionId, session => WithStatus(
                 session,
                 VsCodeDebugSessionStatus.Failed,
@@ -208,6 +221,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         }
 
         session.HostProcessId = processId;
+        _launchedApplications.UpdateTrackedProcess(session.ViewerSessionId, processId);
         return Task.CompletedTask;
     }
 
@@ -244,15 +258,15 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
             VsCodeDebuggerVisibilityState.Visible));
     }
 
-    public Task CompleteAsync(string orchestrationSessionId, int exitCode, CancellationToken cancellationToken = default)
+    public async Task CompleteAsync(string orchestrationSessionId, int exitCode, CancellationToken cancellationToken = default)
     {
         if (_sessions.TryRemove(orchestrationSessionId, out var session))
         {
             var message = exitCode == 0
                 ? "VS Code session closed."
                 : $"VS Code session closed with exit code {exitCode}.";
-            CloseViewer(session.ViewerSessionId, message);
-            CloseViewer(session.DeviceViewerSessionId, "Device viewer session closed.");
+            await CloseViewerAsync(session.ViewerSessionId, message);
+            await CloseViewerAsync(session.DeviceViewerSessionId, "Device viewer session closed.");
             UpdateSession(orchestrationSessionId, existing => WithStatus(
                 existing,
                 exitCode == 0 ? VsCodeDebugSessionStatus.Closed : VsCodeDebugSessionStatus.Failed,
@@ -260,15 +274,14 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                 VsCodeDebuggerVisibilityState.Closed));
         }
 
-        return Task.CompletedTask;
     }
 
-    public Task StopAsync(string orchestrationSessionId, CancellationToken cancellationToken = default)
+    public async Task StopAsync(string orchestrationSessionId, CancellationToken cancellationToken = default)
     {
         if (_sessions.TryRemove(orchestrationSessionId, out var session))
         {
-            CloseViewer(session.ViewerSessionId, "VS Code session cancelled.");
-            CloseViewer(session.DeviceViewerSessionId, "Device viewer session cancelled.");
+            await CloseViewerAsync(session.ViewerSessionId, "VS Code session cancelled.");
+            await CloseViewerAsync(session.DeviceViewerSessionId, "Device viewer session cancelled.");
             TryKillProcess(session.HostProcessId);
             UpdateSession(orchestrationSessionId, existing => WithStatus(
                 existing,
@@ -277,7 +290,6 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
                 VsCodeDebuggerVisibilityState.Closed));
         }
 
-        return Task.CompletedTask;
     }
 
     private static string ResolveStartupProject(OrchestrationJob job, string workingDirectory)
@@ -747,19 +759,21 @@ error "Could not focus the VS Code window to start debugging."
         OrchestrationJob job,
         CancellationToken cancellationToken)
     {
-        if (!TryBuildDeviceViewerRequest(orchestrationSessionId, job, out var request))
+        var knownWindowTargetIds = CaptureKnownWindowTargetIds();
+        if (!TryBuildDeviceViewerRequest(orchestrationSessionId, job, knownWindowTargetIds, out var request))
         {
             return null;
         }
 
         var viewer = _viewers.Create(request);
+        _launchedApplications.TrackViewerSession(viewer.Id, viewer.Target.DisplayName);
         try
         {
             return await _viewerBootstrap.BootstrapAsync(viewer.Id, cancellationToken: cancellationToken) ?? viewer;
         }
         catch
         {
-            CloseViewer(viewer.Id, "Device viewer bootstrap failed.");
+            await CloseViewerAsync(viewer.Id, "Device viewer bootstrap failed.");
             throw;
         }
     }
@@ -767,6 +781,7 @@ error "Could not focus the VS Code window to start debugging."
     private static bool TryBuildDeviceViewerRequest(
         string orchestrationSessionId,
         OrchestrationJob job,
+        IReadOnlyList<string> knownWindowTargetIds,
         out CreateRemoteViewerSessionRequest request)
     {
         request = new CreateRemoteViewerSessionRequest();
@@ -791,11 +806,27 @@ error "Could not focus the VS Code window to start debugging."
                 JobId = job.Id,
                 SessionId = orchestrationSessionId,
                 VirtualDeviceId = job.DeviceSelection.DeviceId,
-                VirtualDeviceProfileId = job.DeviceSelection.ProfileId
+                VirtualDeviceProfileId = job.DeviceSelection.ProfileId,
+                KnownWindowTargetIds = knownWindowTargetIds.ToArray()
             }
         };
 
         return true;
+    }
+
+    private IReadOnlyList<string> CaptureKnownWindowTargetIds()
+    {
+        try
+        {
+            return _managedViewerRelay.GetCaptureTargets()
+                .Where(target => target.Kind == CaptureTargetKind.Window)
+                .Select(target => target.Id)
+                .ToArray();
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return [];
+        }
     }
 
     private static bool TryMapDeviceViewerTargetKind(ApplicationTargetPlatform platform, out RemoteViewerTargetKind targetKind)
@@ -839,14 +870,14 @@ error "Could not focus the VS Code window to start debugging."
         }
     }
 
-    private void CloseViewer(string? viewerSessionId, string message)
+    private async Task CloseViewerAsync(string? viewerSessionId, string message)
     {
         if (string.IsNullOrWhiteSpace(viewerSessionId))
         {
             return;
         }
 
-        _viewers.Close(viewerSessionId, message);
+        await _viewerBootstrap.CloseAsync(viewerSessionId, message);
     }
 
     private void UpdateSession(string orchestrationSessionId, Func<VsCodeDebugSession, VsCodeDebugSession> update)

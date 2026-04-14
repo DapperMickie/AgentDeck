@@ -32,6 +32,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     private readonly IManagedViewerRelayService _managedViewerRelay;
     private readonly IDesktopViewerBootstrapService _viewerBootstrap;
     private readonly IVsCodeDebugSessionService _vsCodeDebug;
+    private readonly IRunnerLaunchedApplicationService _launchedApplications;
     private readonly IWorkspaceService _workspace;
     private readonly ILogger<OrchestrationExecutionService> _logger;
     private readonly ConcurrentDictionary<string, byte> _activeJobs = new();
@@ -46,6 +47,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         IManagedViewerRelayService managedViewerRelay,
         IDesktopViewerBootstrapService viewerBootstrap,
         IVsCodeDebugSessionService vsCodeDebug,
+        IRunnerLaunchedApplicationService launchedApplications,
         IWorkspaceService workspace,
         ILogger<OrchestrationExecutionService> logger)
     {
@@ -56,6 +58,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         _managedViewerRelay = managedViewerRelay;
         _viewerBootstrap = viewerBootstrap;
         _vsCodeDebug = vsCodeDebug;
+        _launchedApplications = launchedApplications;
         _workspace = workspace;
         _logger = logger;
     }
@@ -687,6 +690,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         try
         {
             viewer = _viewers.Create(request);
+            _launchedApplications.TrackViewerSession(viewer.Id, viewer.Target.DisplayName, sessionId);
             _jobs.UpdateStatus(job.Id, new UpdateOrchestrationJobStatusRequest
             {
                 Status = OrchestrationJobStatus.Running,

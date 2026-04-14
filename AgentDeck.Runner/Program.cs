@@ -56,6 +56,7 @@ builder.Services.AddSingleton<IRemoteViewerSessionService, RemoteViewerSessionSe
 builder.Services.AddSingleton<IRunnerConnectionUrlResolver, RunnerConnectionUrlResolver>();
 builder.Services.AddSingleton<ICoordinatorRunnerPublisher, CoordinatorRunnerPublisher>();
 builder.Services.AddSingleton<CoordinatorRunnerConnectionService>();
+builder.Services.AddSingleton<IRunnerLaunchedApplicationService, RunnerLaunchedApplicationService>();
 builder.Services.AddSingleton<IManagedViewerRelayService, ManagedViewerRelayService>();
 builder.Services.AddSingleton<IDesktopViewerBootstrapService, DesktopViewerBootstrapService>();
 builder.Services.AddSingleton<IRunnerAuditService, RunnerAuditService>();
@@ -77,6 +78,7 @@ builder.Services.AddHostedService<HubOutputForwarder>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<CoordinatorRunnerConnectionService>());
 builder.Services.AddHostedService(sp => (OrchestrationExecutionService)sp.GetRequiredService<IOrchestrationExecutionService>());
 builder.Services.AddHostedService<WorkerCoordinatorRegistrationService>();
+builder.Services.AddHostedService(sp => (RunnerLaunchedApplicationService)sp.GetRequiredService<IRunnerLaunchedApplicationService>());
 
 var app = builder.Build();
 
