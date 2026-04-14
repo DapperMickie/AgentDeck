@@ -595,6 +595,18 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
             throw new InvalidOperationException($"Viewer session '{viewerSessionId}' is not backed by the managed relay.");
         }
 
+        _logger.LogInformation(
+            "Runner received viewer pointer input from coordinator for viewer {ViewerSessionId} actor {ActorId}: {EventType} x={X:F3} y={Y:F3} button={Button} clicks={ClickCount} wheel=({WheelDeltaX},{WheelDeltaY})",
+            viewerSessionId,
+            actorId,
+            input.EventType,
+            input.X,
+            input.Y,
+            input.Button ?? "<none>",
+            input.ClickCount,
+            input.WheelDeltaX,
+            input.WheelDeltaY);
+
         await _managedViewerRelay.SendPointerInputAsync(
             viewerSessionId,
             new PointerInputEvent(viewerSessionId, input.EventType, input.X, input.Y, input.Button, input.ClickCount, input.WheelDeltaX, input.WheelDeltaY));
@@ -608,6 +620,16 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         {
             throw new InvalidOperationException($"Viewer session '{viewerSessionId}' is not backed by the managed relay.");
         }
+
+        _logger.LogInformation(
+            "Runner received viewer keyboard input from coordinator for viewer {ViewerSessionId} actor {ActorId}: {EventType} {Code} alt={Alt} ctrl={Control} shift={Shift}",
+            viewerSessionId,
+            actorId,
+            input.EventType,
+            input.Code,
+            input.Alt,
+            input.Control,
+            input.Shift);
 
         await _managedViewerRelay.SendKeyboardInputAsync(
             viewerSessionId,

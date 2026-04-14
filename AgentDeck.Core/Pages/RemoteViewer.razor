@@ -129,6 +129,10 @@
                         <dt>Input</dt>
                         <dd>@(ViewerClient.CanSendInput ? "Interactive" : "View-only")</dd>
                     </div>
+                    <div>
+                        <dt>Last input</dt>
+                        <dd>@(ViewerClient.LastInputActivity ?? "No input dispatched yet.")</dd>
+                    </div>
                 </dl>
                 @if (!ViewerClient.SupportsInAppViewer)
                 {

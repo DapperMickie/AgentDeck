@@ -2,25 +2,32 @@ using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.Logging;
 
 namespace AgentDeck.Core.Services;
 
 public sealed class RemoteViewerRelayClient : IAsyncDisposable
 {
     private readonly SemaphoreSlim _sync = new(1, 1);
+    private readonly Lock _inputActivityLock = new();
     private readonly ICoordinatorApiClient _coordinatorClient;
     private readonly IAgentDeckClient _agentClient;
+    private readonly ILogger<RemoteViewerRelayClient> _logger;
     private HubConnection? _connection;
     private string? _coordinatorUrl;
     private string? _machineId;
     private string? _viewerSessionId;
+    private DateTimeOffset _lastVisibleInputActivityAt;
+    private string? _lastInputActivity;
 
     public RemoteViewerRelayClient(
         ICoordinatorApiClient coordinatorClient,
-        IAgentDeckClient agentClient)
+        IAgentDeckClient agentClient,
+        ILogger<RemoteViewerRelayClient> logger)
     {
         _coordinatorClient = coordinatorClient;
         _agentClient = agentClient;
+        _logger = logger;
     }
 
     public event Action? Changed;
@@ -32,6 +39,17 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
     public string? CurrentFrameDataUrl { get; private set; }
 
     public string StatusMessage { get; private set; } = "Idle";
+
+    public string? LastInputActivity
+    {
+        get
+        {
+            lock (_inputActivityLock)
+            {
+                return _lastInputActivity;
+            }
+        }
+    }
 
     public bool IsWatching
     {
@@ -185,6 +203,12 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
             _sync.Release();
         }
 
+        lock (_inputActivityLock)
+        {
+            _lastInputActivity = null;
+            _lastVisibleInputActivityAt = default;
+        }
+
         NotifyChanged();
     }
 
@@ -220,9 +244,18 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
             string.IsNullOrWhiteSpace(machineId) ||
             string.IsNullOrWhiteSpace(sessionId))
         {
+            RecordInputActivity(
+                $"Blocked pointer {FormatPointerSummary(eventType, x, y, button, clickCount, wheelDeltaX, wheelDeltaY)} "
+                + $"(canSendInput={canSendInput}, connected={connection is not null}, machine={machineId ?? "<none>"}, session={sessionId ?? "<none>"})",
+                LogLevel.Warning,
+                forceVisible: !string.Equals(eventType, "move", StringComparison.OrdinalIgnoreCase));
             return;
         }
 
+        RecordInputActivity(
+            $"Dispatching pointer {FormatPointerSummary(eventType, x, y, button, clickCount, wheelDeltaX, wheelDeltaY)} to {machineId}/{sessionId}",
+            LogLevel.Information,
+            forceVisible: !string.Equals(eventType, "move", StringComparison.OrdinalIgnoreCase));
         await connection.InvokeAsync(
             nameof(ICoordinatorViewerHub.SendViewerPointerInputAsync),
             machineId,
@@ -255,9 +288,18 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
             string.IsNullOrWhiteSpace(machineId) ||
             string.IsNullOrWhiteSpace(sessionId))
         {
+            RecordInputActivity(
+                $"Blocked keyboard {FormatKeyboardSummary(eventType, code, alt, control, shift)} "
+                + $"(canSendInput={canSendInput}, connected={connection is not null}, machine={machineId ?? "<none>"}, session={sessionId ?? "<none>"})",
+                LogLevel.Warning,
+                forceVisible: true);
             return;
         }
 
+        RecordInputActivity(
+            $"Dispatching keyboard {FormatKeyboardSummary(eventType, code, alt, control, shift)} to {machineId}/{sessionId}",
+            LogLevel.Information,
+            forceVisible: true);
         await connection.InvokeAsync(
             nameof(ICoordinatorViewerHub.SendViewerKeyboardInputAsync),
             machineId,
@@ -499,6 +541,46 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
     private bool IsCurrentCompanionMachineController(MachineRemoteControlState remoteControlState) =>
         !string.IsNullOrWhiteSpace(_agentClient.CompanionId) &&
         string.Equals(remoteControlState.ControllerCompanionId, _agentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
+
+    private void RecordInputActivity(string message, LogLevel level, bool forceVisible)
+    {
+        var now = DateTimeOffset.Now;
+        var activity = $"[{now:HH:mm:ss.fff}] {message}";
+        var shouldNotify = false;
+        lock (_inputActivityLock)
+        {
+            _lastInputActivity = activity;
+            if (forceVisible || now - _lastVisibleInputActivityAt >= TimeSpan.FromMilliseconds(250))
+            {
+                _lastVisibleInputActivityAt = now;
+                shouldNotify = true;
+            }
+        }
+
+        switch (level)
+        {
+            case LogLevel.Warning:
+                _logger.LogWarning("{Message}", activity);
+                break;
+            case LogLevel.Error:
+                _logger.LogError("{Message}", activity);
+                break;
+            default:
+                _logger.LogInformation("{Message}", activity);
+                break;
+        }
+
+        if (shouldNotify)
+        {
+            NotifyChanged();
+        }
+    }
+
+    private static string FormatPointerSummary(string eventType, double x, double y, string? button, int clickCount, int wheelDeltaX, int wheelDeltaY) =>
+        $"{eventType} x={x:F3} y={y:F3} button={button ?? "<none>"} clicks={clickCount} wheel=({wheelDeltaX},{wheelDeltaY})";
+
+    private static string FormatKeyboardSummary(string eventType, string code, bool alt, bool control, bool shift) =>
+        $"{eventType} code={code} modifiers=[alt:{alt},ctrl:{control},shift:{shift}]";
 
     private void NotifyChanged() => Changed?.Invoke();
 }

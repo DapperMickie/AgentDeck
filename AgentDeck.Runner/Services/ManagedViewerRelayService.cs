@@ -181,16 +181,39 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     {
         var activeSession = GetActiveSession(sessionId);
 
-        await Task.Run(() =>
+        _logger.LogInformation(
+            "Managed relay injecting pointer input for viewer {SessionId} target {TargetKind}:{TargetId} ({TargetDisplayName}): {EventType} x={X:F3} y={Y:F3} button={Button} clicks={ClickCount} wheel=({WheelDeltaX},{WheelDeltaY})",
+            sessionId,
+            activeSession.Assignment.TargetKind,
+            activeSession.Assignment.TargetId,
+            activeSession.Assignment.TargetDisplayName,
+            input.EventType,
+            input.X,
+            input.Y,
+            input.Button ?? "<none>",
+            input.ClickCount,
+            input.WheelDeltaX,
+            input.WheelDeltaY);
+
+        try
         {
-            lock (activeSession.InputSync)
+            await Task.Run(() =>
             {
-                lock (_captureSync)
+                lock (activeSession.InputSync)
                 {
-                    _capturePlatform.HandlePointerInput(activeSession.Assignment, input);
+                    lock (_captureSync)
+                    {
+                        _capturePlatform.HandlePointerInput(activeSession.Assignment, input);
+                    }
                 }
-            }
-        }, cancellationToken);
+            }, cancellationToken);
+            _logger.LogInformation("Managed relay completed pointer input for viewer {SessionId}", sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Managed relay pointer input failed for viewer {SessionId}", sessionId);
+            throw;
+        }
     }
 
     public async Task SendKeyboardInputAsync(
@@ -200,19 +223,40 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     {
         var activeSession = GetActiveSession(sessionId);
 
-        await Task.Run(() =>
+        _logger.LogInformation(
+            "Managed relay injecting keyboard input for viewer {SessionId} target {TargetKind}:{TargetId} ({TargetDisplayName}): {EventType} {Code} alt={Alt} ctrl={Control} shift={Shift}",
+            sessionId,
+            activeSession.Assignment.TargetKind,
+            activeSession.Assignment.TargetId,
+            activeSession.Assignment.TargetDisplayName,
+            input.EventType,
+            input.Code,
+            input.Alt,
+            input.Control,
+            input.Shift);
+
+        try
         {
-            lock (activeSession.InputSync)
+            await Task.Run(() =>
             {
-                lock (_captureSync)
+                lock (activeSession.InputSync)
                 {
-                    activeSession.ModifierState = _capturePlatform.HandleKeyboardInput(
-                        activeSession.Assignment,
-                        input,
-                        activeSession.ModifierState);
+                    lock (_captureSync)
+                    {
+                        activeSession.ModifierState = _capturePlatform.HandleKeyboardInput(
+                            activeSession.Assignment,
+                            input,
+                            activeSession.ModifierState);
+                    }
                 }
-            }
-        }, cancellationToken);
+            }, cancellationToken);
+            _logger.LogInformation("Managed relay completed keyboard input for viewer {SessionId}", sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Managed relay keyboard input failed for viewer {SessionId}", sessionId);
+            throw;
+        }
     }
 
     public void Dispose()
