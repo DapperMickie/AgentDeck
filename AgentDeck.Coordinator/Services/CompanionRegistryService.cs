@@ -13,6 +13,7 @@ public sealed class CompanionRegistryService : ICompanionRegistryService
         public DateTimeOffset RegisteredAt { get; init; }
         public DateTimeOffset LastSeenAt { get; set; }
         public string? ConnectionId { get; set; }
+        public HashSet<string> ConnectionIds { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> AttachedMachineIds { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> AttachedSessionIds { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
@@ -94,17 +95,26 @@ public sealed class CompanionRegistryService : ICompanionRegistryService
         ArgumentException.ThrowIfNullOrWhiteSpace(companionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionId);
 
+        var normalizedConnectionId = connectionId.Trim();
+
         lock (_lock)
         {
             var entry = RequireCompanion(companionId);
-            if (!string.IsNullOrWhiteSpace(entry.ConnectionId))
+            if (_connectionMap.TryGetValue(normalizedConnectionId, out var existingCompanionId) &&
+                !string.Equals(existingCompanionId, companionId, StringComparison.OrdinalIgnoreCase) &&
+                _companions.TryGetValue(existingCompanionId, out var existingEntry))
             {
-                _connectionMap.Remove(entry.ConnectionId);
+                existingEntry.ConnectionIds.Remove(normalizedConnectionId);
+                if (string.Equals(existingEntry.ConnectionId, normalizedConnectionId, StringComparison.OrdinalIgnoreCase))
+                {
+                    existingEntry.ConnectionId = existingEntry.ConnectionIds.FirstOrDefault();
+                }
             }
 
-            entry.ConnectionId = connectionId;
+            entry.ConnectionIds.Add(normalizedConnectionId);
+            entry.ConnectionId = normalizedConnectionId;
             entry.LastSeenAt = _timeProvider.GetUtcNow();
-            _connectionMap[connectionId] = companionId;
+            _connectionMap[normalizedConnectionId] = companionId;
             return ToSnapshot(entry);
         }
     }
@@ -113,29 +123,40 @@ public sealed class CompanionRegistryService : ICompanionRegistryService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionId);
 
+        var normalizedConnectionId = connectionId.Trim();
+
         lock (_lock)
         {
-            if (!_connectionMap.Remove(connectionId, out var companionId) ||
+            if (!_connectionMap.Remove(normalizedConnectionId, out var companionId) ||
                 !_companions.TryGetValue(companionId, out var entry) ||
-                !string.Equals(entry.ConnectionId, connectionId, StringComparison.OrdinalIgnoreCase))
+                !entry.ConnectionIds.Remove(normalizedConnectionId))
             {
                 return;
             }
 
-            entry.ConnectionId = null;
             entry.LastSeenAt = _timeProvider.GetUtcNow();
-            entry.AttachedMachineIds.Clear();
-            entry.AttachedSessionIds.Clear();
+            if (string.Equals(entry.ConnectionId, normalizedConnectionId, StringComparison.OrdinalIgnoreCase))
+            {
+                entry.ConnectionId = entry.ConnectionIds.FirstOrDefault();
+            }
+
+            if (entry.ConnectionIds.Count == 0)
+            {
+                entry.ConnectionId = null;
+                entry.AttachedMachineIds.Clear();
+                entry.AttachedSessionIds.Clear();
+            }
         }
     }
 
     public string? GetCompanionIdByConnection(string connectionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionId);
+        var normalizedConnectionId = connectionId.Trim();
 
         lock (_lock)
         {
-            return _connectionMap.TryGetValue(connectionId, out var companionId)
+            return _connectionMap.TryGetValue(normalizedConnectionId, out var companionId)
                 ? companionId
                 : null;
         }
@@ -214,7 +235,7 @@ public sealed class CompanionRegistryService : ICompanionRegistryService
             ConnectionId = entry.ConnectionId,
             RegisteredAt = entry.RegisteredAt,
             LastSeenAt = entry.LastSeenAt,
-            IsConnected = !string.IsNullOrWhiteSpace(entry.ConnectionId),
+            IsConnected = entry.ConnectionIds.Count > 0,
             AttachedMachineIds = entry.AttachedMachineIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToArray(),
             AttachedSessionIds = entry.AttachedSessionIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToArray()
         };
