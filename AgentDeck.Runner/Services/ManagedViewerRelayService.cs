@@ -16,7 +16,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
     private sealed class ActiveRelaySession
     {
         public required RemoteViewerSession Session { get; init; }
-        public required HostSessionAssignment Assignment { get; init; }
+        public required HostSessionAssignment Assignment { get; set; }
         public required string AccessToken { get; init; }
         public required CancellationTokenSource Cancellation { get; init; }
         public required Task CaptureLoop { get; set; }
@@ -180,21 +180,6 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
         CancellationToken cancellationToken = default)
     {
         var activeSession = GetActiveSession(sessionId);
-
-        _logger.LogInformation(
-            "Managed relay injecting pointer input for viewer {SessionId} target {TargetKind}:{TargetId} ({TargetDisplayName}): {EventType} x={X:F3} y={Y:F3} button={Button} clicks={ClickCount} wheel=({WheelDeltaX},{WheelDeltaY})",
-            sessionId,
-            activeSession.Assignment.TargetKind,
-            activeSession.Assignment.TargetId,
-            activeSession.Assignment.TargetDisplayName,
-            input.EventType,
-            input.X,
-            input.Y,
-            input.Button ?? "<none>",
-            input.ClickCount,
-            input.WheelDeltaX,
-            input.WheelDeltaY);
-
         try
         {
             await Task.Run(() =>
@@ -203,7 +188,8 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
                 {
                     lock (_captureSync)
                     {
-                        _capturePlatform.HandlePointerInput(activeSession.Assignment, input);
+                        LogPointerInput(activeSession.Assignment, sessionId, input);
+                        HandlePointerInputCore(activeSession, input);
                     }
                 }
             }, cancellationToken);
@@ -222,19 +208,6 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
         CancellationToken cancellationToken = default)
     {
         var activeSession = GetActiveSession(sessionId);
-
-        _logger.LogInformation(
-            "Managed relay injecting keyboard input for viewer {SessionId} target {TargetKind}:{TargetId} ({TargetDisplayName}): {EventType} {Code} alt={Alt} ctrl={Control} shift={Shift}",
-            sessionId,
-            activeSession.Assignment.TargetKind,
-            activeSession.Assignment.TargetId,
-            activeSession.Assignment.TargetDisplayName,
-            input.EventType,
-            input.Code,
-            input.Alt,
-            input.Control,
-            input.Shift);
-
         try
         {
             await Task.Run(() =>
@@ -243,8 +216,9 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
                 {
                     lock (_captureSync)
                     {
-                        activeSession.ModifierState = _capturePlatform.HandleKeyboardInput(
-                            activeSession.Assignment,
+                        LogKeyboardInput(activeSession.Assignment, sessionId, input);
+                        activeSession.ModifierState = HandleKeyboardInputCore(
+                            activeSession,
                             input,
                             activeSession.ModifierState);
                     }
@@ -287,7 +261,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
                 {
                     lock (_captureSync)
                     {
-                        frame = _capturePlatform.CaptureFrame(activeSession.Assignment, sequenceId++);
+                        frame = CaptureFrameCore(activeSession, sequenceId++);
                     }
                 }
 
@@ -395,9 +369,167 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
         return TryMatchWindowTarget(candidates, session.Target);
     }
 
+    private RelayFrame CaptureFrameCore(ActiveRelaySession activeSession, long sequenceId)
+    {
+        return ExecuteWithWindowTargetRefresh(
+            activeSession,
+            assignment => _capturePlatform.CaptureFrame(assignment, sequenceId),
+            "capture");
+    }
+
+    private void LogPointerInput(HostSessionAssignment assignment, string sessionId, PointerInputEvent input)
+    {
+        _logger.LogInformation(
+            "Managed relay injecting pointer input for viewer {SessionId} target {TargetKind}:{TargetId} ({TargetDisplayName}): {EventType} x={X:F3} y={Y:F3} button={Button} clicks={ClickCount} wheel=({WheelDeltaX},{WheelDeltaY})",
+            sessionId,
+            assignment.TargetKind,
+            assignment.TargetId,
+            assignment.TargetDisplayName,
+            input.EventType,
+            input.X,
+            input.Y,
+            input.Button ?? "<none>",
+            input.ClickCount,
+            input.WheelDeltaX,
+            input.WheelDeltaY);
+    }
+
+    private void LogKeyboardInput(HostSessionAssignment assignment, string sessionId, KeyboardInputEvent input)
+    {
+        _logger.LogInformation(
+            "Managed relay injecting keyboard input for viewer {SessionId} target {TargetKind}:{TargetId} ({TargetDisplayName}): {EventType} {Code} alt={Alt} ctrl={Control} shift={Shift}",
+            sessionId,
+            assignment.TargetKind,
+            assignment.TargetId,
+            assignment.TargetDisplayName,
+            input.EventType,
+            input.Code,
+            input.Alt,
+            input.Control,
+            input.Shift);
+    }
+
+    private void HandlePointerInputCore(ActiveRelaySession activeSession, PointerInputEvent input)
+    {
+        ExecuteWithWindowTargetRefresh(
+            activeSession,
+            assignment =>
+            {
+                _capturePlatform.HandlePointerInput(assignment, input);
+                return true;
+            },
+            "pointer input");
+    }
+
+    private ModifierKeyState HandleKeyboardInputCore(
+        ActiveRelaySession activeSession,
+        KeyboardInputEvent input,
+        ModifierKeyState modifierState)
+    {
+        return ExecuteWithWindowTargetRefresh(
+            activeSession,
+            assignment => _capturePlatform.HandleKeyboardInput(assignment, input, modifierState),
+            "keyboard input");
+    }
+
+    private T ExecuteWithWindowTargetRefresh<T>(
+        ActiveRelaySession activeSession,
+        Func<HostSessionAssignment, T> action,
+        string operationName)
+    {
+        try
+        {
+            return action(activeSession.Assignment);
+        }
+        catch (InvalidOperationException ex) when (
+            activeSession.Assignment.TargetKind == CaptureTargetKind.Window &&
+            TryRefreshWindowAssignment(activeSession, operationName, ex.Message))
+        {
+            return action(activeSession.Assignment);
+        }
+    }
+
+    private bool TryRefreshWindowAssignment(
+        ActiveRelaySession activeSession,
+        string operationName,
+        string failureReason)
+    {
+        var candidates = _capturePlatform.GetTargets()
+            .Where(target => target.Kind == CaptureTargetKind.Window)
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return false;
+        }
+
+        var currentAssignment = activeSession.Assignment;
+        if (candidates.Any(candidate => string.Equals(candidate.Id, currentAssignment.TargetId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        var refreshedTarget = TryFindWindowTarget(activeSession.Session, currentAssignment.TargetDisplayName, candidates);
+        if (refreshedTarget is null ||
+            string.Equals(refreshedTarget.Id, currentAssignment.TargetId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        activeSession.Assignment = currentAssignment with
+        {
+            TargetId = refreshedTarget.Id,
+            TargetDisplayName = refreshedTarget.DisplayName
+        };
+
+        _logger.LogInformation(
+            "Managed relay remapped viewer {SessionId} window target for {Operation} from {PreviousTargetId} ({PreviousDisplayName}) to {CurrentTargetId} ({CurrentDisplayName}) after '{FailureReason}'.",
+            activeSession.Session.Id,
+            operationName,
+            currentAssignment.TargetId,
+            currentAssignment.TargetDisplayName,
+            refreshedTarget.Id,
+            refreshedTarget.DisplayName,
+            failureReason);
+        return true;
+    }
+
+    private static CaptureTargetDescriptor? TryFindWindowTarget(
+        RemoteViewerSession session,
+        string? currentTargetDisplayName,
+        IReadOnlyList<CaptureTargetDescriptor> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var baselineTargetIds = session.Target.KnownWindowTargetIds
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (baselineTargetIds.Count > 0)
+        {
+            var launchedCandidates = candidates
+                .Where(candidate => !baselineTargetIds.Contains(candidate.Id))
+                .ToArray();
+            var launchedMatch = TryMatchWindowTarget(launchedCandidates, session.Target, currentTargetDisplayName);
+            if (launchedMatch is not null)
+            {
+                return launchedMatch;
+            }
+
+            if (launchedCandidates.Length == 1)
+            {
+                return launchedCandidates[0];
+            }
+        }
+
+        return TryMatchWindowTarget(candidates, session.Target, currentTargetDisplayName);
+    }
+
     private static CaptureTargetDescriptor? TryMatchWindowTarget(
         IReadOnlyList<CaptureTargetDescriptor> candidates,
-        RemoteViewerTarget target)
+        RemoteViewerTarget target,
+        string? currentTargetDisplayName = null)
     {
         if (candidates.Count == 0)
         {
@@ -406,6 +538,7 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
 
         var exactKeys = new[]
         {
+            currentTargetDisplayName,
             target.WindowTitle,
             target.DisplayName
         }
