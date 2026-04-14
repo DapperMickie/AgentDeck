@@ -133,6 +133,10 @@
                         <dt>Last input</dt>
                         <dd>@(ViewerClient.LastInputActivity ?? "No input dispatched yet.")</dd>
                     </div>
+                    <div>
+                        <dt>Viewer hooks</dt>
+                        <dd>@(_lastInteropStatus ?? "No JS hook status reported yet.")</dd>
+                    </div>
                 </dl>
                 @if (!ViewerClient.SupportsInAppViewer)
                 {
@@ -153,6 +157,8 @@
     private bool _loading = true;
     private bool _busy;
     private string? _coordinatorUrl;
+    private string? _lastInteropStatus;
+    private bool _hooksRefreshedAfterFirstFrame;
 
     protected override Task OnInitializedAsync()
     {
@@ -166,6 +172,8 @@
         try
         {
             _coordinatorUrl = (await SettingsService.LoadAsync()).CoordinatorUrl;
+            _hooksRefreshedAfterFirstFrame = false;
+            _lastInteropStatus = null;
             if (string.IsNullOrWhiteSpace(_coordinatorUrl))
             {
                 Toasts.Show("Connect to a coordinator before opening viewers.", ToastKind.Warning);
@@ -189,6 +197,15 @@
     {
         if (!firstRender)
         {
+            if (!_hooksRefreshedAfterFirstFrame &&
+                _dotNetReference is not null &&
+                !string.IsNullOrWhiteSpace(ViewerClient.CurrentFrameDataUrl))
+            {
+                _hooksRefreshedAfterFirstFrame = true;
+                await ViewerInterop.AttachAsync(_viewerSurfaceId, _dotNetReference);
+                await ViewerInterop.FocusAsync(_viewerSurfaceId);
+            }
+
             return;
         }
 
@@ -284,6 +301,13 @@
     [JSInvokable]
     public Task HandleKeyboard(string eventType, string code, bool alt, bool control, bool shift) =>
         ViewerClient.SendKeyboardAsync(eventType, code, alt, control, shift);
+
+    [JSInvokable]
+    public Task HandleInteropStatus(string message)
+    {
+        _lastInteropStatus = $"[{DateTimeOffset.Now:HH:mm:ss.fff}] {message}";
+        return InvokeAsync(StateHasChanged);
+    }
 
     private void NavigateBack()
     {
