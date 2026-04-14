@@ -14,6 +14,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
     private readonly Dictionary<string, RunnerMachineSettings> _machines = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _activeMachineIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _sessionMachineMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _joinedSessionIds = new(StringComparer.OrdinalIgnoreCase);
 
     public RunnerConnectionManager(
         IAgentDeckClient client,
@@ -39,6 +40,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
             lock (_lock)
             {
                 _sessionMachineMap.Remove(sessionId);
+                _joinedSessionIds.Remove(sessionId);
             }
 
             SessionClosed?.Invoke(this, sessionId);
@@ -50,7 +52,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
             lock (_lock)
             {
                 machineIds = _activeMachineIds.ToArray();
-                sessionIds = _sessionMachineMap.Keys.ToArray();
+                sessionIds = _joinedSessionIds.ToArray();
             }
 
             if (state == HubConnectionState.Connected)
@@ -160,6 +162,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
             foreach (var sessionId in orphanedSessions)
             {
                 _sessionMachineMap.Remove(sessionId);
+                _joinedSessionIds.Remove(sessionId);
             }
 
             shouldDisconnectCoordinator = _activeMachineIds.Count == 0;
@@ -186,13 +189,31 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
     public async Task JoinSessionAsync(string sessionId)
     {
         RequireSessionMachineId(sessionId);
-        await _client.JoinSessionAsync(sessionId);
+        var shouldJoin = false;
+        lock (_lock)
+        {
+            shouldJoin = _joinedSessionIds.Add(sessionId);
+        }
+
+        if (shouldJoin)
+        {
+            await _client.JoinSessionAsync(sessionId);
+        }
     }
 
     public async Task LeaveSessionAsync(string sessionId)
     {
         RequireSessionMachineId(sessionId);
-        await _client.LeaveSessionAsync(sessionId);
+        var shouldLeave = false;
+        lock (_lock)
+        {
+            shouldLeave = _joinedSessionIds.Remove(sessionId);
+        }
+
+        if (shouldLeave)
+        {
+            await _client.LeaveSessionAsync(sessionId);
+        }
     }
 
     public async Task SendInputAsync(string sessionId, string data)
@@ -263,6 +284,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
             _machines.Clear();
             _activeMachineIds.Clear();
             _sessionMachineMap.Clear();
+            _joinedSessionIds.Clear();
         }
 
         if (_client is IAsyncDisposable asyncDisposable)
