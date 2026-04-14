@@ -396,7 +396,9 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         var operationId = Guid.NewGuid().ToString("N");
         var completionMarker = $"__AGENTDECK_EXIT_{operationId}__";
-        var processIdMarker = isVsCode ? $"__AGENTDECK_PID_{operationId}__" : null;
+        var processIdMarker = isVsCode && OperatingSystem.IsWindows()
+            ? $"__AGENTDECK_PID_{operationId}__"
+            : null;
         var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         var activeSession = new ActiveSession
         {
