@@ -8,8 +8,17 @@ function clamp(value) {
 }
 
 function normalize(element, event) {
-    const rect = element.getBoundingClientRect();
+    const frame = getInteractiveFrameElement(element);
+    const rect = (frame ?? element).getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
+        return null;
+    }
+
+    if (frame
+        && (event.clientX < rect.left
+            || event.clientX > rect.right
+            || event.clientY < rect.top
+            || event.clientY > rect.bottom)) {
         return null;
     }
 
@@ -17,6 +26,17 @@ function normalize(element, event) {
         x: clamp((event.clientX - rect.left) / rect.width),
         y: clamp((event.clientY - rect.top) / rect.height)
     };
+}
+
+function getInteractiveFrameElement(element) {
+    const frame = element.querySelector(".remote-viewer-surface__frame");
+    if (!frame) {
+        return null;
+    }
+
+    return frame.clientWidth > 0 && frame.clientHeight > 0
+        ? frame
+        : null;
 }
 
 function buttonName(button) {

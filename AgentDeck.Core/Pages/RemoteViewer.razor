@@ -78,7 +78,7 @@
                      tabindex="0">
                     @if (!string.IsNullOrWhiteSpace(ViewerClient.CurrentFrameDataUrl))
                     {
-                        <img src="@ViewerClient.CurrentFrameDataUrl" alt="Remote frame" draggable="false" />
+                        <img class="remote-viewer-surface__frame" src="@ViewerClient.CurrentFrameDataUrl" alt="Remote frame" draggable="false" />
                     }
                     else
                     {
