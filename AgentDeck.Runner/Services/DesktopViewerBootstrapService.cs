@@ -154,6 +154,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
     private readonly ConcurrentDictionary<string, ActiveDesktopTransport> _activeTransports = new();
     private readonly IRemoteViewerSessionService _viewers;
     private readonly IManagedViewerRelayService _managedRelay;
+    private readonly IRunnerLaunchedApplicationService _launchedApplications;
     private readonly IRunnerConnectionUrlResolver _connectionUrlResolver;
     private readonly DesktopViewerTransportOptions _transportOptions;
     private readonly ILogger<DesktopViewerBootstrapService> _logger;
@@ -161,12 +162,14 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
     public DesktopViewerBootstrapService(
         IRemoteViewerSessionService viewers,
         IManagedViewerRelayService managedRelay,
+        IRunnerLaunchedApplicationService launchedApplications,
         IRunnerConnectionUrlResolver connectionUrlResolver,
         IOptions<DesktopViewerTransportOptions> transportOptions,
         ILogger<DesktopViewerBootstrapService> logger)
     {
         _viewers = viewers;
         _managedRelay = managedRelay;
+        _launchedApplications = launchedApplications;
         _connectionUrlResolver = connectionUrlResolver;
         _transportOptions = transportOptions.Value;
         _logger = logger;
@@ -280,6 +283,11 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         {
             await activeTransport.StopAsync();
         }
+
+        await _launchedApplications.CloseViewerApplicationAsync(
+            sessionId,
+            message ?? "Viewer session closed.",
+            cancellationToken);
 
         var result = _viewers.Close(sessionId, message ?? "Viewer session closed.");
         if (result.Session is not null && existingSession?.Provider == RemoteViewerProviderKind.Managed)
