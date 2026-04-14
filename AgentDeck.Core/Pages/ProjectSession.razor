@@ -368,8 +368,9 @@
         var jobIds = _runtimeJobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         _runtimeViewers = viewersTask.Result
             .Where(viewer =>
-                (!string.IsNullOrWhiteSpace(viewer.JobId) && jobIds.Contains(viewer.JobId)) ||
-                (!string.IsNullOrWhiteSpace(viewer.Target.JobId) && jobIds.Contains(viewer.Target.JobId)))
+                IsVisibleRuntimeViewer(viewer) &&
+                ((!string.IsNullOrWhiteSpace(viewer.JobId) && jobIds.Contains(viewer.JobId)) ||
+                 (!string.IsNullOrWhiteSpace(viewer.Target.JobId) && jobIds.Contains(viewer.Target.JobId))))
             .OrderByDescending(viewer => viewer.UpdatedAt)
             .ToArray();
         _remoteControlState = remoteControlTask.Result;
@@ -931,6 +932,9 @@
         viewer.Provider == RemoteViewerProviderKind.Managed &&
         viewer.Status == RemoteViewerSessionStatus.Ready &&
         !string.IsNullOrWhiteSpace(viewer.MachineId);
+
+    private static bool IsVisibleRuntimeViewer(RemoteViewerSession viewer) =>
+        viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
 
     private bool IsActiveViewerControlledByCurrentCompanion() =>
         _activeSurface?.Viewer is not null &&
