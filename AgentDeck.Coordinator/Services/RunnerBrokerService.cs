@@ -384,12 +384,34 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     public async Task SendViewerPointerInputAsync(string machineId, string viewerSessionId, string actorId, RemoteViewerPointerInputEvent input, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Coordinator forwarding viewer pointer input for machine {MachineId} viewer {ViewerSessionId} from actor {ActorId}: {EventType} x={X:F3} y={Y:F3} button={Button} clicks={ClickCount} wheel=({WheelDeltaX},{WheelDeltaY})",
+            machineId,
+            viewerSessionId,
+            actorId,
+            input.EventType,
+            input.X,
+            input.Y,
+            input.Button ?? "<none>",
+            input.ClickCount,
+            input.WheelDeltaX,
+            input.WheelDeltaY);
         await InvokeRunnerAsync(entry, "send viewer pointer input", client => client.SendViewerPointerInputAsync(viewerSessionId, NormalizeActorId(actorId), input), retryOnReconnect: false, cancellationToken);
     }
 
     public async Task SendViewerKeyboardInputAsync(string machineId, string viewerSessionId, string actorId, RemoteViewerKeyboardInputEvent input, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        _logger.LogInformation(
+            "Coordinator forwarding viewer keyboard input for machine {MachineId} viewer {ViewerSessionId} from actor {ActorId}: {EventType} {Code} alt={Alt} ctrl={Control} shift={Shift}",
+            machineId,
+            viewerSessionId,
+            actorId,
+            input.EventType,
+            input.Code,
+            input.Alt,
+            input.Control,
+            input.Shift);
         await InvokeRunnerAsync(entry, "send viewer keyboard input", client => client.SendViewerKeyboardInputAsync(viewerSessionId, NormalizeActorId(actorId), input), retryOnReconnect: false, cancellationToken);
     }
 

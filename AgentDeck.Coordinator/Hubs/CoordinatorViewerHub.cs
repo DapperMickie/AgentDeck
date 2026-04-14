@@ -11,15 +11,18 @@ public sealed class CoordinatorViewerHub : Hub<IViewerHubClient>, ICoordinatorVi
     private readonly ICompanionRegistryService _companions;
     private readonly IMachineRemoteControlRegistryService _remoteControl;
     private readonly RunnerBrokerService _runners;
+    private readonly ILogger<CoordinatorViewerHub> _logger;
 
     public CoordinatorViewerHub(
         ICompanionRegistryService companions,
         IMachineRemoteControlRegistryService remoteControl,
-        RunnerBrokerService runners)
+        RunnerBrokerService runners,
+        ILogger<CoordinatorViewerHub> logger)
     {
         _companions = companions;
         _remoteControl = remoteControl;
         _runners = runners;
+        _logger = logger;
     }
 
     public override Task OnConnectedAsync()
@@ -67,6 +70,18 @@ public sealed class CoordinatorViewerHub : Hub<IViewerHubClient>, ICoordinatorVi
     {
         var companionId = RequireCompanionId();
         EnsureControlAllowed(machineId, viewerSessionId, companionId);
+        _logger.LogInformation(
+            "Coordinator received viewer pointer input from companion {CompanionId} for machine {MachineId} viewer {ViewerSessionId}: {EventType} x={X:F3} y={Y:F3} button={Button} clicks={ClickCount} wheel=({WheelDeltaX},{WheelDeltaY})",
+            companionId,
+            machineId,
+            viewerSessionId,
+            input.EventType,
+            input.X,
+            input.Y,
+            input.Button ?? "<none>",
+            input.ClickCount,
+            input.WheelDeltaX,
+            input.WheelDeltaY);
         return _runners.SendViewerPointerInputAsync(machineId, viewerSessionId, companionId, input, Context.ConnectionAborted);
     }
 
@@ -74,6 +89,16 @@ public sealed class CoordinatorViewerHub : Hub<IViewerHubClient>, ICoordinatorVi
     {
         var companionId = RequireCompanionId();
         EnsureControlAllowed(machineId, viewerSessionId, companionId);
+        _logger.LogInformation(
+            "Coordinator received viewer keyboard input from companion {CompanionId} for machine {MachineId} viewer {ViewerSessionId}: {EventType} {Code} alt={Alt} ctrl={Control} shift={Shift}",
+            companionId,
+            machineId,
+            viewerSessionId,
+            input.EventType,
+            input.Code,
+            input.Alt,
+            input.Control,
+            input.Shift);
         return _runners.SendViewerKeyboardInputAsync(machineId, viewerSessionId, companionId, input, Context.ConnectionAborted);
     }
 
