@@ -1,4 +1,5 @@
 @page "/terminals/{SessionId}"
+@inject ICompanionDashboardStateService DashboardState
 @inject ISessionStateService SessionState
 @inject IActiveSessionService ActiveSession
 @inject IRunnerConnectionManager Connections
@@ -56,15 +57,30 @@
     [Parameter] public string SessionId { get; set; } = string.Empty;
 
     private TerminalSession? _session;
+    private IReadOnlyList<ProjectSessionRecord> _projectSessions = [];
     private string _quickCommand = string.Empty;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         SessionState.SessionsChanged += OnSessionsChanged;
+        await RefreshAsync();
     }
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _projectSessions = (await DashboardState.BuildAsync()).ProjectSessions;
+        var projectSession = SessionNavigation.GetProjectSessionForTerminal(SessionId, _projectSessions);
+        if (projectSession is not null)
+        {
+            Nav.NavigateTo($"/project-sessions/{Uri.EscapeDataString(projectSession.Id)}");
+            return;
+        }
+
         _session = SessionState.Sessions.FirstOrDefault(session =>
             string.Equals(session.Id, SessionId, StringComparison.OrdinalIgnoreCase));
         if (_session is not null)
@@ -114,12 +130,8 @@
         await Connections.SendInputAsync(_session.Id, command + "\n");
     }
 
-    private void OnSessionsChanged(object? sender, EventArgs e)
-    {
-        _session = SessionState.Sessions.FirstOrDefault(session =>
-            string.Equals(session.Id, SessionId, StringComparison.OrdinalIgnoreCase));
-        InvokeAsync(StateHasChanged);
-    }
+    private void OnSessionsChanged(object? sender, EventArgs e) =>
+        _ = InvokeAsync(RefreshAsync);
 
     public void Dispose()
     {

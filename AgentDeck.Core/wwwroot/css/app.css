@@ -159,6 +159,7 @@ main {
 .nav-session-dot--running  { background: var(--color-green); }
 .nav-session-dot--stopped  { background: var(--color-subtext); opacity: 0.5; }
 .nav-session-dot--error    { background: var(--color-red); }
+.nav-session-dot--project  { background: var(--color-accent); }
 
 .nav-session-name {
     display: flex;
@@ -564,20 +565,24 @@ main {
 }
 
 .project-target-chip--supported,
-.project-template-target__status {
+.project-template-target__status--supported,
+.viewer-surface-card__availability--supported {
     background: rgba(166,227,161,0.15);
     color: var(--color-green);
 }
 
-.project-target-chip--setup {
+.project-target-chip--setup,
+.project-template-target__status--setup,
+.viewer-surface-card__availability--setup {
     background: rgba(249,226,175,0.15);
     color: var(--color-yellow);
 }
 
 .project-target-chip--unsupported,
-.viewer-surface-card__availability {
-    background: rgba(166,173,200,0.15);
-    color: var(--color-subtext);
+.project-template-target__status--unsupported,
+.viewer-surface-card__availability--unsupported {
+    background: rgba(243,139,168,0.15);
+    color: var(--color-red);
 }
 
 .project-template-profile {

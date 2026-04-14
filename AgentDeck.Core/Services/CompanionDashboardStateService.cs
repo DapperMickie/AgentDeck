@@ -187,7 +187,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                             Description = $"{project.Definition.Name} can expose an Android emulator surface once orchestration is launched.",
                             Availability = target.ReadyMachineNames.Count > 0
                                 ? $"Ready on {string.Join(", ", target.ReadyMachineNames)}"
-                                : "No Android-ready machine discovered yet"
+                                : "No Android-ready machine discovered yet",
+                            AvailabilityClass = target.ReadyMachineNames.Count > 0 ? "supported" : "unsupported"
                         });
                 }
 
@@ -202,7 +203,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                             Description = $"{project.Definition.Name} can expose an Apple simulator surface once orchestration is launched.",
                             Availability = target.ReadyMachineNames.Count > 0
                                 ? $"Ready on {string.Join(", ", target.ReadyMachineNames)}"
-                                : "No Apple simulator-ready machine discovered yet"
+                                : "No Apple simulator-ready machine discovered yet",
+                            AvailabilityClass = target.ReadyMachineNames.Count > 0 ? "supported" : "unsupported"
                         });
                 }
 
@@ -217,7 +219,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                             Description = $"{project.Definition.Name} debug sessions are expected to expose a VS Code-backed viewer surface.",
                             Availability = target.ReadyMachineNames.Count > 0
                                 ? $"Debug-capable target ready on {string.Join(", ", target.ReadyMachineNames)}"
-                                : "No debug-capable machine discovered yet"
+                                : "No debug-capable machine discovered yet",
+                            AvailabilityClass = target.ReadyMachineNames.Count > 0 ? "supported" : "unsupported"
                         });
                 }
 
@@ -232,7 +235,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                             Description = $"Desktop/window viewer support for {project.Definition.Name} on {target.DisplayName} is modeled separately from terminals.",
                             Availability = target.ReadyMachineNames.Count > 0
                                 ? $"Potentially hostable on {string.Join(", ", target.ReadyMachineNames)}"
-                                : "No ready machine discovered yet"
+                                : "No ready machine discovered yet",
+                            AvailabilityClass = target.ReadyMachineNames.Count > 0 ? "setup" : "unsupported"
                         });
                 }
             }
