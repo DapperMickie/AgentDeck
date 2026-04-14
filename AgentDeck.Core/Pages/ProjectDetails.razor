@@ -648,7 +648,10 @@
         foreach (var machineId in machinesToQuery)
         {
             viewers.AddRange((await CoordinatorClient.GetMachineViewerSessionsAsync(_coordinatorUrl, machineId))
-                .Where(viewer => !string.IsNullOrWhiteSpace(viewer.JobId) && jobIds.Contains(viewer.JobId)));
+                .Where(viewer =>
+                    IsVisibleRuntimeViewer(viewer) &&
+                    !string.IsNullOrWhiteSpace(viewer.JobId) &&
+                    jobIds.Contains(viewer.JobId)));
         }
 
         _projectJobs = jobs
@@ -1421,6 +1424,9 @@
         viewer.Provider == RemoteViewerProviderKind.Managed &&
         viewer.Status == RemoteViewerSessionStatus.Ready &&
         !string.IsNullOrWhiteSpace(viewer.MachineId);
+
+    private static bool IsVisibleRuntimeViewer(RemoteViewerSession viewer) =>
+        viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
 
     private bool CanCancelJob(OrchestrationJob job) =>
         _cancellingJobId != job.Id &&
