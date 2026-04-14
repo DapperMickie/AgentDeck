@@ -2,6 +2,24 @@ const registrations = new Map();
 const pointerMoveIntervalMs = 16;
 const wheelPixelStep = 100;
 const wheelPageStep = 3;
+const moveLogIntervalMs = 500;
+
+function log(message, level = "info") {
+    const prefixed = `[AgentDeck.ViewerInterop] ${message}`;
+    if (level === "warn") {
+        console.warn(prefixed);
+        return;
+    }
+
+    console.info(prefixed);
+}
+
+function reportStatus(registration, message, level = "info") {
+    log(message, level);
+    registration.dotNetReference
+        .invokeMethodAsync("HandleInteropStatus", message)
+        .catch(() => {});
+}
 
 function clamp(value) {
     return Math.min(Math.max(value, 0), 1);
@@ -193,8 +211,44 @@ export function attach(elementId, dotNetReference) {
         onDoubleClick: null,
         onDragStart: null,
         onKeyDown: null,
-        onKeyUp: null
+        onKeyUp: null,
+        onFrameLoad: null,
+        frameElement: null,
+        lastMoveLogAt: 0
     };
+
+    reportStatus(registration, `Attaching viewer hooks for #${elementId}. framePresent=${getInteractiveFrameElement(element) !== null}`);
+
+    const bindFrameLoad = () => {
+        const frame = getInteractiveFrameElement(element);
+        if (registration.frameElement === frame) {
+            return;
+        }
+
+        if (registration.frameElement && registration.onFrameLoad) {
+            registration.frameElement.removeEventListener("load", registration.onFrameLoad);
+        }
+
+        registration.frameElement = frame;
+        if (!frame) {
+            reportStatus(registration, `No frame element found for #${elementId} at attach time.`, "warn");
+            return;
+        }
+
+        const onFrameLoad = () => {
+            reportStatus(registration, `Frame load observed for #${elementId} (${frame.clientWidth}x${frame.clientHeight}).`);
+            element.focus();
+        };
+
+        registration.onFrameLoad = onFrameLoad;
+        frame.addEventListener("load", onFrameLoad);
+        reportStatus(registration, `Frame element detected for #${elementId}. complete=${frame.complete}`);
+        if (frame.complete) {
+            onFrameLoad();
+        }
+    };
+
+    bindFrameLoad();
 
     const queueMove = event => {
         const point = normalize(element, event);
@@ -204,6 +258,11 @@ export function attach(elementId, dotNetReference) {
 
         point.button = getActiveDragButton(registration);
         registration.pendingMove = point;
+        const now = Date.now();
+        if (now - registration.lastMoveLogAt >= moveLogIntervalMs) {
+            registration.lastMoveLogAt = now;
+            reportStatus(registration, `mousemove x=${point.x.toFixed(3)} y=${point.y.toFixed(3)} button=${point.button ?? "<none>"}`);
+        }
         schedulePointerMove(elementId);
     };
 
@@ -222,10 +281,12 @@ export function attach(elementId, dotNetReference) {
         event.preventDefault();
         const point = normalize(element, event);
         if (!point) {
+            reportStatus(registration, `mousedown ignored because no normalized point was available for #${elementId}.`, "warn");
             return;
         }
 
         const button = buttonName(event.button);
+        reportStatus(registration, `mousedown x=${point.x.toFixed(3)} y=${point.y.toFixed(3)} button=${button}`);
         addPressedButton(registration, button);
         flushPendingMoveBeforeImmediatePointer(elementId);
         enqueuePointerEvent(registration, "down", point, button, getClickCount(event));
@@ -235,10 +296,12 @@ export function attach(elementId, dotNetReference) {
         event.preventDefault();
         const point = normalize(element, event);
         if (!point) {
+            reportStatus(registration, `mouseup ignored because no normalized point was available for #${elementId}.`, "warn");
             return;
         }
 
         const button = buttonName(event.button);
+        reportStatus(registration, `mouseup x=${point.x.toFixed(3)} y=${point.y.toFixed(3)} button=${button}`);
         flushPendingMoveBeforeImmediatePointer(elementId);
         enqueuePointerEvent(registration, "up", point, button, getClickCount(event));
         removePressedButton(registration, button);
@@ -248,6 +311,7 @@ export function attach(elementId, dotNetReference) {
         event.preventDefault();
         const point = normalize(element, event);
         if (!point) {
+            reportStatus(registration, `wheel ignored because no normalized point was available for #${elementId}.`, "warn");
             return;
         }
 
@@ -263,6 +327,7 @@ export function attach(elementId, dotNetReference) {
         registration.wheelRemainderX -= wheelDeltaX;
         registration.wheelRemainderY -= wheelDeltaY;
 
+        reportStatus(registration, `wheel x=${point.x.toFixed(3)} y=${point.y.toFixed(3)} dx=${wheelDeltaX} dy=${wheelDeltaY}`);
         flushPendingMoveBeforeImmediatePointer(elementId);
         enqueuePointerEvent(registration, "wheel", point, null, 0, wheelDeltaX, wheelDeltaY);
     };
@@ -270,6 +335,7 @@ export function attach(elementId, dotNetReference) {
     const preventDefault = event => event.preventDefault();
 
     const onKeyDown = event => {
+        reportStatus(registration, `keydown code=${event.code} alt=${event.altKey} ctrl=${event.ctrlKey} shift=${event.shiftKey}`);
         dotNetReference
             .invokeMethodAsync("HandleKeyboard", "keydown", event.code, event.altKey, event.ctrlKey, event.shiftKey)
             .catch(() => {});
@@ -277,6 +343,7 @@ export function attach(elementId, dotNetReference) {
     };
 
     const onKeyUp = event => {
+        reportStatus(registration, `keyup code=${event.code} alt=${event.altKey} ctrl=${event.ctrlKey} shift=${event.shiftKey}`);
         dotNetReference
             .invokeMethodAsync("HandleKeyboard", "keyup", event.code, event.altKey, event.ctrlKey, event.shiftKey)
             .catch(() => {});
@@ -308,6 +375,7 @@ export function attach(elementId, dotNetReference) {
     element.addEventListener("keyup", onKeyUp);
 
     registrations.set(elementId, registration);
+    reportStatus(registration, `Viewer hooks registered for #${elementId}.`);
 }
 
 export function detach(elementId) {
@@ -318,6 +386,10 @@ export function detach(elementId) {
 
     if (existing.moveTimer !== null) {
         window.clearTimeout(existing.moveTimer);
+    }
+
+    if (existing.frameElement && existing.onFrameLoad) {
+        existing.frameElement.removeEventListener("load", existing.onFrameLoad);
     }
 
     existing.pressedButtons = [];
@@ -333,6 +405,7 @@ export function detach(elementId) {
     existing.element.removeEventListener("dragstart", existing.onDragStart);
     existing.element.removeEventListener("keydown", existing.onKeyDown);
     existing.element.removeEventListener("keyup", existing.onKeyUp);
+    reportStatus(existing, `Viewer hooks detached for #${elementId}.`);
     registrations.delete(elementId);
 }
 
@@ -340,26 +413,31 @@ export function focus(elementId) {
     const element = document.getElementById(elementId);
     if (element) {
         element.focus();
+        log(`Focus requested for #${elementId}.`);
     }
 }
 
 export async function toggleFullscreen(elementId) {
     const element = document.getElementById(elementId);
     if (!element) {
+        log(`Toggle fullscreen requested for missing #${elementId}.`, "warn");
         return;
     }
 
     if (document.fullscreenElement === element) {
+        log(`Exiting fullscreen for #${elementId}.`);
         await document.exitFullscreen();
         return;
     }
 
     if (document.fullscreenElement && document.fullscreenElement !== element) {
+        log(`Exiting existing fullscreen element before entering fullscreen for #${elementId}.`);
         await document.exitFullscreen();
         return;
     }
 
     if (typeof element.requestFullscreen === "function") {
+        log(`Entering fullscreen for #${elementId}.`);
         await element.requestFullscreen();
     }
 }
