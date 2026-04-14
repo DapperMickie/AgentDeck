@@ -26,7 +26,8 @@ public sealed class RemoteViewerSession
             SessionId = other.Target.SessionId,
             WindowTitle = other.Target.WindowTitle,
             VirtualDeviceId = other.Target.VirtualDeviceId,
-            VirtualDeviceProfileId = other.Target.VirtualDeviceProfileId
+            VirtualDeviceProfileId = other.Target.VirtualDeviceProfileId,
+            KnownWindowTargetIds = other.Target.KnownWindowTargetIds.ToArray()
         };
         Provider = other.Provider;
         Status = other.Status;

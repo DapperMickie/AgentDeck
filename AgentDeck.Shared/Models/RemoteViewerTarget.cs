@@ -12,4 +12,5 @@ public sealed class RemoteViewerTarget
     public string? WindowTitle { get; init; }
     public string? VirtualDeviceId { get; init; }
     public string? VirtualDeviceProfileId { get; init; }
+    public IReadOnlyList<string> KnownWindowTargetIds { get; init; } = [];
 }
