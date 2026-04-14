@@ -1,5 +1,6 @@
 @inject TerminalInterop TerminalJs
 @inject IRunnerConnectionManager Connections
+@inject ISessionStateService SessionState
 @implements IAsyncDisposable
 
 <div class="terminal-panel @(IsActive ? "terminal-panel--active" : "")"
@@ -15,6 +16,10 @@
     private DotNetObjectReference<TerminalPanel>? _dotnetRef;
     private bool _initialised;
     private bool _wasActive;
+    private readonly Lock _outputLock = new();
+    private bool _hydratingOutput;
+    private long _lastOutputSequence;
+    private readonly List<TerminalOutputChunk> _pendingOutput = [];
 
     protected override void OnParametersSet()
     {
@@ -28,8 +33,25 @@
 
         _dotnetRef = DotNetObjectReference.Create(this);
         await TerminalJs.CreateTerminalAsync(_containerId, Session.Id, _dotnetRef);
+        lock (_outputLock)
+        {
+            _hydratingOutput = true;
+        }
+
+        SessionState.OutputAppended += OnOutputAppended;
+        var snapshot = SessionState.GetOutputSnapshot(Session.Id);
+        if (!string.IsNullOrEmpty(snapshot.Content))
+        {
+            await TerminalJs.WriteAsync(Session.Id, snapshot.Content);
+        }
+
+        lock (_outputLock)
+        {
+            _lastOutputSequence = snapshot.Sequence;
+        }
+
+        await FlushPendingOutputAsync();
         await Connections.JoinSessionAsync(Session.Id);
-        Connections.OutputReceived += OnOutputReceived;
 
         // Fit to the actual container dimensions and explicitly resize the PTY.
         // This is critical: the PTY starts at the CreateTerminalRequest default
@@ -71,14 +93,66 @@
         _wasActive = IsActive;
     }
 
-    private void OnOutputReceived(object? sender, TerminalOutput output)
+    private void OnOutputAppended(object? sender, TerminalOutputChunk output)
     {
         if (output.SessionId != Session.Id) return;
+
+        lock (_outputLock)
+        {
+            if (_hydratingOutput)
+            {
+                _pendingOutput.Add(output);
+                return;
+            }
+
+            if (output.Sequence <= _lastOutputSequence)
+            {
+                return;
+            }
+
+            _lastOutputSequence = output.Sequence;
+        }
         _ = InvokeAsync(async () =>
         {
             try { await TerminalJs.WriteAsync(Session.Id, output.Data); }
             catch { /* component disposed or JS interop unavailable */ }
         });
+    }
+
+    private async Task FlushPendingOutputAsync()
+    {
+        while (true)
+        {
+            TerminalOutputChunk? next = null;
+            lock (_outputLock)
+            {
+                if (_pendingOutput.Count == 0)
+                {
+                    _hydratingOutput = false;
+                    return;
+                }
+
+                var nextIndex = 0;
+                for (var index = 1; index < _pendingOutput.Count; index++)
+                {
+                    if (_pendingOutput[index].Sequence < _pendingOutput[nextIndex].Sequence)
+                    {
+                        nextIndex = index;
+                    }
+                }
+
+                next = _pendingOutput[nextIndex];
+                _pendingOutput.RemoveAt(nextIndex);
+                if (next.Sequence <= _lastOutputSequence)
+                {
+                    continue;
+                }
+
+                _lastOutputSequence = next.Sequence;
+            }
+
+            await TerminalJs.WriteAsync(Session.Id, next.Data);
+        }
     }
 
     /// <summary>Called from JS when the user types in the terminal.</summary>
@@ -97,12 +171,11 @@
 
     public async ValueTask DisposeAsync()
     {
-        Connections.OutputReceived -= OnOutputReceived;
+        SessionState.OutputAppended -= OnOutputAppended;
 
         if (_initialised)
         {
             await TerminalJs.UnregisterAutoFitAsync(Session.Id);
-            await Connections.LeaveSessionAsync(Session.Id);
             await TerminalJs.DisposeTerminalAsync(Session.Id);
         }
 

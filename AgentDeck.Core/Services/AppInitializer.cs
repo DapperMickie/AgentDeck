@@ -35,6 +35,7 @@ public sealed class AppInitializer
             _sessionState.AddOrUpdate(s);
             _toast.Show($"Session '{s.Name}' started on {s.MachineName ?? "runner"}", ToastKind.Success);
         };
+        _connections.OutputReceived += (_, output) => _sessionState.AppendOutput(output);
         _connections.SessionUpdated += (_, s) => _sessionState.AddOrUpdate(s);
         _connections.SessionClosed += (_, id) =>
         {
