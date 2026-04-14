@@ -598,11 +598,6 @@ main {
     border-top: 1px solid rgba(255,255,255,0.06);
 }
 
-.project-template-target:first-child {
-    border-top: none;
-    padding-top: 0;
-}
-
 .project-template-target__note {
     color: var(--color-subtext);
     font-size: 0.8rem;
@@ -785,6 +780,8 @@ main {
     justify-content: center;
     min-height: 18rem;
     max-height: 60vh;
+    width: fit-content;
+    max-width: 100%;
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 16px;
     background: #0e1320;
@@ -801,13 +798,32 @@ main {
     cursor: default;
 }
 
-.remote-viewer-surface img {
+.remote-viewer-surface__frame {
     display: block;
-    width: 100%;
+    width: auto;
     height: auto;
+    max-width: 100%;
+    max-height: 60vh;
     object-fit: contain;
     user-select: none;
     pointer-events: none;
+}
+
+.remote-viewer-surface:fullscreen {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0 auto;
+    border-radius: 0;
+    border: none;
+}
+
+.remote-viewer-surface:fullscreen .remote-viewer-surface__frame {
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
 }
 
 .viewer-placeholder {
