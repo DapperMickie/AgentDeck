@@ -40,9 +40,12 @@ public static class ShellLaunchBuilder
         }
 
         var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
+        // Use -c (non-login) so the wrapper doesn't re-run login profile scripts on every spawn.
+        // The trailing `exec {shellPath}` becomes the user-facing interactive shell which sources
+        // its own rc files as usual.
         return (shellPath,
         [
-            "-lc",
+            "-c",
             $"cd {QuotePosix(workingDirectory)} && {BuildShellCommand(command, arguments)}; exec {shellPath}"
         ]);
     }
@@ -61,9 +64,10 @@ public static class ShellLaunchBuilder
         }
 
         var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
+        // Non-login: orchestration shouldn't re-source ~/.profile / ~/.bash_profile on every batch.
         return (shellPath,
         [
-            "-lc",
+            "-c",
             $"cd {QuotePosix(workingDirectory)} && {script}"
         ]);
     }
