@@ -31,6 +31,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:5000
+ENV ASPNETCORE_ENVIRONMENT=Production
 ENV AGENTDECK_WORKSPACE=/workspace
 
 EXPOSE 5000
