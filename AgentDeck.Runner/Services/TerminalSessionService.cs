@@ -135,5 +135,47 @@ public sealed class TerminalSessionService : ITerminalSessionService
         ShellLaunchBuilder.BuildInteractiveLaunch(command, arguments, workingDirectory, commandWasSpecified);
 
     private static string FormatArguments(IReadOnlyList<string> arguments) =>
-        arguments.Count == 0 ? "<none>" : string.Join(" ", arguments);
+        arguments.Count == 0 ? "<none>" : string.Join(" ", arguments.Select(ScrubSensitiveArgument));
+
+    // Heuristic credential scrubber for log lines. Matches common patterns like
+    // --password=secret, --token secret, -p secret, Authorization: Bearer xyz.
+    // Conservative: only the value portion is redacted; the flag is kept.
+    private static readonly string[] _sensitiveFlagSubstrings =
+    {
+        "password", "passwd", "secret", "token", "apikey", "api-key", "api_key",
+        "authorization", "auth", "bearer", "credential"
+    };
+
+    private static string ScrubSensitiveArgument(string argument)
+    {
+        if (string.IsNullOrEmpty(argument))
+        {
+            return argument;
+        }
+
+        var eqIdx = argument.IndexOf('=');
+        if (eqIdx > 0)
+        {
+            var key = argument[..eqIdx];
+            if (LooksSensitive(key))
+            {
+                return key + "=<redacted>";
+            }
+        }
+
+        return argument;
+    }
+
+    private static bool LooksSensitive(string flagOrKey)
+    {
+        var lowered = flagOrKey.ToLowerInvariant();
+        foreach (var marker in _sensitiveFlagSubstrings)
+        {
+            if (lowered.Contains(marker, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 }
