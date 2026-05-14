@@ -248,6 +248,14 @@ public sealed class MachineSetupService : IMachineSetupService
             startInfo.ArgumentList.Add(argument);
         }
 
+        // Pin the working directory to a per-invocation temp dir so capability
+        // install scripts can't write relative paths into the runner install
+        // directory (which contains appsettings.json and signing public keys).
+        var workingDirectory = Path.Combine(Path.GetTempPath(),
+            "agentdeck-capability-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workingDirectory);
+        startInfo.WorkingDirectory = workingDirectory;
+
         using var process = new Process { StartInfo = startInfo };
 
         try
@@ -256,6 +264,18 @@ public sealed class MachineSetupService : IMachineSetupService
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
+            try
+            {
+                if (Directory.Exists(workingDirectory))
+                {
+                    Directory.Delete(workingDirectory, recursive: true);
+                }
+            }
+            catch
+            {
+                // best-effort cleanup
+            }
+
             return new MachineCapabilityInstallResult
             {
                 CapabilityId = capabilityId,
@@ -276,6 +296,18 @@ public sealed class MachineSetupService : IMachineSetupService
 
         var standardOutput = await standardOutputTask;
         var standardError = await standardErrorTask;
+
+        try
+        {
+            if (Directory.Exists(workingDirectory))
+            {
+                Directory.Delete(workingDirectory, recursive: true);
+            }
+        }
+        catch
+        {
+            // best-effort cleanup
+        }
 
         if (process.ExitCode != 0)
         {
