@@ -23,7 +23,7 @@ public sealed class ManagedDesktopViewerTransportOptions
     public TimeSpan FrameInterval { get; set; } = TimeSpan.FromMilliseconds(250);
     public string RelayHubPath { get; set; } = "/hubs/managed-viewer";
     public bool IssueAccessToken { get; set; } = true;
-    public int AccessTokenBytes { get; set; } = 12;
+    public int AccessTokenBytes { get; set; } = 32;
     public Dictionary<string, string> EnvironmentVariables { get; set; } = [];
 
     public bool IsConfigured =>
