@@ -15,8 +15,9 @@ public sealed class RunnerOptions
     /// <summary>Port the Kestrel server listens on. Default 5000.</summary>
     public int Port { get; set; } = 5000;
 
-    /// <summary>Origins allowed for CORS. Use ["*"] for development.</summary>
-    public string[] AllowedOrigins { get; set; } = ["*"];
+    /// <summary>Origins allowed for CORS. Defaults to deny (empty); set to ["*"] for development opt-in,
+    /// or list explicit origins (e.g., the local WebView origin) for production.</summary>
+    public string[] AllowedOrigins { get; set; } = [];
 
     /// <summary>Default shell command when no command is specified in CreateTerminalRequest. Auto-detected from OS if null.</summary>
     public string? DefaultShell { get; set; }
