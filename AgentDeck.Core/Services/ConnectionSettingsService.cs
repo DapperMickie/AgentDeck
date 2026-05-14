@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AgentDeck.Core.Models;
+using AgentDeck.Shared.Json;
 
 namespace AgentDeck.Core.Services;
 
@@ -7,7 +8,7 @@ namespace AgentDeck.Core.Services;
 public sealed class ConnectionSettingsService : IConnectionSettingsService
 {
     private readonly string _filePath;
-    private static readonly JsonSerializerOptions _json = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions _json = JsonDefaults.Indented;
 
     private sealed class LegacyConnectionSettings
     {

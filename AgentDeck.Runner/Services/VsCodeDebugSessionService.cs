@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared.Json;
 using AgentDeck.Shared.Models;
 using RdpPoc.Contracts;
 
@@ -25,10 +26,7 @@ public sealed class VsCodeDebugSessionService : IVsCodeDebugSessionService
         public int? HostProcessId { get; set; }
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true
-    };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Indented;
 
     private readonly ConcurrentDictionary<string, ActiveDebugSession> _sessions = new();
     private readonly ConcurrentDictionary<string, VsCodeDebugSession> _sessionRecords = new();
