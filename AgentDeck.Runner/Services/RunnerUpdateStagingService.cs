@@ -156,14 +156,14 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
                             $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not declare any trusted manifest signer ids.");
                     }
 
-                    if (!desiredState.SecurityPolicy.TrustedManifestSignerIds.Contains(manifest.Signature.SignerId, StringComparer.OrdinalIgnoreCase))
+                    if (!desiredState.SecurityPolicy.TrustedManifestSignerIds.Contains(manifest.Signature.SignerId, StringComparer.Ordinal))
                     {
                         throw new InvalidOperationException(
                             $"Coordinator update manifest signer '{manifest.Signature.SignerId}' is not trusted by security policy {desiredState.SecurityPolicy.PolicyVersion}.");
                     }
 
                     var signer = _options.TrustedManifestSigners
-                        .FirstOrDefault(candidate => string.Equals(candidate.SignerId, manifest.Signature.SignerId, StringComparison.OrdinalIgnoreCase));
+                        .FirstOrDefault(candidate => string.Equals(candidate.SignerId, manifest.Signature.SignerId, StringComparison.Ordinal));
                     if (signer is null)
                     {
                         throw new InvalidOperationException(
