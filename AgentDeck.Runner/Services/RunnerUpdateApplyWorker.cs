@@ -69,6 +69,7 @@ internal static class RunnerUpdateApplyWorker
             }
 
             Console.Error.WriteLine(ex);
+            TryWriteEarlyFailureLog(planPath, plan, ex);
             return 1;
         }
         finally
@@ -224,6 +225,43 @@ internal static class RunnerUpdateApplyWorker
         var tempPath = Path.Combine(directory, $"{Path.GetFileName(statusPath)}.{Guid.NewGuid():N}.tmp");
         await File.WriteAllTextAsync(tempPath, JsonSerializer.Serialize(status, JsonOptions), cancellationToken);
         File.Move(tempPath, statusPath, overwrite: true);
+    }
+
+    private static void TryWriteEarlyFailureLog(string planPath, RunnerUpdateApplyPlan? plan, Exception exception)
+    {
+        // The update-apply worker is a child process — its stderr is not persisted, so a crash
+        // before WriteStatusAsync has nothing observable. Drop a sibling .log next to whichever
+        // path we have (preferred: staging dir, fallback: directory of the plan file) so the
+        // parent runner can surface it on next start.
+        try
+        {
+            var stagingDir = plan?.StagingDirectory;
+            var logDirectory = !string.IsNullOrWhiteSpace(stagingDir) && Directory.Exists(stagingDir)
+                ? stagingDir
+                : Path.GetDirectoryName(planPath);
+
+            if (string.IsNullOrWhiteSpace(logDirectory))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(logDirectory);
+            var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'");
+            var logPath = Path.Combine(logDirectory, $"runner-update-apply.{timestamp}.log");
+            File.WriteAllText(
+                logPath,
+                $"[{DateTimeOffset.UtcNow:O}] runner-update-apply-worker failed.{Environment.NewLine}" +
+                $"planPath: {planPath}{Environment.NewLine}" +
+                $"manifestId: {plan?.ManifestId}{Environment.NewLine}" +
+                $"manifestVersion: {plan?.ManifestVersion}{Environment.NewLine}" +
+                $"stagingDirectory: {plan?.StagingDirectory}{Environment.NewLine}" +
+                $"candidateInstallDirectory: {plan?.CandidateInstallDirectory}{Environment.NewLine}" +
+                $"{exception}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Best-effort. We're already in the failure handler — never throw from a logger.
+        }
     }
 
     private static void TryDeleteFile(string path)
