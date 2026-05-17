@@ -14,6 +14,8 @@ A lightweight ASP.NET Core service that:
 - Declares desired runner version and protocol compatibility for connected workers
 - Publishes first-pass update manifests and workflow packs for connected workers
 
+Coordinator registries are intentionally process-local in this slice. Companion registrations, runner heartbeats, project-session surfaces, and machine remote-control ownership are rebuilt from active clients after a coordinator restart rather than persisted to disk or shared across multiple coordinator instances. Treat the current coordinator as a single-node local control plane; add a pluggable registry store before expecting restart-stable sessions or HA behavior.
+
 ### Runner (`AgentDeck.Runner`)
 A cross-platform ASP.NET Core service that:
 - Runs on a worker machine
