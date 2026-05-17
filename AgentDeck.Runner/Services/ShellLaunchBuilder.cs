@@ -78,7 +78,7 @@ public static class ShellLaunchBuilder
         return commandName is "pwsh" or "powershell" or "bash" or "sh" or "cmd";
     }
 
-    private static string BuildShellCommand(string command, IReadOnlyList<string> arguments)
+    internal static string BuildShellCommand(string command, IReadOnlyList<string> arguments)
     {
         if (arguments.Count == 0)
         {
@@ -87,10 +87,20 @@ public static class ShellLaunchBuilder
 
         if (OperatingSystem.IsWindows())
         {
-            return $"& {QuotePowerShell(command)} {string.Join(" ", arguments.Select(QuotePowerShell))}";
+            return BuildPowerShellSplatCommand(command, arguments);
         }
 
         return $"{QuotePosix(command)} {string.Join(" ", arguments.Select(QuotePosix))}";
+    }
+
+    internal static string BuildPowerShellSplatCommand(string command, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 0)
+        {
+            return $"& {QuotePowerShell(command)}";
+        }
+
+        return $"$agentDeckArgs = @({string.Join(", ", arguments.Select(QuotePowerShell))}); & {QuotePowerShell(command)} @agentDeckArgs";
     }
 
     private static string QuotePowerShell(string value) =>

@@ -11,6 +11,7 @@ if (args.Length >= 2 && string.Equals(args[0], RunnerUpdateApplyWorker.HelperMod
 }
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("appsettings.user.json", optional: true, reloadOnChange: true);
 
 var runnerOptions = builder.Configuration
     .GetSection(RunnerOptions.SectionName)

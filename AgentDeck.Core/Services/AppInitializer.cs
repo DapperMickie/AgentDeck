@@ -66,13 +66,13 @@ public sealed class AppInitializer
 
     private async void OnConnectionStateChanged(object? sender, RunnerMachineConnectionChangedEventArgs e)
     {
-        if (e.State != HubConnectionState.Connected)
-        {
-            return;
-        }
-
         try
         {
+            if (e.State != HubConnectionState.Connected)
+            {
+                return;
+            }
+
             var settings = await _settingsService.LoadAsync();
             var connectedSessions = new List<TerminalSession>();
 
@@ -91,7 +91,7 @@ public sealed class AppInitializer
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to sync sessions after machine connect");
+            _logger.LogError(ex, "Failed to sync sessions after machine connect.");
         }
     }
 }

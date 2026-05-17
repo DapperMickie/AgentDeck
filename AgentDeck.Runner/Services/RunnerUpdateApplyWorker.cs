@@ -213,9 +213,73 @@ internal static class RunnerUpdateApplyWorker
 
     private static void CopyLocalConfiguration(string sourceInstallDirectory, string candidateInstallDirectory)
     {
-        foreach (var file in Directory.GetFiles(sourceInstallDirectory, "appsettings*.json", SearchOption.TopDirectoryOnly))
+        var sourceUserSettingsPath = Path.Combine(sourceInstallDirectory, "appsettings.user.json");
+        var candidateUserSettingsPath = Path.Combine(candidateInstallDirectory, "appsettings.user.json");
+        if (File.Exists(sourceUserSettingsPath))
         {
-            File.Copy(file, Path.Combine(candidateInstallDirectory, Path.GetFileName(file)), overwrite: true);
+            File.Copy(sourceUserSettingsPath, candidateUserSettingsPath, overwrite: true);
+            return;
+        }
+
+        var legacySettingsPath = Path.Combine(sourceInstallDirectory, "appsettings.json");
+        if (!File.Exists(legacySettingsPath))
+        {
+            return;
+        }
+
+        var migratedUserSettings = BuildLegacyUserSettingsOverlay(legacySettingsPath);
+        if (migratedUserSettings is null)
+        {
+            return;
+        }
+
+        File.WriteAllText(candidateUserSettingsPath, migratedUserSettings);
+    }
+
+    private static string? BuildLegacyUserSettingsOverlay(string legacySettingsPath)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(legacySettingsPath));
+        var root = document.RootElement;
+        var overlay = new Dictionary<string, object?>();
+
+        CopySectionProperties(root, overlay, "Runner", ["WorkspaceRoot", "Port", "AllowedOrigins"]);
+        CopySectionProperties(root, overlay, "Coordinator",
+        [
+            "MachineId",
+            "MachineName",
+            "CoordinatorUrl",
+            "ControlChannelTransport",
+            "AdvertisedRunnerUrl",
+            "AllowInsecureHttpCoordinatorForLoopback",
+            "AllowInsecureHttpCoordinatorForDevelopment",
+            "DownloadUpdatePayload",
+            "UpdateApplyProcessExitTimeout"
+        ]);
+
+        return overlay.Count == 0
+            ? null
+            : JsonSerializer.Serialize(overlay, JsonOptions);
+    }
+
+    private static void CopySectionProperties(JsonElement root, Dictionary<string, object?> overlay, string sectionName, IReadOnlyCollection<string> propertyNames)
+    {
+        if (!root.TryGetProperty(sectionName, out var section) || section.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var sectionOverlay = new Dictionary<string, object?>();
+        foreach (var property in section.EnumerateObject())
+        {
+            if (propertyNames.Contains(property.Name))
+            {
+                sectionOverlay[property.Name] = property.Value.Deserialize<object?>(JsonOptions);
+            }
+        }
+
+        if (sectionOverlay.Count > 0)
+        {
+            overlay[sectionName] = sectionOverlay;
         }
     }
 
