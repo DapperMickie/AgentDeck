@@ -143,19 +143,42 @@ internal static class RunnerUpdateApplyWorker
     private static void CopyDirectoryContents(string sourceDirectory, string destinationDirectory)
     {
         Directory.CreateDirectory(destinationDirectory);
+        var destinationRoot = Path.GetFullPath(destinationDirectory);
 
         foreach (var directory in Directory.GetDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
         {
             var relativePath = Path.GetRelativePath(sourceDirectory, directory);
-            Directory.CreateDirectory(Path.Combine(destinationDirectory, relativePath));
+            var targetDirectory = Path.Combine(destinationRoot, relativePath);
+            EnsureUnderRoot(destinationRoot, targetDirectory);
+            Directory.CreateDirectory(targetDirectory);
         }
 
         foreach (var file in Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories))
         {
             var relativePath = Path.GetRelativePath(sourceDirectory, file);
-            var destinationPath = Path.Combine(destinationDirectory, relativePath);
+            var destinationPath = Path.Combine(destinationRoot, relativePath);
+            EnsureUnderRoot(destinationRoot, destinationPath);
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             File.Copy(file, destinationPath, overwrite: true);
+        }
+    }
+
+    private static void EnsureUnderRoot(string root, string candidatePath)
+    {
+        var normalizedRoot = Path.GetFullPath(root);
+        var normalizedCandidate = Path.GetFullPath(candidatePath);
+        var rootWithSep = normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (!normalizedCandidate.Equals(normalizedRoot, comparison) &&
+            !normalizedCandidate.StartsWith(rootWithSep, comparison))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to write '{normalizedCandidate}' which is outside the candidate install directory '{normalizedRoot}'.");
         }
     }
 
