@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared.Json;
 using AgentDeck.Shared.Models;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -12,7 +13,7 @@ namespace AgentDeck.Runner.Services;
 
 public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.WebIndented;
 
     private readonly Lock _lock = new();
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);

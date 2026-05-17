@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared.Json;
 using AgentDeck.Shared.Models;
 
 namespace AgentDeck.Runner.Services;
@@ -9,7 +10,7 @@ namespace AgentDeck.Runner.Services;
 internal static class RunnerUpdateApplyWorker
 {
     public const string HelperModeSwitch = "--runner-update-apply-worker";
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.WebIndented;
 
     public static async Task<int> RunAsync(string planPath, CancellationToken cancellationToken = default)
     {
