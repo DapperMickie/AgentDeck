@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 using RdpPoc.Contracts;
@@ -18,6 +20,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         public string? MachineId { get; init; }
         public required TaskCompletionSource<int> Completion { get; init; }
         public required string CompletionMarker { get; init; }
+        public required string CompletionMarkerSecret { get; init; }
         public string? ProcessIdMarker { get; init; }
         public bool IsVsCode { get; init; }
         public string MarkerBuffer { get; set; } = string.Empty;
@@ -396,6 +399,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         var operationId = Guid.NewGuid().ToString("N");
         var completionMarker = $"__AGENTDECK_EXIT_{operationId}__";
+        var completionMarkerSecret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var processIdMarker = isVsCode && OperatingSystem.IsWindows()
             ? $"__AGENTDECK_PID_{operationId}__"
             : null;
@@ -407,6 +411,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             MachineId = job.TargetMachineId,
             Completion = completion,
             CompletionMarker = completionMarker,
+            CompletionMarkerSecret = completionMarkerSecret,
             ProcessIdMarker = processIdMarker,
             IsVsCode = isVsCode
         };
@@ -437,7 +442,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
         try
         {
-            await _ptyManager.WriteAsync(sessionId, BuildTerminalPhaseInput(command, completionMarker, processIdMarker));
+            await _ptyManager.WriteAsync(sessionId, BuildTerminalPhaseInput(command, completionMarker, completionMarkerSecret, processIdMarker));
             if (attachRuntimeViewer)
             {
                 await TryAttachRuntimeViewerAsync(job, sessionId, knownWindowTargetIds);
@@ -510,7 +515,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         return $"{QuotePosix(command)} {string.Join(" ", arguments.Select(QuotePosix))}";
     }
 
-    private static string BuildTerminalPhaseInput(string command, string completionMarker, string? processIdMarker)
+    internal static string BuildTerminalPhaseInput(string command, string completionMarker, string completionMarkerSecret, string? processIdMarker)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -535,16 +540,36 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             lines.Add("    Write-Error $_");
             lines.Add("    $agentDeckExit = 1");
             lines.Add("}");
-            lines.Add($"Write-Host '{completionMarker}:$agentDeckExit'");
+            lines.Add($"$agentDeckHmac = [System.Security.Cryptography.HMACSHA256]::new([System.Text.Encoding]::UTF8.GetBytes('{completionMarkerSecret}'))");
+            lines.Add($"$agentDeckPayload = '{completionMarker}:' + $agentDeckExit");
+            lines.Add("$agentDeckSignature = [Convert]::ToHexString($agentDeckHmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($agentDeckPayload))).ToLowerInvariant()");
+            lines.Add("Write-Host \"${agentDeckPayload}:$agentDeckSignature\"");
             return string.Join(Environment.NewLine, lines) + Environment.NewLine;
         }
 
+        var signatureCases = BuildPosixCompletionSignatureCases(completionMarker, completionMarkerSecret);
+
         if (!string.IsNullOrWhiteSpace(processIdMarker))
         {
-            return $"agentdeck_exit=1\n{{ {BuildPosixVsCodeWrapper(command, processIdMarker)}; agentdeck_exit=$?; }}\nprintf '{completionMarker}:%s\\n' \"$agentdeck_exit\"\n";
+            return $"agentdeck_exit=1\n{{ {BuildPosixVsCodeWrapper(command, processIdMarker)}; agentdeck_exit=$?; }}\nagentdeck_sig=\ncase \"$agentdeck_exit\" in\n{signatureCases}esac\nprintf '{completionMarker}:%s:%s\\n' \"$agentdeck_exit\" \"$agentdeck_sig\"\n";
         }
 
-        return $"agentdeck_exit=1\n{{ {command}; agentdeck_exit=$?; }}\nprintf '{completionMarker}:%s\\n' \"$agentdeck_exit\"\n";
+        return $"agentdeck_exit=1\n{{ {command}; agentdeck_exit=$?; }}\nagentdeck_sig=\ncase \"$agentdeck_exit\" in\n{signatureCases}esac\nprintf '{completionMarker}:%s:%s\\n' \"$agentdeck_exit\" \"$agentdeck_sig\"\n";
+    }
+
+    private static string BuildPosixCompletionSignatureCases(string completionMarker, string completionMarkerSecret)
+    {
+        var builder = new StringBuilder();
+        for (var exitCode = 0; exitCode <= 255; exitCode++)
+        {
+            builder.Append("  ")
+                .Append(exitCode)
+                .Append(") agentdeck_sig='")
+                .Append(ComputeCompletionSignature(completionMarker, exitCode, completionMarkerSecret))
+                .Append("' ;;\n");
+        }
+
+        return builder.ToString();
     }
 
     private static string BuildPowerShellVsCodeWrapper(string command, string processIdMarker)
@@ -567,36 +592,51 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
     private static string BuildPosixVsCodeWrapper(string command, string processIdMarker) =>
         $"{command} & agentdeck_pid=$!; printf '{processIdMarker}:%s\\n' \"$agentdeck_pid\"; wait \"$agentdeck_pid\"";
 
-    private static IReadOnlyList<string> SplitQuotedArguments(string value)
+    internal static IReadOnlyList<string> SplitQuotedArguments(string value)
     {
         var arguments = new List<string>();
-        var current = new System.Text.StringBuilder();
+        var current = new StringBuilder();
         var quote = '\0';
+        var hasToken = false;
+
         for (var index = 0; index < value.Length; index++)
         {
             var character = value[index];
             if (quote == '\0' && char.IsWhiteSpace(character))
             {
-                if (current.Length > 0)
+                if (hasToken)
                 {
                     arguments.Add(current.ToString());
                     current.Clear();
+                    hasToken = false;
                 }
 
                 continue;
             }
 
-            if (character is '\'' or '"')
+            hasToken = true;
+            if (character == '\\')
             {
-                if (quote == character &&
-                    index + 1 < value.Length &&
-                    value[index + 1] == character)
+                if (quote == '\'')
                 {
                     current.Append(character);
-                    index++;
                     continue;
                 }
 
+                if (index + 1 < value.Length)
+                {
+                    var next = value[index + 1];
+                    if (quote == '"' ? next is '"' or '\\' or '$' or '`' : char.IsWhiteSpace(next) || next is '\'' or '"' or '\\')
+                    {
+                        current.Append(next);
+                        index++;
+                        continue;
+                    }
+                }
+            }
+
+            if (character is '\'' or '"')
+            {
                 if (quote == '\0')
                 {
                     quote = character;
@@ -613,7 +653,12 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             current.Append(character);
         }
 
-        if (current.Length > 0)
+        if (quote != '\0')
+        {
+            throw new FormatException("Command arguments contain an unterminated quote.");
+        }
+
+        if (hasToken)
         {
             arguments.Add(current.ToString());
         }
@@ -623,6 +668,12 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
 
     private static string QuotePosix(string value) =>
         $"'{value.Replace("'", "'\"'\"'")}'";
+
+    internal static string ComputeCompletionSignature(string marker, int exitCode, string secret)
+    {
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes($"{marker}:{exitCode}"))).ToLowerInvariant();
+    }
 
     private async Task<bool> FinishIfTerminalAsync(string jobId, int exitCode, string phaseName)
     {
@@ -727,11 +778,11 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         {
             if (viewer is not null)
             {
-                    await _viewerBootstrap.CloseAsync(viewer.Id, "Viewer session closed because runtime viewer attachment failed.");
-                }
-
-                throw;
+                await _viewerBootstrap.CloseAsync(viewer.Id, "Viewer session closed because runtime viewer attachment failed.");
             }
+
+            throw;
+        }
     }
 
     private bool TryBuildRuntimeViewerRequest(
@@ -873,7 +924,7 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
             _ = NotifyHostStartedAsync(session.JobId, processId);
         }
 
-        if (TryReadMarkedInt(ref markerBuffer, session.CompletionMarker, out var exitCode))
+        if (TryReadSignedCompletionMarker(ref markerBuffer, session.CompletionMarker, session.CompletionMarkerSecret, out var exitCode))
         {
             session.CompletionOutputTail = session.RecentOutputTail;
             _logger.LogInformation(
@@ -930,6 +981,47 @@ public sealed class OrchestrationExecutionService : IOrchestrationExecutionServi
         var rawValue = buffer[valueStart..lineEnd].Trim();
         buffer = buffer[(lineEnd + 1)..];
         return int.TryParse(rawValue, out value);
+    }
+
+    internal static bool TryReadSignedCompletionMarker(ref string buffer, string marker, string secret, out int value)
+    {
+        value = 0;
+
+        while (true)
+        {
+            var markerIndex = buffer.IndexOf(marker, StringComparison.Ordinal);
+            if (markerIndex < 0)
+            {
+                return false;
+            }
+
+            var valueStart = markerIndex + marker.Length + 1;
+            if (valueStart > buffer.Length)
+            {
+                return false;
+            }
+
+            var lineEnd = buffer.IndexOfAny(['\r', '\n'], valueStart);
+            if (lineEnd < 0)
+            {
+                return false;
+            }
+
+            var rawFields = buffer[valueStart..lineEnd].Trim().Split(':', count: 2);
+            var remainingBuffer = buffer[(lineEnd + 1)..];
+            if (rawFields.Length == 2 &&
+                int.TryParse(rawFields[0], out value) &&
+                CryptographicOperations.FixedTimeEquals(
+                    Encoding.ASCII.GetBytes(ComputeCompletionSignature(marker, value, secret)),
+                    Encoding.ASCII.GetBytes(rawFields[1].Trim())))
+            {
+                buffer = remainingBuffer;
+                return true;
+            }
+
+            value = 0;
+            buffer = remainingBuffer;
+        }
     }
 
     private static string TrimMarkerBuffer(string buffer) =>

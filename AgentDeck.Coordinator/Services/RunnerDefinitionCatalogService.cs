@@ -65,12 +65,13 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
         };
         ValidateUpdateManifest(_desiredUpdateManifest, options.PublicBaseUrl, securityPolicy);
 
-        _desiredWorkflowPack = new RunnerWorkflowPack
+        var unsignedWorkflowPack = new RunnerWorkflowPack
         {
             PackId = NormalizeRequired(desiredWorkflowPack.PackId, $"{CoordinatorOptions.SectionName}:DesiredWorkflowPack:PackId"),
             Version = NormalizeRequired(desiredWorkflowPack.Version, $"{CoordinatorOptions.SectionName}:DesiredWorkflowPack:Version"),
             DisplayName = NormalizeRequired(desiredWorkflowPack.DisplayName, $"{CoordinatorOptions.SectionName}:DesiredWorkflowPack:DisplayName"),
             Description = NormalizeOptional(desiredWorkflowPack.Description),
+            Provenance = CloneProvenance(unsignedManifest.Provenance),
             Steps = (desiredWorkflowPack.Steps ?? [])
                 .Where(step => !string.IsNullOrWhiteSpace(step.StepId))
                 .Select(step => new RunnerWorkflowStep
@@ -85,15 +86,27 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
                         .Where(pair => !string.IsNullOrWhiteSpace(pair.Key))
                         .ToDictionary(pair => pair.Key.Trim(), pair => pair.Value, StringComparer.OrdinalIgnoreCase)
                 })
-                .ToArray()
+                .ToArray(),
+            Signature = null
+        };
+        _desiredWorkflowPack = new RunnerWorkflowPack
+        {
+            PackId = unsignedWorkflowPack.PackId,
+            Version = unsignedWorkflowPack.Version,
+            DisplayName = unsignedWorkflowPack.DisplayName,
+            Description = unsignedWorkflowPack.Description,
+            Steps = unsignedWorkflowPack.Steps,
+            Provenance = unsignedWorkflowPack.Provenance,
+            Signature = BuildWorkflowPackSignature(unsignedWorkflowPack, desiredWorkflowPack)
         };
 
-        _desiredCapabilityCatalog = new RunnerCapabilityCatalog
+        var unsignedCapabilityCatalog = new RunnerCapabilityCatalog
         {
             CatalogId = NormalizeRequired(desiredCapabilityCatalog.CatalogId, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:CatalogId"),
             Version = NormalizeRequired(desiredCapabilityCatalog.Version, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:Version"),
             DisplayName = NormalizeRequired(desiredCapabilityCatalog.DisplayName, $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog:DisplayName"),
             Description = NormalizeOptional(desiredCapabilityCatalog.Description),
+            Provenance = CloneProvenance(unsignedManifest.Provenance),
             Capabilities = (desiredCapabilityCatalog.Capabilities ?? [])
                 .Where(capability => !string.IsNullOrWhiteSpace(capability.CapabilityId))
                 .Select(capability => new RunnerCapabilityDefinition
@@ -114,15 +127,27 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
                         })
                         .ToArray()
                 })
-                .ToArray()
+                .ToArray(),
+            Signature = null
+        };
+        _desiredCapabilityCatalog = new RunnerCapabilityCatalog
+        {
+            CatalogId = unsignedCapabilityCatalog.CatalogId,
+            Version = unsignedCapabilityCatalog.Version,
+            DisplayName = unsignedCapabilityCatalog.DisplayName,
+            Description = unsignedCapabilityCatalog.Description,
+            Capabilities = unsignedCapabilityCatalog.Capabilities,
+            Provenance = unsignedCapabilityCatalog.Provenance,
+            Signature = BuildCapabilityCatalogSignature(unsignedCapabilityCatalog, desiredCapabilityCatalog)
         };
 
-        _desiredSetupCatalog = new RunnerSetupCatalog
+        var unsignedSetupCatalog = new RunnerSetupCatalog
         {
             CatalogId = NormalizeRequired(desiredSetupCatalog.CatalogId, $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog:CatalogId"),
             Version = NormalizeRequired(desiredSetupCatalog.Version, $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog:Version"),
             DisplayName = NormalizeRequired(desiredSetupCatalog.DisplayName, $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog:DisplayName"),
             Description = NormalizeOptional(desiredSetupCatalog.Description),
+            Provenance = CloneProvenance(unsignedManifest.Provenance),
             Capabilities = (desiredSetupCatalog.Capabilities ?? [])
                 .Where(capability => !string.IsNullOrWhiteSpace(capability.CapabilityId))
                 .Select(capability => new RunnerSetupCapabilityDefinition
@@ -158,7 +183,18 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
                         })
                         .ToArray()
                 })
-                .ToArray()
+                .ToArray(),
+            Signature = null
+        };
+        _desiredSetupCatalog = new RunnerSetupCatalog
+        {
+            CatalogId = unsignedSetupCatalog.CatalogId,
+            Version = unsignedSetupCatalog.Version,
+            DisplayName = unsignedSetupCatalog.DisplayName,
+            Description = unsignedSetupCatalog.Description,
+            Capabilities = unsignedSetupCatalog.Capabilities,
+            Provenance = unsignedSetupCatalog.Provenance,
+            Signature = BuildSetupCatalogSignature(unsignedSetupCatalog, desiredSetupCatalog)
         };
     }
 
@@ -210,6 +246,18 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
             : artifactService.ResolveHostedArtifact(manifest.HostedArtifactPath, options.PublicBaseUrl);
     }
 
+    private static RunnerUpdateManifestProvenance? CloneProvenance(RunnerUpdateManifestProvenance? provenance) =>
+        provenance is null
+            ? null
+            : new RunnerUpdateManifestProvenance
+            {
+                SourceRepository = provenance.SourceRepository,
+                SourceRevision = provenance.SourceRevision,
+                BuildIdentifier = provenance.BuildIdentifier,
+                PublishedBy = provenance.PublishedBy,
+                ProvenanceUri = provenance.ProvenanceUri
+            };
+
     private static RunnerUpdateManifestSignature? BuildManifestSignature(
         RunnerUpdateManifest manifest,
         CoordinatorUpdateManifestOptions options)
@@ -243,6 +291,75 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
                 Algorithm = algorithm,
                 SignerId = NormalizeRequired(options.SignerId, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:SignerId"),
                 Value = NormalizeRequired(options.Signature, $"{CoordinatorOptions.SectionName}:DesiredUpdateManifest:Signature")
+            }
+            : null;
+    }
+
+    private static RunnerUpdateManifestSignature? BuildWorkflowPackSignature(
+        RunnerWorkflowPack pack,
+        CoordinatorWorkflowPackOptions options) =>
+        BuildDefinitionSignature(
+            options,
+            $"{CoordinatorOptions.SectionName}:DesiredWorkflowPack",
+            privateKey => RunnerSignedDefinitionPayload.TrySignWorkflowPack(pack, privateKey, out var signatureValue, out var error)
+                ? (true, signatureValue, error)
+                : (false, string.Empty, error));
+
+    private static RunnerUpdateManifestSignature? BuildCapabilityCatalogSignature(
+        RunnerCapabilityCatalog catalog,
+        CoordinatorCapabilityCatalogOptions options) =>
+        BuildDefinitionSignature(
+            options,
+            $"{CoordinatorOptions.SectionName}:DesiredCapabilityCatalog",
+            privateKey => RunnerSignedDefinitionPayload.TrySignCapabilityCatalog(catalog, privateKey, out var signatureValue, out var error)
+                ? (true, signatureValue, error)
+                : (false, string.Empty, error));
+
+    private static RunnerUpdateManifestSignature? BuildSetupCatalogSignature(
+        RunnerSetupCatalog catalog,
+        CoordinatorSetupCatalogOptions options) =>
+        BuildDefinitionSignature(
+            options,
+            $"{CoordinatorOptions.SectionName}:DesiredSetupCatalog",
+            privateKey => RunnerSignedDefinitionPayload.TrySignSetupCatalog(catalog, privateKey, out var signatureValue, out var error)
+                ? (true, signatureValue, error)
+                : (false, string.Empty, error));
+
+    private static RunnerUpdateManifestSignature? BuildDefinitionSignature(
+        CoordinatorDefinitionSignatureOptions options,
+        string optionPath,
+        Func<string, (bool Succeeded, string SignatureValue, string Error)> signer)
+    {
+        var algorithm = NormalizeRequired(options.SignatureAlgorithm, $"{optionPath}:SignatureAlgorithm");
+        if (!string.IsNullOrWhiteSpace(options.PrivateKeyPem))
+        {
+            if (!string.Equals(algorithm, RunnerUpdateManifestSigning.RsaSha256Algorithm, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Coordinator definition auto-signing only supports '{RunnerUpdateManifestSigning.RsaSha256Algorithm}'.");
+            }
+
+            var signerId = NormalizeRequired(options.SignerId, $"{optionPath}:SignerId");
+            var result = signer(options.PrivateKeyPem);
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(result.Error);
+            }
+
+            return new RunnerUpdateManifestSignature
+            {
+                Algorithm = algorithm,
+                SignerId = signerId,
+                Value = result.SignatureValue
+            };
+        }
+
+        return HasConfiguredDefinitionSignature(options)
+            ? new RunnerUpdateManifestSignature
+            {
+                Algorithm = algorithm,
+                SignerId = NormalizeRequired(options.SignerId, $"{optionPath}:SignerId"),
+                Value = NormalizeRequired(options.Signature, $"{optionPath}:Signature")
             }
             : null;
     }
@@ -347,6 +464,10 @@ public sealed class RunnerDefinitionCatalogService : IRunnerDefinitionCatalogSer
     private static bool HasConfiguredSignature(CoordinatorUpdateManifestOptions manifest) =>
         !string.IsNullOrWhiteSpace(manifest.SignerId) ||
         !string.IsNullOrWhiteSpace(manifest.Signature);
+
+    private static bool HasConfiguredDefinitionSignature(CoordinatorDefinitionSignatureOptions definition) =>
+        !string.IsNullOrWhiteSpace(definition.SignerId) ||
+        !string.IsNullOrWhiteSpace(definition.Signature);
 
     private static IReadOnlyDictionary<string, RunnerTrustedManifestSigner> BuildTrustedSignerLookup(IReadOnlyList<RunnerTrustedManifestSigner> signers)
     {

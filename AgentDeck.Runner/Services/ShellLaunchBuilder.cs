@@ -40,9 +40,12 @@ public static class ShellLaunchBuilder
         }
 
         var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
+        // Use -c (non-login) so the wrapper doesn't re-run login profile scripts on every spawn.
+        // The trailing `exec {shellPath}` becomes the user-facing interactive shell which sources
+        // its own rc files as usual.
         return (shellPath,
         [
-            "-lc",
+            "-c",
             $"cd {QuotePosix(workingDirectory)} && {BuildShellCommand(command, arguments)}; exec {shellPath}"
         ]);
     }
@@ -61,9 +64,10 @@ public static class ShellLaunchBuilder
         }
 
         var shellPath = File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
+        // Non-login: orchestration shouldn't re-source ~/.profile / ~/.bash_profile on every batch.
         return (shellPath,
         [
-            "-lc",
+            "-c",
             $"cd {QuotePosix(workingDirectory)} && {script}"
         ]);
     }
@@ -74,7 +78,7 @@ public static class ShellLaunchBuilder
         return commandName is "pwsh" or "powershell" or "bash" or "sh" or "cmd";
     }
 
-    private static string BuildShellCommand(string command, IReadOnlyList<string> arguments)
+    internal static string BuildShellCommand(string command, IReadOnlyList<string> arguments)
     {
         if (arguments.Count == 0)
         {
@@ -83,10 +87,20 @@ public static class ShellLaunchBuilder
 
         if (OperatingSystem.IsWindows())
         {
-            return $"& {QuotePowerShell(command)} {string.Join(" ", arguments.Select(QuotePowerShell))}";
+            return BuildPowerShellSplatCommand(command, arguments);
         }
 
         return $"{QuotePosix(command)} {string.Join(" ", arguments.Select(QuotePosix))}";
+    }
+
+    internal static string BuildPowerShellSplatCommand(string command, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 0)
+        {
+            return $"& {QuotePowerShell(command)}";
+        }
+
+        return $"$agentDeckArgs = @({string.Join(", ", arguments.Select(QuotePowerShell))}); & {QuotePowerShell(command)} @agentDeckArgs";
     }
 
     private static string QuotePowerShell(string value) =>

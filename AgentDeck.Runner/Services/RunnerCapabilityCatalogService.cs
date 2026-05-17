@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared.Json;
 using AgentDeck.Shared.Models;
 using Microsoft.Extensions.Options;
 
@@ -9,19 +10,22 @@ namespace AgentDeck.Runner.Services;
 
 public sealed class RunnerCapabilityCatalogService : IRunnerCapabilityCatalogService, IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.WebIndented;
 
     private readonly WorkerCoordinatorOptions _options;
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);
+    private readonly RunnerLocalSecurityPolicy _localSecurityPolicy;
     private readonly ILogger<RunnerCapabilityCatalogService> _logger;
     private RunnerCapabilityCatalog? _currentCatalog;
     private RunnerCapabilityCatalogStatus _currentStatus;
 
     public RunnerCapabilityCatalogService(
         IOptions<WorkerCoordinatorOptions> options,
+        RunnerLocalSecurityPolicy localSecurityPolicy,
         ILogger<RunnerCapabilityCatalogService> logger)
     {
         _options = options.Value;
+        _localSecurityPolicy = localSecurityPolicy;
         _logger = logger;
         _currentCatalog = LoadPersistedCatalog();
         _currentStatus = NormalizePersistedState(_currentCatalog, LoadPersistedStatus());
@@ -112,6 +116,15 @@ public sealed class RunnerCapabilityCatalogService : IRunnerCapabilityCatalogSer
                 {
                     throw new InvalidOperationException(
                         $"Coordinator capability catalog version '{catalog.Version}' did not match desired version '{desiredCatalogVersion}'.");
+                }
+
+                if (_localSecurityPolicy.RequireSignedCapabilityCatalogs || catalog.Signature is not null)
+                {
+                    _localSecurityPolicy.VerifySignedDefinition(
+                        "capability catalog",
+                        catalog.Signature,
+                        catalog.Provenance,
+                        (string publicKeyPem, out string error) => RunnerSignedDefinitionPayload.VerifySignature(catalog, publicKeyPem, out error));
                 }
 
                 Directory.CreateDirectory(GetCapabilityCatalogRoot());

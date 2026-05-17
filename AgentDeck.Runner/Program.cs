@@ -11,6 +11,7 @@ if (args.Length >= 2 && string.Equals(args[0], RunnerUpdateApplyWorker.HelperMod
 }
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("appsettings.user.json", optional: true, reloadOnChange: true);
 
 var runnerOptions = builder.Configuration
     .GetSection(RunnerOptions.SectionName)
@@ -27,6 +28,8 @@ builder.Services.AddOptions<WorkerCoordinatorOptions>()
     .Bind(builder.Configuration.GetSection(WorkerCoordinatorOptions.SectionName));
 builder.Services.AddOptions<TrustPolicyOptions>()
     .Bind(builder.Configuration.GetSection(TrustPolicyOptions.SectionName));
+builder.Services.AddOptions<RunnerLocalSecurityPolicyOptions>()
+    .Bind(builder.Configuration.GetSection(RunnerLocalSecurityPolicyOptions.SectionName));
 
 builder.WebHost.UseUrls($"http://0.0.0.0:{runnerOptions.Port}");
 
@@ -69,6 +72,7 @@ builder.Services.AddSingleton<IManagedViewerRelayService, ManagedViewerRelayServ
 builder.Services.AddSingleton<IDesktopViewerBootstrapService, DesktopViewerBootstrapService>();
 builder.Services.AddSingleton<IRunnerAuditService, RunnerAuditService>();
 builder.Services.AddSingleton<IRunnerTrustPolicy, RunnerTrustPolicy>();
+builder.Services.AddSingleton<RunnerLocalSecurityPolicy>();
 builder.Services.AddSingleton<IRunnerUpdateStagingService, RunnerUpdateStagingService>();
 builder.Services.AddSingleton<IRunnerWorkflowCatalogService, RunnerWorkflowCatalogService>();
 builder.Services.AddSingleton<IRunnerCapabilityCatalogService, RunnerCapabilityCatalogService>();

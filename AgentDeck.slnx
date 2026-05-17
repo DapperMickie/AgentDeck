@@ -4,4 +4,5 @@
   <Project Path="AgentDeck.Runner/AgentDeck.Runner.csproj" />
   <Project Path="AgentDeck.Shared/AgentDeck.Shared.csproj" />
   <Project Path="AgentDeck/AgentDeck.csproj" />
+  <Project Path="AgentDeck.Runner.Tests/AgentDeck.Runner.Tests.csproj" />
 </Solution>

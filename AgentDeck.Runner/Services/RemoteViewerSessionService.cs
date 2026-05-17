@@ -251,12 +251,16 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
             (RemoteViewerSessionStatus.Requested, RemoteViewerSessionStatus.Preparing) => true,
             (RemoteViewerSessionStatus.Requested, RemoteViewerSessionStatus.Failed) => true,
             (RemoteViewerSessionStatus.Requested, RemoteViewerSessionStatus.Closed) => true,
+            (RemoteViewerSessionStatus.Requested, RemoteViewerSessionStatus.Unavailable) => true,
             (RemoteViewerSessionStatus.Preparing, RemoteViewerSessionStatus.Ready) => true,
             (RemoteViewerSessionStatus.Preparing, RemoteViewerSessionStatus.Failed) => true,
             (RemoteViewerSessionStatus.Preparing, RemoteViewerSessionStatus.Closed) => true,
+            (RemoteViewerSessionStatus.Preparing, RemoteViewerSessionStatus.Unavailable) => true,
             (RemoteViewerSessionStatus.Ready, RemoteViewerSessionStatus.Closed) => true,
             (RemoteViewerSessionStatus.Ready, RemoteViewerSessionStatus.Failed) => true,
+            (RemoteViewerSessionStatus.Ready, RemoteViewerSessionStatus.Unavailable) => true,
             (RemoteViewerSessionStatus.Failed, RemoteViewerSessionStatus.Closed) => true,
+            (RemoteViewerSessionStatus.Unavailable, RemoteViewerSessionStatus.Closed) => true,
             _ => false
         };
     }
@@ -323,7 +327,7 @@ public sealed class RemoteViewerSessionService : IRemoteViewerSessionService
     private void PruneTerminalSessions(string protectedSessionId)
     {
         var orderedTerminalSessions = _sessions.Values
-            .Where(session => session.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
+            .Where(session => session.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Unavailable)
             .OrderByDescending(session => session.UpdatedAt)
             .ThenByDescending(session => session.CreatedAt)
             .ThenBy(session => session.Id, StringComparer.Ordinal)

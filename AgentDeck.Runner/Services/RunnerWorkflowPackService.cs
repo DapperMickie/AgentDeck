@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared.Json;
 using AgentDeck.Shared.Models;
 using Microsoft.Extensions.Options;
 
@@ -10,13 +11,14 @@ namespace AgentDeck.Runner.Services;
 
 public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.WebIndented;
 
     private readonly Lock _lock = new();
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);
     private readonly WorkerCoordinatorOptions _options;
     private readonly IMachineCapabilityService _capabilities;
     private readonly IMachineSetupService _machineSetup;
+    private readonly RunnerLocalSecurityPolicy _localSecurityPolicy;
     private readonly ILogger<RunnerWorkflowPackService> _logger;
     private RunnerWorkflowPackStatus? _currentStatus;
 
@@ -24,11 +26,13 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         IOptions<WorkerCoordinatorOptions> options,
         IMachineCapabilityService capabilities,
         IMachineSetupService machineSetup,
+        RunnerLocalSecurityPolicy localSecurityPolicy,
         ILogger<RunnerWorkflowPackService> logger)
     {
         _options = options.Value;
         _capabilities = capabilities;
         _machineSetup = machineSetup;
+        _localSecurityPolicy = localSecurityPolicy;
         _logger = logger;
         _currentStatus = LoadPersistedStatus();
     }
@@ -68,6 +72,7 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         try
         {
             var currentStatus = GetCurrentStatusSnapshot();
+            var securityPolicy = _localSecurityPolicy.EnforceMinimums(desiredState.SecurityPolicy);
             if (desiredState.DesiredWorkflowPack is null)
             {
                 return await UpdateStatusAsync(null, cancellationToken);
@@ -75,7 +80,7 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
 
             var desiredPackId = desiredState.DesiredWorkflowPack.DefinitionId;
             var desiredPackVersion = desiredState.DesiredWorkflowPack.Version;
-            if (!desiredState.SecurityPolicy.AllowWorkflowPackExecution)
+            if (!securityPolicy.AllowWorkflowPackExecution)
             {
                 return await UpdateStatusAsync(new RunnerWorkflowPackStatus
                 {
@@ -84,7 +89,7 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                     PackVersion = desiredPackVersion,
                     LocalPackPath = GetRetainedLocalPackPath(currentStatus, desiredPackId, desiredPackVersion),
                     FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
-                    StatusMessage = $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit workflow pack execution."
+                    StatusMessage = $"Coordinator security policy {securityPolicy.PolicyVersion} does not permit workflow pack execution."
                 }, cancellationToken);
             }
 
@@ -150,6 +155,15 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                         FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
                         FailureMessage = $"Coordinator workflow pack version '{pack.Version}' did not match desired version '{desiredPackVersion}'."
                     }, cancellationToken);
+                }
+
+                if (_localSecurityPolicy.RequireSignedWorkflowPacks || pack.Signature is not null)
+                {
+                    _localSecurityPolicy.VerifySignedDefinition(
+                        "workflow pack",
+                        pack.Signature,
+                        pack.Provenance,
+                        (string publicKeyPem, out string error) => RunnerSignedDefinitionPayload.VerifySignature(pack, publicKeyPem, out error));
                 }
 
                 var packDirectory = Path.Combine(GetWorkflowPackRoot(), SanitizePathComponent(pack.PackId), SanitizePathComponent(pack.Version));
@@ -537,6 +551,14 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
             startInfo.ArgumentList.Add(commandText);
         }
 
+        // Pin the working directory to a per-invocation temp dir so any relative
+        // writes (./something) by the workflow step don't land in the runner
+        // install directory next to appsettings.json or signing keys.
+        var workingDirectory = Path.Combine(Path.GetTempPath(),
+            "agentdeck-workflow-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workingDirectory);
+        startInfo.WorkingDirectory = workingDirectory;
+
         startInfo.UseShellExecute = false;
         startInfo.RedirectStandardOutput = true;
         startInfo.RedirectStandardError = true;
@@ -549,6 +571,17 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         }
         catch (Exception ex)
         {
+            try
+            {
+                if (Directory.Exists(workingDirectory))
+                {
+                    Directory.Delete(workingDirectory, recursive: true);
+                }
+            }
+            catch
+            {
+                // best-effort cleanup
+            }
             return new ShellCommandResult(false, -1, string.Empty, ex.Message);
         }
 
@@ -570,6 +603,18 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         var standardErrorTask = process.StandardError.ReadToEndAsync();
         await Task.WhenAll(standardOutputTask, standardErrorTask, process.WaitForExitAsync());
         cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            if (Directory.Exists(workingDirectory))
+            {
+                Directory.Delete(workingDirectory, recursive: true);
+            }
+        }
+        catch
+        {
+            // best-effort cleanup; do not fail the step over a leftover temp dir
+        }
 
         return new ShellCommandResult(
             process.ExitCode == 0,

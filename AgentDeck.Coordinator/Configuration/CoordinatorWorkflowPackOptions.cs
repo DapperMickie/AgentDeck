@@ -1,6 +1,6 @@
 namespace AgentDeck.Coordinator.Configuration;
 
-public sealed class CoordinatorWorkflowPackOptions
+public sealed class CoordinatorWorkflowPackOptions : CoordinatorDefinitionSignatureOptions
 {
     public string PackId { get; set; } = "default-machine-setup";
     public string Version { get; set; } = "1";

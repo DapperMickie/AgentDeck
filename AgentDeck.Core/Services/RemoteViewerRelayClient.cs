@@ -147,14 +147,17 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
         var remoteControlTask = _coordinatorClient.GetMachineRemoteControlStateAsync(coordinatorUrl, machineId, cancellationToken);
         await Task.WhenAll(viewerSessionsTask, remoteControlTask);
 
-        var session = viewerSessionsTask.Result
+        var viewerSessions = await viewerSessionsTask;
+        var remoteControlState = await remoteControlTask;
+
+        var session = viewerSessions
             .FirstOrDefault(candidate => string.Equals(candidate.Id, viewerSessionId, StringComparison.OrdinalIgnoreCase));
 
         await _sync.WaitAsync(cancellationToken);
         try
         {
             CurrentSession = session;
-            RemoteControlState = remoteControlTask.Result;
+            RemoteControlState = remoteControlState;
             if (session is null)
             {
                 CurrentFrameDataUrl = null;

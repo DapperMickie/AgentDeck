@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared.Json;
 using AgentDeck.Shared.Models;
 
 namespace AgentDeck.Runner.Services;
@@ -9,7 +11,7 @@ namespace AgentDeck.Runner.Services;
 internal static class RunnerUpdateApplyWorker
 {
     public const string HelperModeSwitch = "--runner-update-apply-worker";
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.WebIndented;
 
     public static async Task<int> RunAsync(string planPath, CancellationToken cancellationToken = default)
     {
@@ -21,6 +23,7 @@ internal static class RunnerUpdateApplyWorker
                 JsonOptions)
                 ?? throw new InvalidOperationException($"Runner update apply plan '{planPath}' was empty.");
 
+            await VerifyApplyWorkerIntegrityAsync(plan, cancellationToken);
             await WaitForTargetExitAsync(plan.TargetProcessId, plan.ProcessExitTimeout, cancellationToken);
 
             if (!File.Exists(plan.ArtifactPath))
@@ -69,11 +72,37 @@ internal static class RunnerUpdateApplyWorker
             }
 
             Console.Error.WriteLine(ex);
+            TryWriteEarlyFailureLog(planPath, plan, ex);
             return 1;
         }
         finally
         {
             TryDeleteFile(planPath);
+        }
+    }
+
+    private static async Task VerifyApplyWorkerIntegrityAsync(RunnerUpdateApplyPlan plan, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(plan.ApplyWorkerPath) || string.IsNullOrWhiteSpace(plan.ApplyWorkerSha256))
+        {
+            throw new InvalidOperationException("Runner update apply plan did not include apply-worker integrity metadata.");
+        }
+
+        var currentWorkerPath = Environment.ProcessPath;
+        if (string.Equals(Path.GetFileNameWithoutExtension(currentWorkerPath), "dotnet", StringComparison.OrdinalIgnoreCase))
+        {
+            currentWorkerPath = typeof(RunnerUpdateApplyWorker).Assembly.Location;
+        }
+
+        if (!string.Equals(Path.GetFullPath(currentWorkerPath ?? string.Empty), Path.GetFullPath(plan.ApplyWorkerPath), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Runner update apply helper path did not match the planned helper path.");
+        }
+
+        var actualSha256 = await ComputeSha256Async(plan.ApplyWorkerPath, cancellationToken);
+        if (!string.Equals(actualSha256, plan.ApplyWorkerSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Runner update apply helper SHA-256 did not match the planned helper hash.");
         }
     }
 
@@ -143,27 +172,114 @@ internal static class RunnerUpdateApplyWorker
     private static void CopyDirectoryContents(string sourceDirectory, string destinationDirectory)
     {
         Directory.CreateDirectory(destinationDirectory);
+        var destinationRoot = Path.GetFullPath(destinationDirectory);
 
         foreach (var directory in Directory.GetDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
         {
             var relativePath = Path.GetRelativePath(sourceDirectory, directory);
-            Directory.CreateDirectory(Path.Combine(destinationDirectory, relativePath));
+            var targetDirectory = Path.Combine(destinationRoot, relativePath);
+            EnsureUnderRoot(destinationRoot, targetDirectory);
+            Directory.CreateDirectory(targetDirectory);
         }
 
         foreach (var file in Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories))
         {
             var relativePath = Path.GetRelativePath(sourceDirectory, file);
-            var destinationPath = Path.Combine(destinationDirectory, relativePath);
+            var destinationPath = Path.Combine(destinationRoot, relativePath);
+            EnsureUnderRoot(destinationRoot, destinationPath);
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             File.Copy(file, destinationPath, overwrite: true);
         }
     }
 
+    private static void EnsureUnderRoot(string root, string candidatePath)
+    {
+        var normalizedRoot = Path.GetFullPath(root);
+        var normalizedCandidate = Path.GetFullPath(candidatePath);
+        var rootWithSep = normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (!normalizedCandidate.Equals(normalizedRoot, comparison) &&
+            !normalizedCandidate.StartsWith(rootWithSep, comparison))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to write '{normalizedCandidate}' which is outside the candidate install directory '{normalizedRoot}'.");
+        }
+    }
+
     private static void CopyLocalConfiguration(string sourceInstallDirectory, string candidateInstallDirectory)
     {
-        foreach (var file in Directory.GetFiles(sourceInstallDirectory, "appsettings*.json", SearchOption.TopDirectoryOnly))
+        var sourceUserSettingsPath = Path.Combine(sourceInstallDirectory, "appsettings.user.json");
+        var candidateUserSettingsPath = Path.Combine(candidateInstallDirectory, "appsettings.user.json");
+        if (File.Exists(sourceUserSettingsPath))
         {
-            File.Copy(file, Path.Combine(candidateInstallDirectory, Path.GetFileName(file)), overwrite: true);
+            File.Copy(sourceUserSettingsPath, candidateUserSettingsPath, overwrite: true);
+            return;
+        }
+
+        var legacySettingsPath = Path.Combine(sourceInstallDirectory, "appsettings.json");
+        if (!File.Exists(legacySettingsPath))
+        {
+            return;
+        }
+
+        var migratedUserSettings = BuildLegacyUserSettingsOverlay(legacySettingsPath);
+        if (migratedUserSettings is null)
+        {
+            return;
+        }
+
+        File.WriteAllText(candidateUserSettingsPath, migratedUserSettings);
+    }
+
+    private static string? BuildLegacyUserSettingsOverlay(string legacySettingsPath)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(legacySettingsPath));
+        var root = document.RootElement;
+        var overlay = new Dictionary<string, object?>();
+
+        CopySectionProperties(root, overlay, "Runner", ["WorkspaceRoot", "Port", "AllowedOrigins"]);
+        CopySectionProperties(root, overlay, "Coordinator",
+        [
+            "MachineId",
+            "MachineName",
+            "CoordinatorUrl",
+            "ControlChannelTransport",
+            "AdvertisedRunnerUrl",
+            "AllowInsecureHttpCoordinatorForLoopback",
+            "AllowInsecureHttpCoordinatorForDevelopment",
+            "DownloadUpdatePayload",
+            "UpdateApplyProcessExitTimeout"
+        ]);
+
+        return overlay.Count == 0
+            ? null
+            : JsonSerializer.Serialize(overlay, JsonOptions);
+    }
+
+    private static void CopySectionProperties(JsonElement root, Dictionary<string, object?> overlay, string sectionName, IReadOnlyCollection<string> propertyNames)
+    {
+        if (!root.TryGetProperty(sectionName, out var section) || section.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var sectionOverlay = new Dictionary<string, object?>();
+        foreach (var property in section.EnumerateObject())
+        {
+            if (propertyNames.Contains(property.Name))
+            {
+                sectionOverlay[property.Name] = property.Value.Deserialize<object?>(JsonOptions);
+            }
+        }
+
+        if (sectionOverlay.Count > 0)
+        {
+            overlay[sectionName] = sectionOverlay;
         }
     }
 
@@ -224,6 +340,50 @@ internal static class RunnerUpdateApplyWorker
         var tempPath = Path.Combine(directory, $"{Path.GetFileName(statusPath)}.{Guid.NewGuid():N}.tmp");
         await File.WriteAllTextAsync(tempPath, JsonSerializer.Serialize(status, JsonOptions), cancellationToken);
         File.Move(tempPath, statusPath, overwrite: true);
+    }
+
+    private static async Task<string> ComputeSha256Async(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static void TryWriteEarlyFailureLog(string planPath, RunnerUpdateApplyPlan? plan, Exception exception)
+    {
+        // The update-apply worker is a child process — its stderr is not persisted, so a crash
+        // before WriteStatusAsync has nothing observable. Drop a sibling .log next to whichever
+        // path we have (preferred: staging dir, fallback: directory of the plan file) so the
+        // parent runner can surface it on next start.
+        try
+        {
+            var stagingDir = plan?.StagingDirectory;
+            var logDirectory = !string.IsNullOrWhiteSpace(stagingDir) && Directory.Exists(stagingDir)
+                ? stagingDir
+                : Path.GetDirectoryName(planPath);
+
+            if (string.IsNullOrWhiteSpace(logDirectory))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(logDirectory);
+            var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'");
+            var logPath = Path.Combine(logDirectory, $"runner-update-apply.{timestamp}.log");
+            File.WriteAllText(
+                logPath,
+                $"[{DateTimeOffset.UtcNow:O}] runner-update-apply-worker failed.{Environment.NewLine}" +
+                $"planPath: {planPath}{Environment.NewLine}" +
+                $"manifestId: {plan?.ManifestId}{Environment.NewLine}" +
+                $"manifestVersion: {plan?.ManifestVersion}{Environment.NewLine}" +
+                $"stagingDirectory: {plan?.StagingDirectory}{Environment.NewLine}" +
+                $"candidateInstallDirectory: {plan?.CandidateInstallDirectory}{Environment.NewLine}" +
+                $"{exception}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Best-effort. We're already in the failure handler — never throw from a logger.
+        }
     }
 
     private static void TryDeleteFile(string path)

@@ -11,6 +11,7 @@ public sealed class WorkspaceService : IWorkspaceService
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     private readonly string _root;
+    private readonly string _realizedRoot;
 
     public WorkspaceService(IOptions<RunnerOptions> options)
     {
@@ -20,6 +21,7 @@ public sealed class WorkspaceService : IWorkspaceService
                 : options.Value.WorkspaceRoot);
 
         Directory.CreateDirectory(_root);
+        _realizedRoot = ResolveSymlinksToDeepestExisting(_root);
     }
 
     public string GetWorkspaceRoot() => _root;
@@ -33,6 +35,14 @@ public sealed class WorkspaceService : IWorkspaceService
             : Path.GetFullPath(Path.Combine(_root, path));
 
         EnsureUnderRoot(full);
+
+        // If the path (or any of its existing ancestors) is a symlink, walk the
+        // chain and re-check that the realized target is still under the
+        // realized root. We only realize the deepest existing portion so callers
+        // can ResolvePath("new/file.txt") before creating it.
+        var realized = ResolveSymlinksToDeepestExisting(full);
+        EnsureUnderRealizedRoot(realized);
+
         return full;
     }
 
@@ -68,5 +78,83 @@ public sealed class WorkspaceService : IWorkspaceService
             throw new InvalidOperationException(
                 $"Path '{fullPath}' is outside the workspace root '{_root}'.");
         }
+    }
+
+    private void EnsureUnderRealizedRoot(string realizedPath)
+    {
+        var rootWithSep = _realizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                          + Path.DirectorySeparatorChar;
+
+        if (!realizedPath.Equals(_realizedRoot, PathComparison) &&
+            !realizedPath.StartsWith(rootWithSep, PathComparison))
+        {
+            throw new InvalidOperationException(
+                $"Resolved path '{realizedPath}' (after symlink resolution) is outside the workspace root '{_realizedRoot}'.");
+        }
+    }
+
+    // Walks up from fullPath to the deepest ancestor that exists on disk and
+    // resolves the entire chain of symlinks at each level. Returns the fully
+    // realized path. Non-existent leaf segments are preserved verbatim so
+    // callers can ResolvePath("new/file.txt") before creating it.
+    private static string ResolveSymlinksToDeepestExisting(string fullPath)
+    {
+        var segments = new List<string>();
+        var current = fullPath;
+
+        while (!string.IsNullOrEmpty(current) && !File.Exists(current) && !Directory.Exists(current))
+        {
+            var name = Path.GetFileName(current);
+            var parent = Path.GetDirectoryName(current);
+            if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(parent) || parent == current)
+            {
+                break;
+            }
+            segments.Add(name);
+            current = parent;
+        }
+
+        if (string.IsNullOrEmpty(current))
+        {
+            return fullPath;
+        }
+
+        var realizedAnchor = RealizePath(current);
+
+        if (segments.Count == 0)
+        {
+            return realizedAnchor;
+        }
+
+        segments.Reverse();
+        return Path.GetFullPath(Path.Combine(new[] { realizedAnchor }.Concat(segments).ToArray()));
+    }
+
+    private static string RealizePath(string path)
+    {
+        // Cap symlink resolution depth to avoid loops.
+        const int maxDepth = 40;
+        var current = path;
+        for (var i = 0; i < maxDepth; i++)
+        {
+            FileSystemInfo? info = Directory.Exists(current)
+                ? new DirectoryInfo(current)
+                : File.Exists(current) ? new FileInfo(current) : null;
+
+            if (info is null)
+            {
+                return Path.GetFullPath(current);
+            }
+
+            var target = info.ResolveLinkTarget(returnFinalTarget: true);
+            if (target is null)
+            {
+                return Path.GetFullPath(info.FullName);
+            }
+
+            current = target.FullName;
+        }
+
+        throw new InvalidOperationException($"Symlink chain too deep while resolving '{path}'.");
     }
 }

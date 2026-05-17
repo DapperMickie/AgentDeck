@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared.Json;
 using AgentDeck.Shared.Models;
 using Microsoft.Extensions.Options;
 
@@ -149,7 +150,7 @@ public sealed class DesktopViewerBootstrapService : IDesktopViewerBootstrapServi
         }
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Web;
     private static readonly TimeSpan OutputDrainTimeout = TimeSpan.FromSeconds(5);
     private readonly ConcurrentDictionary<string, ActiveDesktopTransport> _activeTransports = new();
     private readonly IRemoteViewerSessionService _viewers;
