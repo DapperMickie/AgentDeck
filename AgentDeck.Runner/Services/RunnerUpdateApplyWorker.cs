@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared.Json;
 using AgentDeck.Shared.Models;
 
 namespace AgentDeck.Runner.Services;
@@ -10,7 +11,7 @@ namespace AgentDeck.Runner.Services;
 internal static class RunnerUpdateApplyWorker
 {
     public const string HelperModeSwitch = "--runner-update-apply-worker";
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.WebIndented;
 
     public static async Task<int> RunAsync(string planPath, CancellationToken cancellationToken = default)
     {
@@ -71,6 +72,7 @@ internal static class RunnerUpdateApplyWorker
             }
 
             Console.Error.WriteLine(ex);
+            TryWriteEarlyFailureLog(planPath, plan, ex);
             return 1;
         }
         finally
@@ -170,19 +172,42 @@ internal static class RunnerUpdateApplyWorker
     private static void CopyDirectoryContents(string sourceDirectory, string destinationDirectory)
     {
         Directory.CreateDirectory(destinationDirectory);
+        var destinationRoot = Path.GetFullPath(destinationDirectory);
 
         foreach (var directory in Directory.GetDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
         {
             var relativePath = Path.GetRelativePath(sourceDirectory, directory);
-            Directory.CreateDirectory(Path.Combine(destinationDirectory, relativePath));
+            var targetDirectory = Path.Combine(destinationRoot, relativePath);
+            EnsureUnderRoot(destinationRoot, targetDirectory);
+            Directory.CreateDirectory(targetDirectory);
         }
 
         foreach (var file in Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories))
         {
             var relativePath = Path.GetRelativePath(sourceDirectory, file);
-            var destinationPath = Path.Combine(destinationDirectory, relativePath);
+            var destinationPath = Path.Combine(destinationRoot, relativePath);
+            EnsureUnderRoot(destinationRoot, destinationPath);
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             File.Copy(file, destinationPath, overwrite: true);
+        }
+    }
+
+    private static void EnsureUnderRoot(string root, string candidatePath)
+    {
+        var normalizedRoot = Path.GetFullPath(root);
+        var normalizedCandidate = Path.GetFullPath(candidatePath);
+        var rootWithSep = normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (!normalizedCandidate.Equals(normalizedRoot, comparison) &&
+            !normalizedCandidate.StartsWith(rootWithSep, comparison))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to write '{normalizedCandidate}' which is outside the candidate install directory '{normalizedRoot}'.");
         }
     }
 
@@ -258,6 +283,43 @@ internal static class RunnerUpdateApplyWorker
         await using var stream = File.OpenRead(path);
         var hash = await SHA256.HashDataAsync(stream, cancellationToken);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static void TryWriteEarlyFailureLog(string planPath, RunnerUpdateApplyPlan? plan, Exception exception)
+    {
+        // The update-apply worker is a child process — its stderr is not persisted, so a crash
+        // before WriteStatusAsync has nothing observable. Drop a sibling .log next to whichever
+        // path we have (preferred: staging dir, fallback: directory of the plan file) so the
+        // parent runner can surface it on next start.
+        try
+        {
+            var stagingDir = plan?.StagingDirectory;
+            var logDirectory = !string.IsNullOrWhiteSpace(stagingDir) && Directory.Exists(stagingDir)
+                ? stagingDir
+                : Path.GetDirectoryName(planPath);
+
+            if (string.IsNullOrWhiteSpace(logDirectory))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(logDirectory);
+            var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'");
+            var logPath = Path.Combine(logDirectory, $"runner-update-apply.{timestamp}.log");
+            File.WriteAllText(
+                logPath,
+                $"[{DateTimeOffset.UtcNow:O}] runner-update-apply-worker failed.{Environment.NewLine}" +
+                $"planPath: {planPath}{Environment.NewLine}" +
+                $"manifestId: {plan?.ManifestId}{Environment.NewLine}" +
+                $"manifestVersion: {plan?.ManifestVersion}{Environment.NewLine}" +
+                $"stagingDirectory: {plan?.StagingDirectory}{Environment.NewLine}" +
+                $"candidateInstallDirectory: {plan?.CandidateInstallDirectory}{Environment.NewLine}" +
+                $"{exception}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Best-effort. We're already in the failure handler — never throw from a logger.
+        }
     }
 
     private static void TryDeleteFile(string path)

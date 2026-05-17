@@ -129,6 +129,17 @@
                     <div class="terminal-area terminal-area--single project-session-terminal">
                         <TerminalPanel Session="_attachedTerminalSession!" IsActive="true" />
                     </div>
+                    @if (CanCreateManagedTerminalWindowViewer())
+                    {
+                        <div class="project-runtime-card__actions">
+                            <button class="btn btn-accent"
+                                    disabled="@_viewerActionInProgress"
+                                    @onclick="CreateManagedTerminalWindowViewerAsync">
+                                @(_viewerActionInProgress ? "Requesting viewer..." : "Add managed window viewer")
+                            </button>
+                        </div>
+                        <p class="surface-details-card__note">First-pass window surfacing creates a managed viewer tied to this terminal session. Automatic child-window discovery remains platform dependent.</p>
+                    }
                 }
                 else
                 {
@@ -366,13 +377,16 @@
             .ToArray();
 
         var jobIds = _runtimeJobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        _runtimeViewers = viewersTask.Result
+        var machineCanAdvertiseLiveViewers = _sessionMachine?.IsOnline == true;
+        _runtimeViewers = machineCanAdvertiseLiveViewers
+            ? viewersTask.Result
             .Where(viewer =>
                 IsVisibleRuntimeViewer(viewer) &&
                 ((!string.IsNullOrWhiteSpace(viewer.JobId) && jobIds.Contains(viewer.JobId)) ||
                  (!string.IsNullOrWhiteSpace(viewer.Target.JobId) && jobIds.Contains(viewer.Target.JobId))))
             .OrderByDescending(viewer => viewer.UpdatedAt)
-            .ToArray();
+            .ToArray()
+            : [];
         _remoteControlState = remoteControlTask.Result;
     }
 
@@ -694,7 +708,7 @@
     private static ProjectSessionSurfaceStatus MapViewerStatus(RemoteViewerSessionStatus status) => status switch
     {
         RemoteViewerSessionStatus.Ready => ProjectSessionSurfaceStatus.Ready,
-        RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Closed => ProjectSessionSurfaceStatus.Failed,
+        RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Unavailable => ProjectSessionSurfaceStatus.Failed,
         _ => ProjectSessionSurfaceStatus.Requested
     };
 
@@ -756,7 +770,7 @@
         var shouldSyncActiveViewer =
             activeViewer is not null &&
             !string.IsNullOrWhiteSpace(activeViewerMachineId) &&
-            activeViewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed &&
+            activeViewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed and not RemoteViewerSessionStatus.Unavailable &&
             (mode is ProjectSessionControlRequestMode.Request or ProjectSessionControlRequestMode.ForceTakeover ||
              IsActiveViewerControlledByCurrentCompanion());
 
@@ -809,6 +823,63 @@
         catch (Exception ex)
         {
             return $"Project-session control updated, but syncing viewer control for {viewer.Target.DisplayName} failed: {ex.Message}";
+        }
+    }
+
+
+    private bool CanCreateManagedTerminalWindowViewer() =>
+        _activeSurface?.Kind == ProjectSessionSurfaceKind.Terminal &&
+        _attachedTerminalSession is not null &&
+        _projectSession is not null &&
+        !string.IsNullOrWhiteSpace(_coordinatorUrl) &&
+        !string.IsNullOrWhiteSpace(_projectSession.MachineId);
+
+    private async Task CreateManagedTerminalWindowViewerAsync()
+    {
+        if (!CanCreateManagedTerminalWindowViewer())
+        {
+            return;
+        }
+
+        _viewerActionInProgress = true;
+        try
+        {
+            var session = await CoordinatorClient.CreateMachineViewerSessionAsync(
+                _coordinatorUrl!,
+                _projectSession!.MachineId!,
+                new CreateMachineViewerSessionRequest
+                {
+                    Viewer = new CreateRemoteViewerSessionRequest
+                    {
+                        MachineId = _projectSession.MachineId,
+                        MachineName = _projectSession.MachineName,
+                        JobId = _activeSurface?.Job?.Id,
+                        Target = new RemoteViewerTarget
+                        {
+                            Kind = RemoteViewerTargetKind.Window,
+                            DisplayName = $"{_attachedTerminalSession!.Name} window",
+                            SessionId = _attachedTerminalSession.Id,
+                            JobId = _activeSurface?.Job?.Id
+                        }
+                    }
+                });
+
+            Toasts.Show(
+                session?.StatusMessage ?? "Requested a managed window viewer for this terminal.",
+                session?.Status == RemoteViewerSessionStatus.Failed ? ToastKind.Warning : ToastKind.Info);
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Warning);
+        }
+        catch (Exception ex)
+        {
+            Toasts.Show(ex.Message, ToastKind.Error);
+        }
+        finally
+        {
+            _viewerActionInProgress = false;
         }
     }
 
@@ -926,15 +997,28 @@
 
     private bool CanControlActiveViewer() =>
         _activeSurface?.Viewer is not null &&
-        _activeSurface.Viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+        _activeSurface.Viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed and not RemoteViewerSessionStatus.Unavailable;
 
     private static bool CanOpenInAppViewer(RemoteViewerSession viewer) =>
         viewer.Provider == RemoteViewerProviderKind.Managed &&
         viewer.Status == RemoteViewerSessionStatus.Ready &&
         !string.IsNullOrWhiteSpace(viewer.MachineId);
 
-    private static bool IsVisibleRuntimeViewer(RemoteViewerSession viewer) =>
-        viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+    private static bool IsVisibleRuntimeViewer(RemoteViewerSession viewer)
+    {
+        if (viewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Unavailable)
+        {
+            return false;
+        }
+
+        if ((viewer.Status is RemoteViewerSessionStatus.Requested or RemoteViewerSessionStatus.Preparing) &&
+            DateTimeOffset.UtcNow - viewer.UpdatedAt > TimeSpan.FromMinutes(5))
+        {
+            return false;
+        }
+
+        return true;
+    }
 
     private bool IsActiveViewerControlledByCurrentCompanion() =>
         _activeSurface?.Viewer is not null &&

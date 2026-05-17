@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared.Json;
 using AgentDeck.Shared.Models;
 using Microsoft.Extensions.Options;
 
@@ -10,7 +11,7 @@ namespace AgentDeck.Runner.Services;
 
 public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.WebIndented;
 
     private readonly Lock _lock = new();
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);
@@ -550,6 +551,14 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
             startInfo.ArgumentList.Add(commandText);
         }
 
+        // Pin the working directory to a per-invocation temp dir so any relative
+        // writes (./something) by the workflow step don't land in the runner
+        // install directory next to appsettings.json or signing keys.
+        var workingDirectory = Path.Combine(Path.GetTempPath(),
+            "agentdeck-workflow-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workingDirectory);
+        startInfo.WorkingDirectory = workingDirectory;
+
         startInfo.UseShellExecute = false;
         startInfo.RedirectStandardOutput = true;
         startInfo.RedirectStandardError = true;
@@ -562,6 +571,17 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         }
         catch (Exception ex)
         {
+            try
+            {
+                if (Directory.Exists(workingDirectory))
+                {
+                    Directory.Delete(workingDirectory, recursive: true);
+                }
+            }
+            catch
+            {
+                // best-effort cleanup
+            }
             return new ShellCommandResult(false, -1, string.Empty, ex.Message);
         }
 
@@ -583,6 +603,18 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         var standardErrorTask = process.StandardError.ReadToEndAsync();
         await Task.WhenAll(standardOutputTask, standardErrorTask, process.WaitForExitAsync());
         cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            if (Directory.Exists(workingDirectory))
+            {
+                Directory.Delete(workingDirectory, recursive: true);
+            }
+        }
+        catch
+        {
+            // best-effort cleanup; do not fail the step over a leftover temp dir
+        }
 
         return new ShellCommandResult(
             process.ExitCode == 0,

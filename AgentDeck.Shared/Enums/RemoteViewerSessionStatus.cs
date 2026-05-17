@@ -7,5 +7,6 @@ public enum RemoteViewerSessionStatus
     Preparing,
     Ready,
     Failed,
-    Closed
+    Closed,
+    Unavailable
 }

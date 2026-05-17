@@ -757,7 +757,7 @@ app.MapPost("/api/machines/{machineId}/viewers/sessions/{viewerSessionId}/contro
             var existingState = await ReconcileMachineRemoteControlAsync(machineId, remoteControl, runners, cancellationToken, viewers);
             var targetViewer = viewers.FirstOrDefault(viewer =>
                 string.Equals(viewer.Id, viewerSessionId.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (targetViewer is null || targetViewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
+            if (targetViewer is null || targetViewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Unavailable)
             {
                 return Results.NotFound(new { message = $"Machine '{machineId}' no longer exposes viewer session '{viewerSessionId}'." });
             }
@@ -1195,7 +1195,7 @@ static async Task<MachineRemoteControlState?> ReconcileMachineRemoteControlAsync
     viewers ??= await runners.GetViewerSessionsAsync(machineId, cancellationToken);
     var activeViewer = viewers.FirstOrDefault(viewer =>
         string.Equals(viewer.Id, state.ViewerSessionId, StringComparison.OrdinalIgnoreCase));
-    if (activeViewer is null || activeViewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
+    if (activeViewer is null || activeViewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Unavailable)
     {
         remoteControl.ClearState(machineId, state.ViewerSessionId);
         return null;
