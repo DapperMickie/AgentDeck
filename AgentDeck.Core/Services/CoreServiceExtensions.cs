@@ -7,14 +7,11 @@ public static class CoreServiceExtensions
 {
     public static IServiceCollection AddAgentDeckCore(this IServiceCollection services)
     {
-        services.AddHttpClient();
-        services.AddSingleton<ICoordinatorApiClient, CoordinatorApiClient>();
-        services.AddSingleton<IAgentDeckClient, AgentDeckClient>();
+        services.AddAgentDeckCoreClient();
         services.AddSingleton<IRunnerConnectionManager, RunnerConnectionManager>();
         services.AddSingleton<ISessionStateService, SessionStateService>();
         services.AddSingleton<IConnectionSettingsService, ConnectionSettingsService>();
         services.AddSingleton<ICompanionDashboardStateService, CompanionDashboardStateService>();
-        services.AddScoped<RemoteViewerRelayClient>();
         services.AddScoped<RemoteViewerInterop>();
         services.AddSingleton<AppInitializer>();
         services.AddScoped<TerminalInterop>();
