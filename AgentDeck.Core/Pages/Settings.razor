@@ -10,14 +10,22 @@
     <div class="page-header settings-page__header">
         <div>
             <h1>Settings</h1>
-            <p>Manage the coordinator API, coordinator-brokered runner access, and machine setup from one place.</p>
+            <p>Connect to a coordinator, choose runner machines, inspect setup capabilities, manage runner updates, and keep advanced machine details in one place.</p>
         </div>
     </div>
 
-    <div class="settings-card settings-page__card">
+    <nav class="settings-nav" aria-label="Settings sections">
+        <a href="#connection">Connection</a>
+        <a href="#machines">Machines</a>
+        <a href="#setup-capabilities">Setup &amp; Capabilities</a>
+        <a href="#runner-updates">Runner Updates</a>
+        <a href="#advanced">Advanced</a>
+    </nav>
+
+    <div id="connection" class="settings-card settings-page__card settings-card--anchored">
         <div class="settings-card__header settings-page__section-header">
             <div>
-                <h2>Coordinator API</h2>
+                <h2>Connection</h2>
                 <p class="settings-card__description">Use one coordinator as the only client-facing endpoint. The companion now routes terminal and machine-control traffic through the coordinator instead of connecting to runners directly.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
@@ -129,10 +137,10 @@
         }
     </div>
 
-    <div class="settings-card settings-page__card">
+    <div id="machines" class="settings-card settings-page__card settings-card--anchored">
         <div class="settings-card__header settings-page__section-header">
             <div>
-                <h2>Runner Machines</h2>
+                <h2>Machines</h2>
                 <p class="settings-card__description">Choose coordinator-discovered runner machines, keep local preferences like auto-connect/default terminal, and control how new terminals are created through the coordinator.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
@@ -233,13 +241,17 @@
     @if (SelectedMachine is not null)
     {
         <div class="settings-page__details">
-            <div class="settings-card settings-page__card settings-card--status">
+            <div id="runner-updates" class="settings-card settings-page__card settings-card--status settings-card--anchored">
                 <div class="settings-card__header settings-page__section-header">
                     <div>
-                        <h2>Connection Status</h2>
-                        <p class="settings-card__description">@SelectedMachine?.Name</p>
+                        <h2>Runner Updates</h2>
+                        <p class="settings-card__description">Rollout intent, catalog reconciliation, and current state for @SelectedMachine?.Name.</p>
                     </div>
                 </div>
+                    <div class="settings-callout">
+                        <strong>Update lane</strong>
+                        <span>Use this section when a runner advertises a desired manifest or workflow pack. General machine editing stays above; setup tools stay below.</span>
+                    </div>
                     <div class="settings-status-list">
                     <div class="settings-status-row">
                         <span class="settings-status-row__label">State</span>
@@ -502,11 +514,11 @@
                     </div>
                 </div>
 
-            <div class="settings-card settings-page__card">
+            <div id="setup-capabilities" class="settings-card settings-page__card settings-card--anchored">
                 <div class="settings-card__header settings-page__section-header">
                     <div>
-                        <h2>Machine Setup</h2>
-                        <p class="settings-card__description">@SelectedMachine!.Name</p>
+                        <h2>Setup &amp; Capabilities</h2>
+                        <p class="settings-card__description">Tool/SDK detection and setup actions for @SelectedMachine!.Name.</p>
                     </div>
                     <div class="form-actions form-actions--toolbar">
                         <button class="btn btn-accent" @onclick="RefreshMachineCapabilitiesAsync" disabled="@_capabilitiesBusy">
@@ -692,6 +704,41 @@
                         </div>
                     }
                 }
+            </div>
+
+            <div id="advanced" class="settings-card settings-page__card settings-card--anchored">
+                <div class="settings-card__header settings-page__section-header">
+                    <div>
+                        <h2>Advanced</h2>
+                        <p class="settings-card__description">Low-level coordinator and runner identifiers useful for debugging support issues.</p>
+                    </div>
+                </div>
+
+                <div class="settings-status-list">
+                    <div class="settings-status-row">
+                        <span class="settings-status-row__label">Machine id</span>
+                        <code class="settings-status-row__value">@SelectedMachine!.Id</code>
+                    </div>
+                    <div class="settings-status-row">
+                        <span class="settings-status-row__label">Coordinator URL</span>
+                        <code class="settings-status-row__value">@_settings.CoordinatorUrl</code>
+                    </div>
+                    <div class="settings-status-row">
+                        <span class="settings-status-row__label">Advertised runner URL</span>
+                        <code class="settings-status-row__value">@(!string.IsNullOrWhiteSpace(SelectedMachine.RunnerUrl) ? SelectedMachine.RunnerUrl : "Not advertised")</code>
+                    </div>
+                    @if (SelectedRegisteredMachine is not null)
+                    {
+                        <div class="settings-status-row">
+                            <span class="settings-status-row__label">Registered as</span>
+                            <span class="settings-status-row__value">@SelectedRegisteredMachine.MachineName</span>
+                        </div>
+                        <div class="settings-status-row">
+                            <span class="settings-status-row__label">Last seen</span>
+                            <span class="settings-status-row__value">@SelectedRegisteredMachine.LastSeenAt.ToLocalTime().ToString("g")</span>
+                        </div>
+                    }
+                </div>
             </div>
         </div>
     }

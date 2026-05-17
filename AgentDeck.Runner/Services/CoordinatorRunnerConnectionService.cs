@@ -677,7 +677,7 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         {
             await _publisher.PublishViewerSessionUpdatedAsync(viewer, cancellationToken);
             if (viewer.Provider == RemoteViewerProviderKind.Managed &&
-                viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed &&
+                viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed and not RemoteViewerSessionStatus.Unavailable &&
                 _managedViewerRelay.GetLatestFrame(viewer.Id) is { } frame)
             {
                 await _publisher.PublishViewerFrameAsync(

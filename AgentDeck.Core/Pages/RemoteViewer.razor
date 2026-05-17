@@ -408,7 +408,7 @@
 
     private bool CanOpenControlActions() =>
         ViewerClient.CurrentSession is not null &&
-        ViewerClient.CurrentSession.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+        ViewerClient.CurrentSession.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed and not RemoteViewerSessionStatus.Unavailable;
 
     private bool CanSendNativeWindowShortcut() =>
         _machineHostPlatform == AgentDeck.Shared.Enums.RunnerHostPlatform.MacOS &&
