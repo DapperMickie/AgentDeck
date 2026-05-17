@@ -8,7 +8,7 @@ namespace AgentDeck.Runner.Services;
 /// <inheritdoc />
 public sealed class PtyProcessManager : IPtyProcessManager
 {
-    private sealed record PtyEntry(IPtyConnection Connection, CancellationTokenSource Cts);
+    private sealed record PtyEntry(IPtyConnection Connection, CancellationTokenSource Cts, Task ReadLoop);
 
     private readonly ConcurrentDictionary<string, PtyEntry> _connections = new();
     private readonly ILogger<PtyProcessManager> _logger;
@@ -82,10 +82,27 @@ public sealed class PtyProcessManager : IPtyProcessManager
             cts.Cancel();
         };
 
-        var entry = new PtyEntry(connection, cts);
+        var entry = new PtyEntry(connection, cts, ReadLoopTask());
         _connections[sessionId] = entry;
 
-        _ = Task.Run(() => ReadOutputLoopAsync(sessionId, connection, cts.Token), CancellationToken.None);
+        Task ReadLoopTask()
+        {
+            return Task.Run(
+                async () =>
+                {
+                    try
+                    {
+                        await ReadOutputLoopAsync(sessionId, connection, cts.Token);
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        // ReadOutputLoopAsync already swallows expected errors; any escape
+                        // would otherwise hit the unobserved-task watchdog. Log so it's visible.
+                        _logger.LogWarning(ex, "Output read loop crashed for session {SessionId}", sessionId);
+                    }
+                },
+                CancellationToken.None);
+        }
     }
 
     public async Task WriteAsync(string sessionId, string data, CancellationToken cancellationToken = default)
@@ -111,17 +128,30 @@ public sealed class PtyProcessManager : IPtyProcessManager
         return Task.CompletedTask;
     }
 
-    public Task KillAsync(string sessionId, CancellationToken cancellationToken = default)
+    public async Task KillAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         if (_connections.TryRemove(sessionId, out var entry))
         {
             entry.Cts.Cancel();
             try { entry.Connection.Kill(); } catch (Exception ex) { _logger.LogDebug(ex, "Kill failed for session {SessionId}", sessionId); }
+
+            // Wait for the read loop to drain so callers can rely on KillAsync as a barrier.
+            try
+            {
+                await entry.ReadLoop.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Output read loop did not drain within 5s for session {SessionId}", sessionId);
+            }
+            catch (OperationCanceledException)
+            {
+                // Caller-initiated cancellation; nothing to do.
+            }
+
             entry.Connection.Dispose();
             entry.Cts.Dispose();
         }
-
-        return Task.CompletedTask;
     }
 
     public bool IsActive(string sessionId) => _connections.ContainsKey(sessionId);
