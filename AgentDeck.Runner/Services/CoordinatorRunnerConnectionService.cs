@@ -3,10 +3,12 @@ using AgentDeck.Shared;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
+using AgentDeck.Shared.Protocol;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Options;
 using RdpPoc.Contracts;
+using System.Text.Json.Serialization;
 
 namespace AgentDeck.Runner.Services;
 
@@ -177,6 +179,10 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
                     options.Transports = transportPolicy.Transports;
                     options.SkipNegotiation = transportPolicy.SkipNegotiation;
                 })
+                .AddJsonProtocol(options =>
+                {
+                    options.PayloadSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+                })
                 .WithAutomaticReconnect()
                 .Build();
             connection.KeepAliveInterval = _options.ControlChannelKeepAliveInterval;
@@ -195,6 +201,15 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
                 _options.ControlChannelServerTimeout,
                 _options.ControlChannelHandshakeTimeout);
             await connection.StartAsync(cancellationToken);
+            var helloAck = await connection.InvokeAsync<HubProtocolHelloAck>(nameof(ICoordinatorRunnerHub.HelloAsync), new HubProtocolHello
+            {
+                ProtocolVersion = _options.ProtocolVersion,
+                ClientKind = "runner"
+            }, cancellationToken);
+            _logger.LogInformation(
+                "Negotiated coordinator runner hub protocol {ProtocolVersion} for machine {MachineId}",
+                helloAck.ProtocolVersion,
+                _options.MachineId);
             _connectionState.Connection = connection;
             shouldRepublishState = true;
         }

@@ -1,7 +1,10 @@
+using AgentDeck.Coordinator.Configuration;
 using AgentDeck.Coordinator.Services;
 using AgentDeck.Shared;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
+using AgentDeck.Shared.Protocol;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.SignalR;
 
 namespace AgentDeck.Coordinator.Hubs;
@@ -11,17 +14,20 @@ public sealed class CoordinatorViewerHub : Hub<IViewerHubClient>, ICoordinatorVi
     private readonly ICompanionRegistryService _companions;
     private readonly IMachineRemoteControlRegistryService _remoteControl;
     private readonly RunnerBrokerService _runners;
+    private readonly CoordinatorOptions _options;
     private readonly ILogger<CoordinatorViewerHub> _logger;
 
     public CoordinatorViewerHub(
         ICompanionRegistryService companions,
         IMachineRemoteControlRegistryService remoteControl,
         RunnerBrokerService runners,
+        IOptions<CoordinatorOptions> options,
         ILogger<CoordinatorViewerHub> logger)
     {
         _companions = companions;
         _remoteControl = remoteControl;
         _runners = runners;
+        _options = options.Value;
         _logger = logger;
     }
 
@@ -42,6 +48,9 @@ public sealed class CoordinatorViewerHub : Hub<IViewerHubClient>, ICoordinatorVi
         _companions.DisconnectConnection(Context.ConnectionId);
         return base.OnDisconnectedAsync(exception);
     }
+
+    public Task<HubProtocolHelloAck> HelloAsync(HubProtocolHello hello) =>
+        Task.FromResult(NegotiateProtocol(hello, "coordinator-viewer"));
 
     public async Task JoinViewerSessionAsync(string machineId, string viewerSessionId)
     {
@@ -103,6 +112,24 @@ public sealed class CoordinatorViewerHub : Hub<IViewerHubClient>, ICoordinatorVi
     }
 
     public static string GetViewerGroupName(string viewerSessionId) => $"viewer:{viewerSessionId}";
+
+
+    private HubProtocolHelloAck NegotiateProtocol(HubProtocolHello hello, string serverKind)
+    {
+        if (hello.ProtocolVersion < _options.MinimumSupportedProtocolVersion ||
+            hello.ProtocolVersion > _options.MaximumSupportedProtocolVersion)
+        {
+            throw new HubException($"Incompatible AgentDeck hub protocol {hello.ProtocolVersion}. Supported range is {_options.MinimumSupportedProtocolVersion}-{_options.MaximumSupportedProtocolVersion}.");
+        }
+
+        return new HubProtocolHelloAck
+        {
+            ProtocolVersion = Math.Min(hello.ProtocolVersion, _options.MaximumSupportedProtocolVersion),
+            MinimumSupportedProtocolVersion = _options.MinimumSupportedProtocolVersion,
+            MaximumSupportedProtocolVersion = _options.MaximumSupportedProtocolVersion,
+            ServerKind = serverKind
+        };
+    }
 
     private string RequireCompanionId() =>
         _companions.GetCompanionIdByConnection(Context.ConnectionId)

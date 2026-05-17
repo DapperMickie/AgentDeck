@@ -1,10 +1,14 @@
 using AgentDeck.Shared.Models;
+using AgentDeck.Shared.Protocol;
 
 namespace AgentDeck.Shared.Hubs;
 
 /// <summary>Server-side SignalR hub contract for the AgentDeck runner.</summary>
 public interface IAgentHub
 {
+    /// <summary>Negotiate the additive hub DTO protocol for this connection.</summary>
+    Task<HubProtocolHelloAck> HelloAsync(HubProtocolHello hello);
+
     /// <summary>Subscribe this connection to output events from the given session.</summary>
     Task JoinSessionAsync(string sessionId);
 
