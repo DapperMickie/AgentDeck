@@ -21,17 +21,20 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
     private readonly ILogger<RunnerUpdateStagingService> _logger;
     private readonly IHostApplicationLifetime _hostApplicationLifetime;
     private readonly IRunnerAuditService _audit;
+    private readonly RunnerLocalSecurityPolicy _localSecurityPolicy;
     private RunnerUpdateStatus? _currentStatus;
 
     public RunnerUpdateStagingService(
         IOptions<WorkerCoordinatorOptions> options,
         IHostApplicationLifetime hostApplicationLifetime,
         IRunnerAuditService audit,
+        RunnerLocalSecurityPolicy localSecurityPolicy,
         ILogger<RunnerUpdateStagingService> logger)
     {
         _options = options.Value;
         _hostApplicationLifetime = hostApplicationLifetime;
         _audit = audit;
+        _localSecurityPolicy = localSecurityPolicy;
         _logger = logger;
         _currentStatus = LoadPersistedStatus();
     }
@@ -62,14 +65,16 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
                 return await UpdateStatusAsync(null, cancellationToken);
             }
 
-            if (!desiredState.SecurityPolicy.AllowUpdateStaging)
+            var securityPolicy = _localSecurityPolicy.EnforceMinimums(desiredState.SecurityPolicy);
+
+            if (!securityPolicy.AllowUpdateStaging)
             {
                 return await UpdateStatusAsync(new RunnerUpdateStatus
                 {
                     State = RunnerUpdateStageState.Failed,
                     ManifestId = desiredState.DesiredUpdateManifest.DefinitionId,
                     ManifestVersion = desiredState.DesiredUpdateManifest.Version,
-                    FailureMessage = $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit runner-side update staging."
+                    FailureMessage = $"Coordinator security policy {securityPolicy.PolicyVersion} does not permit runner-side update staging."
                 }, cancellationToken);
             }
 
@@ -138,32 +143,32 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
                     }, cancellationToken);
                 }
 
-                if ((desiredState.SecurityPolicy.RequireManifestProvenance || manifest.Provenance is not null) &&
+                if ((securityPolicy.RequireManifestProvenance || manifest.Provenance is not null) &&
                     !RunnerUpdateManifestSigning.HasRequiredProvenance(manifest, out var provenanceError))
                 {
                     throw new InvalidOperationException(provenanceError);
                 }
 
-                if (desiredState.SecurityPolicy.RequireSignedUpdateManifest || manifest.Signature is not null)
+                if (securityPolicy.RequireSignedUpdateManifest || manifest.Signature is not null)
                 {
                     if (manifest.Signature is null)
                     {
                         throw new InvalidOperationException("Coordinator update manifest did not include a signature.");
                     }
 
-                    if (desiredState.SecurityPolicy.TrustedManifestSignerIds.Count == 0)
+                    if (securityPolicy.TrustedManifestSignerIds.Count == 0)
                     {
                         throw new InvalidOperationException(
-                            $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not declare any trusted manifest signer ids.");
+                            $"Effective runner security policy {securityPolicy.PolicyVersion} does not declare any trusted manifest signer ids.");
                     }
 
-                    if (!desiredState.SecurityPolicy.TrustedManifestSignerIds.Contains(manifest.Signature.SignerId, StringComparer.Ordinal))
+                    if (!securityPolicy.TrustedManifestSignerIds.Contains(manifest.Signature.SignerId, StringComparer.Ordinal))
                     {
                         throw new InvalidOperationException(
-                            $"Coordinator update manifest signer '{manifest.Signature.SignerId}' is not trusted by security policy {desiredState.SecurityPolicy.PolicyVersion}.");
+                            $"Coordinator update manifest signer '{manifest.Signature.SignerId}' is not trusted by effective security policy {securityPolicy.PolicyVersion}.");
                     }
 
-                    var signer = _options.TrustedManifestSigners
+                    var signer = _localSecurityPolicy.GetTrustedSigners()
                         .FirstOrDefault(candidate => string.Equals(candidate.SignerId, manifest.Signature.SignerId, StringComparison.Ordinal));
                     if (signer is null)
                     {
@@ -194,13 +199,13 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
 
                 if (_options.DownloadUpdatePayload)
                 {
-                    if (desiredState.SecurityPolicy.RequireUpdateArtifactChecksum &&
+                    if (securityPolicy.RequireUpdateArtifactChecksum &&
                         string.IsNullOrWhiteSpace(manifest.Sha256))
                     {
                         throw new InvalidOperationException("Coordinator update manifest did not include a SHA-256 checksum.");
                     }
 
-                    var artifactUri = GetValidatedArtifactUri(coordinatorClient, desiredState.SecurityPolicy, manifest.ArtifactUrl);
+                    var artifactUri = GetValidatedArtifactUri(coordinatorClient, securityPolicy, manifest.ArtifactUrl);
                     var artifactPath = Path.Combine(stagingDirectory, GetArtifactFileName(artifactUri));
                     var tempArtifactPath = Path.Combine(stagingDirectory, $"{Path.GetFileName(artifactPath)}.{Guid.NewGuid():N}.tmp");
                     try
@@ -214,7 +219,7 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
                             await source.CopyToAsync(destination, cancellationToken);
                         }
 
-                        if (desiredState.SecurityPolicy.RequireUpdateArtifactChecksum)
+                        if (securityPolicy.RequireUpdateArtifactChecksum)
                         {
                             var actualSha256 = await ComputeSha256Async(tempArtifactPath, cancellationToken);
                             if (!string.Equals(actualSha256, manifest.Sha256, StringComparison.OrdinalIgnoreCase))
@@ -476,10 +481,12 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
         RunnerDesiredState desiredState,
         CancellationToken cancellationToken)
     {
-        if (!desiredState.SecurityPolicy.AllowUpdateApply)
+        var securityPolicy = _localSecurityPolicy.EnforceMinimums(desiredState.SecurityPolicy);
+
+        if (!securityPolicy.AllowUpdateApply)
         {
             throw new InvalidOperationException(
-                $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit runner-side update apply.");
+                $"Coordinator security policy {securityPolicy.PolicyVersion} does not permit runner-side update apply.");
         }
 
         if (string.IsNullOrWhiteSpace(stagedStatus.StagedArtifactPath) || !File.Exists(stagedStatus.StagedArtifactPath))
@@ -512,6 +519,8 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
         };
 
         await UpdateStatusAsync(applyStatus, cancellationToken);
+        var applyWorkerPath = GetApplyWorkerPath();
+        var applyWorkerSha256 = await ComputeSha256Async(applyWorkerPath, cancellationToken);
         await WriteTextAtomicallyAsync(
             planPath,
             JsonSerializer.Serialize(new RunnerUpdateApplyPlan
@@ -524,6 +533,8 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
                 ArtifactPath = stagedStatus.StagedArtifactPath,
                 SourceInstallDirectory = AppContext.BaseDirectory,
                 CandidateInstallDirectory = candidateInstallDirectory,
+                ApplyWorkerPath = applyWorkerPath,
+                ApplyWorkerSha256 = applyWorkerSha256,
                 ProcessExitTimeout = _options.UpdateApplyProcessExitTimeout,
                 ApplyStartedAt = applyStartedAt
             }, JsonOptions),
@@ -547,6 +558,15 @@ public sealed class RunnerUpdateStagingService : IRunnerUpdateStagingService, ID
             TargetId = targetId,
             TargetDisplayName = targetDisplayName
         };
+
+    private static string GetApplyWorkerPath()
+    {
+        var processPath = Environment.ProcessPath
+            ?? throw new InvalidOperationException("Runner update apply could not determine the current process path.");
+        return string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase)
+            ? typeof(RunnerUpdateStagingService).Assembly.Location
+            : processPath;
+    }
 
     private void StartApplyWorker(string planPath)
     {

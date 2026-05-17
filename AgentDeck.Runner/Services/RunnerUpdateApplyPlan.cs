@@ -10,6 +10,8 @@ internal sealed class RunnerUpdateApplyPlan
     public required string ArtifactPath { get; init; }
     public required string SourceInstallDirectory { get; init; }
     public required string CandidateInstallDirectory { get; init; }
+    public required string ApplyWorkerPath { get; init; }
+    public required string ApplyWorkerSha256 { get; init; }
     public TimeSpan ProcessExitTimeout { get; init; } = TimeSpan.FromMinutes(2);
     public DateTimeOffset ApplyStartedAt { get; init; } = DateTimeOffset.UtcNow;
 }

@@ -8,4 +8,6 @@ public sealed class RunnerWorkflowPack
     public required string DisplayName { get; init; }
     public string? Description { get; init; }
     public IReadOnlyList<RunnerWorkflowStep> Steps { get; init; } = [];
+    public RunnerUpdateManifestProvenance? Provenance { get; init; }
+    public RunnerUpdateManifestSignature? Signature { get; init; }
 }

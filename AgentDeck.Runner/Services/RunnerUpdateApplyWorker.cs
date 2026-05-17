@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Json;
@@ -22,6 +23,7 @@ internal static class RunnerUpdateApplyWorker
                 JsonOptions)
                 ?? throw new InvalidOperationException($"Runner update apply plan '{planPath}' was empty.");
 
+            await VerifyApplyWorkerIntegrityAsync(plan, cancellationToken);
             await WaitForTargetExitAsync(plan.TargetProcessId, plan.ProcessExitTimeout, cancellationToken);
 
             if (!File.Exists(plan.ArtifactPath))
@@ -76,6 +78,31 @@ internal static class RunnerUpdateApplyWorker
         finally
         {
             TryDeleteFile(planPath);
+        }
+    }
+
+    private static async Task VerifyApplyWorkerIntegrityAsync(RunnerUpdateApplyPlan plan, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(plan.ApplyWorkerPath) || string.IsNullOrWhiteSpace(plan.ApplyWorkerSha256))
+        {
+            throw new InvalidOperationException("Runner update apply plan did not include apply-worker integrity metadata.");
+        }
+
+        var currentWorkerPath = Environment.ProcessPath;
+        if (string.Equals(Path.GetFileNameWithoutExtension(currentWorkerPath), "dotnet", StringComparison.OrdinalIgnoreCase))
+        {
+            currentWorkerPath = typeof(RunnerUpdateApplyWorker).Assembly.Location;
+        }
+
+        if (!string.Equals(Path.GetFullPath(currentWorkerPath ?? string.Empty), Path.GetFullPath(plan.ApplyWorkerPath), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Runner update apply helper path did not match the planned helper path.");
+        }
+
+        var actualSha256 = await ComputeSha256Async(plan.ApplyWorkerPath, cancellationToken);
+        if (!string.Equals(actualSha256, plan.ApplyWorkerSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Runner update apply helper SHA-256 did not match the planned helper hash.");
         }
     }
 
@@ -249,6 +276,13 @@ internal static class RunnerUpdateApplyWorker
         var tempPath = Path.Combine(directory, $"{Path.GetFileName(statusPath)}.{Guid.NewGuid():N}.tmp");
         await File.WriteAllTextAsync(tempPath, JsonSerializer.Serialize(status, JsonOptions), cancellationToken);
         File.Move(tempPath, statusPath, overwrite: true);
+    }
+
+    private static async Task<string> ComputeSha256Async(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static void TryWriteEarlyFailureLog(string planPath, RunnerUpdateApplyPlan? plan, Exception exception)
