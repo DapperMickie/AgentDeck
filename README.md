@@ -94,7 +94,7 @@ docker run --rm \
   agentdeck-runner
 ```
 
-The image exposes port `5000`, defaults the workspace to `/workspace`, and falls back to `/bin/sh` if `/bin/bash` is unavailable.
+The image exposes port `5000`, defaults the workspace to `/workspace`, sets `ASPNETCORE_ENVIRONMENT=Production` so detailed error responses are off, and falls back to `/bin/sh` if `/bin/bash` is unavailable. Override with `-e ASPNETCORE_ENVIRONMENT=Development` if you want development-only diagnostics (verbose SignalR errors, dev-only middleware, etc.) — never in a deployment exposed to untrusted networks.
 
 The checked-in runner image now uses a Debian-based self-contained final stage instead of the stock minimal ASP.NET runtime image, includes the native ICU dependency that .NET needs at runtime, and runs as a non-root `agentdeck` user with passwordless `sudo` for machine-setup actions.
 
