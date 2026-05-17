@@ -17,7 +17,7 @@
         <nav class="sidebar-nav">
             <a class="nav-item @(IsActive("/") ? "active" : "")" href="/">
                 <span class="nav-icon">⌂</span>
-                <span class="nav-label">Dashboard</span>
+                <span class="nav-label">Projects</span>
             </a>
 
             <div class="nav-section-header">Project Links</div>
@@ -106,14 +106,17 @@
         </main>
 
         <nav class="mobile-nav" aria-label="Primary">
-            <NavLink class="mobile-nav__item" href="/" Match="NavLinkMatch.All">
+            <NavLink class="mobile-nav__item" href="/" Match="NavLinkMatch.All" title="Projects">
                 <span class="mobile-nav__icon">⌂</span>
+                <span class="mobile-nav__label">Projects</span>
             </NavLink>
-            <NavLink class="mobile-nav__item" href="/terminals">
+            <NavLink class="mobile-nav__item" href="/terminals" title="Terminals">
                 <span class="mobile-nav__icon">▣</span>
+                <span class="mobile-nav__label">Terminals</span>
             </NavLink>
-            <NavLink class="mobile-nav__item" href="/settings">
+            <NavLink class="mobile-nav__item" href="/settings" title="Settings">
                 <span class="mobile-nav__icon">⚙</span>
+                <span class="mobile-nav__label">Settings</span>
             </NavLink>
         </nav>
     </div>

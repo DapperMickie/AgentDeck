@@ -1418,15 +1418,28 @@
     }
 
     private static bool CanControlViewer(RemoteViewerSession viewer) =>
-        viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+        viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed and not RemoteViewerSessionStatus.Unavailable;
 
     private static bool CanOpenInAppViewer(RemoteViewerSession viewer) =>
         viewer.Provider == RemoteViewerProviderKind.Managed &&
         viewer.Status == RemoteViewerSessionStatus.Ready &&
         !string.IsNullOrWhiteSpace(viewer.MachineId);
 
-    private static bool IsVisibleRuntimeViewer(RemoteViewerSession viewer) =>
-        viewer.Status is not RemoteViewerSessionStatus.Closed and not RemoteViewerSessionStatus.Failed;
+    private static bool IsVisibleRuntimeViewer(RemoteViewerSession viewer)
+    {
+        if (viewer.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Unavailable)
+        {
+            return false;
+        }
+
+        if ((viewer.Status is RemoteViewerSessionStatus.Requested or RemoteViewerSessionStatus.Preparing) &&
+            DateTimeOffset.UtcNow - viewer.UpdatedAt > TimeSpan.FromMinutes(5))
+        {
+            return false;
+        }
+
+        return true;
+    }
 
     private bool CanCancelJob(OrchestrationJob job) =>
         _cancellingJobId != job.Id &&

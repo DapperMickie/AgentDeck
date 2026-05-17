@@ -128,7 +128,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
     {
         ArgumentNullException.ThrowIfNull(session);
         var sanitized = AnnotateViewerSession(machineId, session);
-        if (sanitized.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
+        if (sanitized.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Unavailable)
         {
             _viewerSessions.TryRemove(sanitized.Id, out _);
             _viewerFrames.TryRemove(sanitized.Id, out _);
@@ -364,7 +364,7 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         }
 
         var annotated = AnnotateViewerSession(entry.MachineId, session);
-        if (annotated.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed)
+        if (annotated.Status is RemoteViewerSessionStatus.Closed or RemoteViewerSessionStatus.Failed or RemoteViewerSessionStatus.Unavailable)
         {
             _viewerSessions.TryRemove(annotated.Id, out _);
             _viewerFrames.TryRemove(annotated.Id, out _);
