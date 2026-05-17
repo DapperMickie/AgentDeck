@@ -2,7 +2,7 @@ using AgentDeck.Shared.Enums;
 
 namespace AgentDeck.Coordinator.Configuration;
 
-public sealed class CoordinatorCapabilityCatalogOptions
+public sealed class CoordinatorCapabilityCatalogOptions : CoordinatorDefinitionSignatureOptions
 {
     public string CatalogId { get; set; } = "default";
     public string Version { get; set; } = "1";

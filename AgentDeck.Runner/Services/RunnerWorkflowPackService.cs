@@ -17,6 +17,7 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
     private readonly WorkerCoordinatorOptions _options;
     private readonly IMachineCapabilityService _capabilities;
     private readonly IMachineSetupService _machineSetup;
+    private readonly RunnerLocalSecurityPolicy _localSecurityPolicy;
     private readonly ILogger<RunnerWorkflowPackService> _logger;
     private RunnerWorkflowPackStatus? _currentStatus;
 
@@ -24,11 +25,13 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         IOptions<WorkerCoordinatorOptions> options,
         IMachineCapabilityService capabilities,
         IMachineSetupService machineSetup,
+        RunnerLocalSecurityPolicy localSecurityPolicy,
         ILogger<RunnerWorkflowPackService> logger)
     {
         _options = options.Value;
         _capabilities = capabilities;
         _machineSetup = machineSetup;
+        _localSecurityPolicy = localSecurityPolicy;
         _logger = logger;
         _currentStatus = LoadPersistedStatus();
     }
@@ -68,6 +71,7 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
         try
         {
             var currentStatus = GetCurrentStatusSnapshot();
+            var securityPolicy = _localSecurityPolicy.EnforceMinimums(desiredState.SecurityPolicy);
             if (desiredState.DesiredWorkflowPack is null)
             {
                 return await UpdateStatusAsync(null, cancellationToken);
@@ -75,7 +79,7 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
 
             var desiredPackId = desiredState.DesiredWorkflowPack.DefinitionId;
             var desiredPackVersion = desiredState.DesiredWorkflowPack.Version;
-            if (!desiredState.SecurityPolicy.AllowWorkflowPackExecution)
+            if (!securityPolicy.AllowWorkflowPackExecution)
             {
                 return await UpdateStatusAsync(new RunnerWorkflowPackStatus
                 {
@@ -84,7 +88,7 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                     PackVersion = desiredPackVersion,
                     LocalPackPath = GetRetainedLocalPackPath(currentStatus, desiredPackId, desiredPackVersion),
                     FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
-                    StatusMessage = $"Coordinator security policy {desiredState.SecurityPolicy.PolicyVersion} does not permit workflow pack execution."
+                    StatusMessage = $"Coordinator security policy {securityPolicy.PolicyVersion} does not permit workflow pack execution."
                 }, cancellationToken);
             }
 
@@ -150,6 +154,15 @@ public sealed class RunnerWorkflowPackService : IRunnerWorkflowPackService, IDis
                         FetchedAt = GetRetainedFetchedAt(currentStatus, desiredPackId, desiredPackVersion),
                         FailureMessage = $"Coordinator workflow pack version '{pack.Version}' did not match desired version '{desiredPackVersion}'."
                     }, cancellationToken);
+                }
+
+                if (_localSecurityPolicy.RequireSignedWorkflowPacks || pack.Signature is not null)
+                {
+                    _localSecurityPolicy.VerifySignedDefinition(
+                        "workflow pack",
+                        pack.Signature,
+                        pack.Provenance,
+                        (string publicKeyPem, out string error) => RunnerSignedDefinitionPayload.VerifySignature(pack, publicKeyPem, out error));
                 }
 
                 var packDirectory = Path.Combine(GetWorkflowPackRoot(), SanitizePathComponent(pack.PackId), SanitizePathComponent(pack.Version));

@@ -13,15 +13,18 @@ public sealed class RunnerSetupCatalogService : IRunnerSetupCatalogService, IDis
 
     private readonly WorkerCoordinatorOptions _options;
     private readonly SemaphoreSlim _reconcileGate = new(1, 1);
+    private readonly RunnerLocalSecurityPolicy _localSecurityPolicy;
     private readonly ILogger<RunnerSetupCatalogService> _logger;
     private RunnerSetupCatalog? _currentCatalog;
     private RunnerSetupCatalogStatus _currentStatus;
 
     public RunnerSetupCatalogService(
         IOptions<WorkerCoordinatorOptions> options,
+        RunnerLocalSecurityPolicy localSecurityPolicy,
         ILogger<RunnerSetupCatalogService> logger)
     {
         _options = options.Value;
+        _localSecurityPolicy = localSecurityPolicy;
         _logger = logger;
         _currentCatalog = LoadPersistedCatalog();
         _currentStatus = NormalizePersistedState(_currentCatalog, LoadPersistedStatus());
@@ -112,6 +115,15 @@ public sealed class RunnerSetupCatalogService : IRunnerSetupCatalogService, IDis
                 {
                     throw new InvalidOperationException(
                         $"Coordinator setup catalog version '{catalog.Version}' did not match desired version '{desiredCatalogVersion}'.");
+                }
+
+                if (_localSecurityPolicy.RequireSignedSetupCatalogs || catalog.Signature is not null)
+                {
+                    _localSecurityPolicy.VerifySignedDefinition(
+                        "setup catalog",
+                        catalog.Signature,
+                        catalog.Provenance,
+                        (string publicKeyPem, out string error) => RunnerSignedDefinitionPayload.VerifySignature(catalog, publicKeyPem, out error));
                 }
 
                 Directory.CreateDirectory(GetSetupCatalogRoot());

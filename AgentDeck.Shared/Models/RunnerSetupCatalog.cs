@@ -9,6 +9,8 @@ public sealed class RunnerSetupCatalog
     public required string DisplayName { get; init; }
     public string? Description { get; init; }
     public IReadOnlyList<RunnerSetupCapabilityDefinition> Capabilities { get; init; } = [];
+    public RunnerUpdateManifestProvenance? Provenance { get; init; }
+    public RunnerUpdateManifestSignature? Signature { get; init; }
 }
 
 public sealed class RunnerSetupCapabilityDefinition
