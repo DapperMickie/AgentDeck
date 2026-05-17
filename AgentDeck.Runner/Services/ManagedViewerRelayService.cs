@@ -619,7 +619,11 @@ public sealed class ManagedViewerRelayService : IManagedViewerRelayService, IDis
 
     private static void ValidateAccessToken(ActiveRelaySession session, string accessToken)
     {
-        if (!string.Equals(session.AccessToken, accessToken, StringComparison.Ordinal))
+        var expectedBytes = System.Text.Encoding.UTF8.GetBytes(session.AccessToken ?? string.Empty);
+        var actualBytes = System.Text.Encoding.UTF8.GetBytes(accessToken ?? string.Empty);
+
+        if (expectedBytes.Length != actualBytes.Length ||
+            !CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
         {
             throw new InvalidOperationException("The supplied viewer token is invalid.");
         }
