@@ -1,9 +1,12 @@
 using System.Net.Http.Json;
 using System.Runtime.InteropServices;
+using System.Text.Json.Serialization;
 using AgentDeck.Shared;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
+using AgentDeck.Shared.Protocol;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace AgentDeck.Core.Services;
@@ -62,6 +65,10 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
             {
                 options.Headers[AgentDeckHeaderNames.Actor] = _companion.CompanionId;
             })
+            .AddJsonProtocol(options =>
+            {
+                options.PayloadSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+            })
             .WithAutomaticReconnect()
             .Build();
 
@@ -85,8 +92,13 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         try
         {
             await _connection.StartAsync(cancellationToken);
+            var helloAck = await _connection.InvokeAsync<HubProtocolHelloAck>(nameof(ICoordinatorAgentHub.HelloAsync), new HubProtocolHello
+            {
+                ProtocolVersion = HubProtocolDefaults.CurrentVersion,
+                ClientKind = "companion"
+            }, cancellationToken);
             SetState(HubConnectionState.Connected);
-            _logger.LogInformation("Connected to coordinator hub as companion {CompanionId}", _companion.CompanionId);
+            _logger.LogInformation("Connected to coordinator hub as companion {CompanionId} using protocol {ProtocolVersion}", _companion.CompanionId, helloAck.ProtocolVersion);
         }
         catch (Exception ex)
         {

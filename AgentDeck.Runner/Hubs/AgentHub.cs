@@ -1,7 +1,10 @@
+using AgentDeck.Runner.Configuration;
 using AgentDeck.Runner.Services;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Hubs;
 using AgentDeck.Shared.Models;
+using AgentDeck.Shared.Protocol;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.SignalR;
 
 namespace AgentDeck.Runner.Hubs;
@@ -12,18 +15,38 @@ public sealed class AgentHub : Hub<IAgentHubClient>, IAgentHub
     private readonly IPtyProcessManager _ptyManager;
     private readonly IAgentSessionStore _sessionStore;
     private readonly ITerminalSessionService _terminalSessions;
+    private readonly WorkerCoordinatorOptions _options;
     private readonly ILogger<AgentHub> _logger;
 
     public AgentHub(
         IPtyProcessManager ptyManager,
         IAgentSessionStore sessionStore,
         ITerminalSessionService terminalSessions,
+        IOptions<WorkerCoordinatorOptions> options,
         ILogger<AgentHub> logger)
     {
         _ptyManager = ptyManager;
         _sessionStore = sessionStore;
         _terminalSessions = terminalSessions;
+        _options = options.Value;
         _logger = logger;
+    }
+
+
+    public Task<HubProtocolHelloAck> HelloAsync(HubProtocolHello hello)
+    {
+        if (hello.ProtocolVersion != _options.ProtocolVersion)
+        {
+            throw new HubException($"Incompatible AgentDeck hub protocol {hello.ProtocolVersion}. Runner supports protocol {_options.ProtocolVersion}.");
+        }
+
+        return Task.FromResult(new HubProtocolHelloAck
+        {
+            ProtocolVersion = _options.ProtocolVersion,
+            MinimumSupportedProtocolVersion = _options.ProtocolVersion,
+            MaximumSupportedProtocolVersion = _options.ProtocolVersion,
+            ServerKind = "runner-agent"
+        });
     }
 
     public async Task JoinSessionAsync(string sessionId)

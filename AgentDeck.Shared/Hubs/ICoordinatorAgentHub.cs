@@ -1,10 +1,14 @@
 using AgentDeck.Shared.Models;
+using AgentDeck.Shared.Protocol;
 
 namespace AgentDeck.Shared.Hubs;
 
 /// <summary>Server-side SignalR hub contract for coordinator-brokered runner control.</summary>
 public interface ICoordinatorAgentHub
 {
+    /// <summary>Negotiate the additive hub DTO protocol for this connection.</summary>
+    Task<HubProtocolHelloAck> HelloAsync(HubProtocolHello hello);
+
     /// <summary>Mark this companion as attached to the given machine through the coordinator.</summary>
     Task AttachMachineAsync(string machineId);
 
