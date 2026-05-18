@@ -11,13 +11,13 @@
     <div class="page-header settings-page__header">
         <div>
             <h1>Settings</h1>
-            <p>Connect AgentDeck, create runner machines, check required tools, manage updates, and keep advanced diagnostics in one place.</p>
+            <p>Connect AgentDeck, create machines, check required tools, manage updates, and keep advanced diagnostics in one place.</p>
         </div>
     </div>
 
     <nav class="settings-nav" aria-label="Settings sections">
         <a href="#connection">Connection</a>
-        <a href="#machines">Create runners</a>
+        <a href="#machines">Create machines</a>
         <a href="#setup-capabilities">Tools</a>
         <a href="#runner-updates">Updates</a>
         <a href="#advanced">Advanced diagnostics</a>
@@ -80,7 +80,7 @@
         }
         else if (_registeredMachines.Count == 0)
         {
-            <p>No machines are visible yet. Create a runner below or start an existing runner and refresh.</p>
+            <p>No machines are visible yet. Create a machine below or start an existing machine and refresh.</p>
         }
         else
         {
@@ -104,7 +104,7 @@
                             }
                             @if (!machine.ProtocolCompatible)
                             {
-                                <span> • needs app/runner compatibility fix</span>
+                                <span> • needs app/machine compatibility fix</span>
                             }
                             @if (machine.Platform is not null)
                             {
@@ -142,7 +142,7 @@
                                 }
                                 @if (!string.IsNullOrWhiteSpace(machine.RunnerUrl))
                                 {
-                                    <span> • runner URL @machine.RunnerUrl</span>
+                                    <span> • machine agent URL @machine.RunnerUrl</span>
                                 }
                             </span>
                         </details>
@@ -159,8 +159,8 @@
     <div id="machines" class="settings-card settings-page__card settings-card--anchored">
         <div class="settings-card__header settings-page__section-header">
             <div>
-                <h2>Create runners</h2>
-                <p class="settings-card__description">Create new runner capacity, connect existing machines, and choose your default place to open work.</p>
+                <h2>Create machines</h2>
+                <p class="settings-card__description">Create new machine capacity, connect existing machines, and choose your default place to open work.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
                 <button class="btn btn-accent" @onclick="AddMachine">Add machine</button>
@@ -176,13 +176,13 @@
         }
 
         <div class="settings-callout">
-            <strong>Create runner capacity</strong>
-            <span>Use configured provider templates to create Linux/Windows/macOS runners on demand. Portainer is the first adapter; unsupported OS/provider combinations stay visible as planning targets instead of becoming dead-end buttons.</span>
+            <strong>Create machine capacity</strong>
+            <span>Use configured provider templates to create Linux/Windows/macOS machines on demand. Portainer is the first adapter; unsupported OS/provider combinations stay visible as planning targets instead of becoming dead-end buttons.</span>
         </div>
 
         @if (_runnerOrchestrationCatalog.Templates.Count == 0)
         {
-            <p class="settings-card__description">No runner templates are published by the AgentDeck service yet.</p>
+            <p class="settings-card__description">No machine templates are published by the AgentDeck service yet.</p>
         }
         else
         {
@@ -199,12 +199,12 @@
                             </div>
                             <span class="machine-badge">@template.DefaultLifecyclePolicy</span>
                         </div>
-                        <p class="project-template-target__note">@(template.Description ?? $"Creates an AgentDeck runner from {template.Image}.")</p>
+                        <p class="project-template-target__note">@(template.Description ?? $"Creates an AgentDeck machine from {template.Image}.")</p>
                         <p class="project-template-target__note">Capabilities: @string.Join(", ", template.CapabilityProfile)</p>
                         @if (provider is not null && !provider.Configured)
                         {
                             <p class="error-message">@provider.StatusMessage</p>
-                            <p class="project-template-target__note">Configure @provider.Name before creating this runner.</p>
+                            <p class="project-template-target__note">Configure @provider.Name before creating this machine.</p>
                         }
                         <div class="project-machine-card__actions">
                             <button class="btn btn-primary"
@@ -223,11 +223,11 @@
             var template = SelectedRunnerTemplateDraft;
             var provider = GetRunnerProvider(template.ProviderId);
             <div class="settings-callout settings-callout--actionable">
-                <strong>Review runner before creating</strong>
+                <strong>Review machine before creating</strong>
                 <span>@template.Name on @(provider?.Name ?? template.ProviderId) • @template.HostPlatform • port @template.RunnerPort</span>
                 <div class="project-editor__grid">
                     <div class="form-field">
-                        <label for="runner-create-name">Runner name</label>
+                        <label for="runner-create-name">Machine name</label>
                         <input id="runner-create-name" class="input" @bind="_runnerCreateName" />
                     </div>
                     <div class="form-field">
@@ -242,14 +242,14 @@
                     <div class="form-field project-editor__field--full">
                         <label for="runner-create-coordinator">AgentDeck service URL</label>
                         <input id="runner-create-coordinator" class="input" @bind="_runnerCreateCoordinatorUrl" />
-                        <p class="settings-card__description">Use a service URL the new runner can reach. For a runner in a container or on another machine, use a LAN host/IP instead of this client's localhost.</p>
+                        <p class="settings-card__description">Use a service URL the new machine can reach. For a container or another device, use a LAN host/IP instead of this client's localhost.</p>
                     </div>
                 </div>
                 <div class="form-actions form-actions--settings">
                     <button class="btn btn-primary"
                             disabled="@(_creatingRunnerTemplateId == template.Id || string.IsNullOrWhiteSpace(_runnerCreateName) || string.IsNullOrWhiteSpace(_runnerCreateCoordinatorUrl))"
                             @onclick="() => CreateRunnerFromTemplateAsync(template)">
-                        @(_creatingRunnerTemplateId == template.Id ? "Creating..." : "Create runner")
+                        @(_creatingRunnerTemplateId == template.Id ? "Creating..." : "Create machine")
                     </button>
                     <button class="btn btn-accent" disabled="@(_creatingRunnerTemplateId == template.Id)" @onclick="ClearRunnerCreatePreview">Cancel</button>
                 </div>
@@ -312,10 +312,10 @@
                     </div>
 
                     <div class="form-field">
-                        <label for="runner-url">Advertised runner URL</label>
+                        <label for="runner-url">Advertised machine agent URL</label>
                         <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
                                placeholder="@GetRunnerUrlPlaceholder()" />
-                        <p class="settings-card__description">Informational only. The companion does not connect directly to this URL.</p>
+                        <p class="settings-card__description">Informational only. The app does not connect directly to this URL.</p>
                     </div>
 
                     <div class="form-field">
@@ -369,7 +369,7 @@
             <div id="runner-updates" class="settings-card settings-page__card settings-card--status settings-card--anchored">
                 <div class="settings-card__header settings-page__section-header">
                     <div>
-                        <h2>Runner updates</h2>
+                        <h2>Machine updates</h2>
                         <p class="settings-card__description">Stage or apply updates for @SelectedMachine?.Name, and see whether tool lists are in sync.</p>
                     </div>
                 </div>
@@ -624,14 +624,14 @@
                         @if (_machineCapabilities.SupportedTargets.Count > 0)
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Target readiness</span>
+                                <span class="settings-status-row__label">Workspace readiness</span>
                                 <span class="settings-status-row__value">@string.Join(", ", _machineCapabilities.SupportedTargets.Select(FormatTargetSummary))</span>
                             </div>
                         }
                         @if (_machineCapabilities.RemoteViewerProviders.Count > 0)
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Viewer transports</span>
+                                <span class="settings-status-row__label">Remote-screen options</span>
                                 <span class="settings-status-row__value">@string.Join(", ", _machineCapabilities.RemoteViewerProviders.Select(GetViewerProviderSummary))</span>
                             </div>
                         }
@@ -653,7 +653,7 @@
                 </div>
 
                 <p class="settings-card__description">
-                    AgentDeck now treats each runner target as a machine to inspect and prepare in place. Detect which supported tools are already installed and install missing ones directly on this machine.
+                    AgentDeck inspects this machine in place, shows which supported workspace types are ready, and can install missing tools directly on it.
                 </p>
 
                 @if (_capabilitiesErrorMessage is not null)
@@ -694,7 +694,7 @@
                                     <div class="capability-card__header">
                                         <div>
                                             <h3>@provider.DisplayName</h3>
-                                            <p>VIEWER TRANSPORT</p>
+                                            <p>REMOTE SCREEN OPTION</p>
                                         </div>
                                         <span class="capability-status capability-status--installed">
                                             @provider.Provider
@@ -835,7 +835,7 @@
                 <div class="settings-card__header settings-page__section-header">
                     <div>
                         <h2>Advanced</h2>
-                        <p class="settings-card__description">Low-level service and runner identifiers useful for debugging support issues.</p>
+                        <p class="settings-card__description">Low-level service and machine identifiers useful for debugging support issues.</p>
                     </div>
                 </div>
 
@@ -849,7 +849,7 @@
                         <code class="settings-status-row__value">@_settings.CoordinatorUrl</code>
                     </div>
                     <div class="settings-status-row">
-                        <span class="settings-status-row__label">Advertised runner URL</span>
+                        <span class="settings-status-row__label">Advertised machine agent URL</span>
                         <code class="settings-status-row__value">@(!string.IsNullOrWhiteSpace(SelectedMachine.RunnerUrl) ? SelectedMachine.RunnerUrl : "Not advertised")</code>
                     </div>
                     @if (SelectedRegisteredMachine is not null)
@@ -943,7 +943,7 @@
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Failed to save settings: {ex.Message}";
+            _errorMessage = $"Couldn’t save settings: {ex.Message}";
         }
         finally
         {
@@ -1068,14 +1068,14 @@
 
     private static string GetMachineRoleLabel(RunnerMachineRole role) => role switch
     {
-        RunnerMachineRole.Worker => "Worker",
+        RunnerMachineRole.Worker => "Shared machine",
         _ => "Standalone"
     };
 
     private static string GetMachineRoleDescription(RunnerMachineRole role) => role switch
     {
-        RunnerMachineRole.Worker => "Use this machine as shared runner capacity that checks in with the AgentDeck service.",
-        _ => "Use this machine independently without assigning it to shared runner orchestration yet."
+        RunnerMachineRole.Worker => "Use this machine as shared capacity that checks in with the AgentDeck service.",
+        _ => "Use this machine independently without assigning it to shared machine orchestration yet."
     };
 
     private static string GetHostPlatformLabel(RunnerHostPlatform platform) => platform switch
@@ -1198,7 +1198,7 @@
 
     private string GetHubUrl(RunnerMachineSettings machine) =>
         string.IsNullOrWhiteSpace(_settings.CoordinatorUrl)
-            ? "(coordinator URL not configured)"
+            ? "(AgentDeck service URL not configured)"
             : $"{_settings.CoordinatorUrl.TrimEnd('/')}/hubs/agent";
 
     private Task RefreshMachineCapabilitiesIfPossibleAsync()
@@ -1262,13 +1262,13 @@
     {
         if (string.IsNullOrWhiteSpace(_settings.CoordinatorUrl))
         {
-            ToastService.Show("Set a coordinator URL before creating a runner.", ToastKind.Warning);
+            ToastService.Show("Set the AgentDeck service URL before creating a machine.", ToastKind.Warning);
             return;
         }
 
         if (string.IsNullOrWhiteSpace(_runnerCreateCoordinatorUrl) || string.IsNullOrWhiteSpace(_runnerCreateName))
         {
-            ToastService.Show("Review the runner name and coordinator URL before creating.", ToastKind.Warning);
+            ToastService.Show("Review the machine name and AgentDeck service URL before creating.", ToastKind.Warning);
             return;
         }
 
@@ -1287,18 +1287,18 @@
 
             if (instance is null)
             {
-                ToastService.Show("AgentDeck could not confirm the new runner. Refresh machines in a moment.", ToastKind.Warning);
+                ToastService.Show("AgentDeck could not confirm the new machine yet. Refresh machines in a moment.", ToastKind.Warning);
                 return;
             }
 
-            ToastService.Show($"Runner {instance.Name} is {instance.State}. Refresh the directory once it registers.", instance.State == RunnerInstanceLifecycleState.Failed ? ToastKind.Warning : ToastKind.Success);
+            ToastService.Show($"Machine {instance.Name} is {instance.State}. Refresh the directory once it registers.", instance.State == RunnerInstanceLifecycleState.Failed ? ToastKind.Warning : ToastKind.Success);
             ClearRunnerCreatePreview();
             await RefreshCoordinatorDirectoryAsync();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to create runner from template {TemplateId}", template.Id);
-            ToastService.Show($"Failed to create runner: {ex.Message}", ToastKind.Error);
+            ToastService.Show($"Couldn’t create machine: {ex.Message}", ToastKind.Error);
         }
         finally
         {
@@ -1338,7 +1338,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to refresh registered machines from coordinator API {CoordinatorUrl}", _settings.CoordinatorUrl);
-            _registeredMachinesErrorMessage = $"Failed to refresh machines: {ex.Message}";
+            _registeredMachinesErrorMessage = $"Couldn’t refresh machines: {ex.Message}";
             _registeredMachines = [];
             _coordinatorReachable = false;
         }
@@ -1378,7 +1378,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to update coordinator apply intent for machine {MachineId}", machineId);
-            ToastService.Show($"Failed to update machine setup preference: {ex.Message}", ToastKind.Error);
+            ToastService.Show($"Couldn’t update machine setup preference: {ex.Message}", ToastKind.Error);
         }
         finally
         {
@@ -1410,7 +1410,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to retry workflow pack for machine {MachineId}", machineId);
-            ToastService.Show($"Failed to retry workflow pack: {ex.Message}", ToastKind.Error);
+            ToastService.Show($"Couldn’t retry tool pack: {ex.Message}", ToastKind.Error);
         }
         finally
         {
@@ -1420,7 +1420,7 @@
 
     private static string GetCoordinatorUrlPlaceholder() => "https://coordinator-host:5001";
 
-    private static string GetRunnerUrlPlaceholder() => "https://runner-host:5000 (informational)";
+    private static string GetRunnerUrlPlaceholder() => "https://machine-host:5000 (informational)";
 
     private void ClearCoordinatorDirectory()
     {
@@ -1492,13 +1492,13 @@
             _machineCapabilitiesByMachine[machine.Id] = capabilities;
             if (capabilities is null)
             {
-                _machineCapabilityErrors[machine.Id] = "The runner did not return machine capability data.";
+                _machineCapabilityErrors[machine.Id] = "This machine did not return capability data.";
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to detect capabilities for machine {MachineId}", machine.Id);
-            _machineCapabilityErrors[machine.Id] = $"Failed to detect capabilities: {ex.Message}";
+            _machineCapabilityErrors[machine.Id] = $"Couldn’t detect capabilities: {ex.Message}";
             _machineCapabilitiesByMachine[machine.Id] = null;
         }
         finally
@@ -1527,7 +1527,7 @@
 
             if (result is null)
             {
-                _machineCapabilityErrors[machine.Id] = $"The runner did not return an installation result for {capability.Name}.";
+                _machineCapabilityErrors[machine.Id] = $"This machine did not return an installation result for {capability.Name}.";
                 return;
             }
 
@@ -1537,7 +1537,7 @@
             }
             else
             {
-                ToastService.Show($"Failed to install {capability.Name}", ToastKind.Error);
+                ToastService.Show($"Couldn’t install {capability.Name}", ToastKind.Error);
             }
 
             await RefreshMachineCapabilitiesAsync();
@@ -1545,7 +1545,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to install capability {CapabilityId} on machine {MachineId}", capability.Id, machine.Id);
-            _machineCapabilityErrors[machine.Id] = $"Failed to install {capability.Name}: {ex.Message}";
+            _machineCapabilityErrors[machine.Id] = $"Couldn’t install {capability.Name}: {ex.Message}";
         }
         finally
         {
@@ -1596,7 +1596,7 @@
 
             if (result is null)
             {
-                _machineCapabilityErrors[machine.Id] = $"The runner did not return an update result for {capability.Name}.";
+                _machineCapabilityErrors[machine.Id] = $"This machine did not return an update result for {capability.Name}.";
                 return;
             }
 
@@ -1606,7 +1606,7 @@
             }
             else
             {
-                ToastService.Show($"Failed to update {capability.Name}", ToastKind.Error);
+                ToastService.Show($"Couldn’t update {capability.Name}", ToastKind.Error);
             }
 
             await RefreshMachineCapabilitiesAsync();
@@ -1614,7 +1614,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to update capability {CapabilityId} on machine {MachineId}", capability.Id, machine.Id);
-            _machineCapabilityErrors[machine.Id] = $"Failed to update {capability.Name}: {ex.Message}";
+            _machineCapabilityErrors[machine.Id] = $"Couldn’t update {capability.Name}: {ex.Message}";
         }
         finally
         {

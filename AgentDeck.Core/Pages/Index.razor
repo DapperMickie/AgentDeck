@@ -74,7 +74,7 @@
         {
             <section class="dashboard-section-card">
                 <h2>AgentDeck service unavailable</h2>
-                <p>@(_dashboard.CoordinatorErrorMessage ?? "This companion could not reach the configured AgentDeck service.")</p>
+                <p>@(_dashboard.CoordinatorErrorMessage ?? "This app could not reach the configured AgentDeck service.")</p>
             </section>
         }
         else
@@ -83,7 +83,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Your machines</h2>
-                        <p>Where AgentDeck can run projects right now, with plain-language setup blockers.</p>
+                        <p>Where AgentDeck can open workspaces right now, with plain-language setup blockers.</p>
                     </div>
                 </div>
 
@@ -335,7 +335,7 @@
         {
             return _dashboard.CoordinatorConfigured
                 ? "The saved connection did not respond. Check the URL or start the AgentDeck service."
-                : "Add the service URL once, then AgentDeck can discover runners and workspaces for you.";
+                : "Add the service URL once, then AgentDeck can discover machines and workspaces for you.";
         }
 
         if (!_dashboard.Machines.Any(machine => machine.IsOnline))
@@ -344,8 +344,8 @@
         }
 
         return _dashboard.Projects.Count == 0
-            ? "Paste a GitHub URL or choose a template. You can keep advanced run-option details collapsed."
-            : "Pick up where you left off or open a project on a ready machine.";
+            ? "Paste a GitHub URL or choose a template. You can keep advanced run-option settings collapsed."
+            : "Pick up where you left off or open a workspace on a ready machine.";
     }
 
     private string GetNextActionHref() =>
