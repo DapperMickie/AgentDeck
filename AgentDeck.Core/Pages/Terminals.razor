@@ -12,7 +12,14 @@
             <h1>Terminals</h1>
             <p>@GetHeaderSubtitle()</p>
         </div>
-        <button class="btn btn-primary" @onclick="OpenNewTerminal">New</button>
+        @if (Connections.ConnectedMachineCount == 0)
+        {
+            <a class="btn btn-primary" href="/settings#machines">Set up runner</a>
+        }
+        else
+        {
+            <button class="btn btn-primary" @onclick="OpenNewTerminal">New terminal</button>
+        }
     </div>
 
     @if (GetStandaloneSessions().Count == 0)
