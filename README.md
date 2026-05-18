@@ -8,11 +8,11 @@ AgentDeck is a private local-network app for running AI-assisted development wor
 
 AgentDeck is being built to make it easy to:
 - connect multiple local machines into one developer workspace
-- discover what each machine can run, including CLIs, SDKs, IDEs, emulators/simulators, and viewer transports
+- discover what each machine can run, including CLIs, SDKs, IDEs, emulators/simulators, and remote-screen transports
 - open a project on the best available runner for the requested workflow
 - launch terminals, app/debug workflows, and managed remote screens from one UI
-- keep runner capabilities, workflow packs, setup catalogs, and runner updates coordinated from the local control plane
-- support collaboration semantics where one companion actively controls a session while other companions can observe or request control
+- keep runner tools, setup catalogs, and runner updates coordinated from the local AgentDeck service
+- support collaboration where one companion controls a session while other companions can observe or request control
 
 ## Non-goals for Now
 

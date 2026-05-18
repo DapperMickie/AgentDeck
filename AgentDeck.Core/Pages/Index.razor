@@ -66,15 +66,15 @@
         @if (!_dashboard.CoordinatorConfigured)
         {
             <section class="dashboard-section-card">
-                <h2>Coordinator required</h2>
-                <p>Connect AgentDeck in <a href="/settings">Settings</a> to load workspaces, machines, and open sessions.</p>
+                <h2>Connect the AgentDeck service</h2>
+                <p>Add the AgentDeck service URL in <a href="/settings">Settings</a> to load workspaces, machines, and open sessions.</p>
             </section>
         }
         else if (!_dashboard.CoordinatorReachable)
         {
             <section class="dashboard-section-card">
-                <h2>Coordinator unavailable</h2>
-                <p>@(_dashboard.CoordinatorErrorMessage ?? "The companion could not reach the configured coordinator.")</p>
+                <h2>AgentDeck service unavailable</h2>
+                <p>@(_dashboard.CoordinatorErrorMessage ?? "This companion could not reach the configured AgentDeck service.")</p>
             </section>
         }
         else
@@ -167,7 +167,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Workspaces</h2>
-                        <p>Import a repo, choose where it should run, and open a terminal or app surface.</p>
+                        <p>Import a repo, choose where it should run, and open terminals, apps, or remote screens.</p>
                     </div>
                     <a class="btn btn-primary" href="/projects/new">Import or create workspace</a>
                 </div>
@@ -177,7 +177,7 @@
                     <div class="empty-state empty-state--actionable">
                         <div class="empty-icon">＋</div>
                         <h3>No workspaces yet</h3>
-                        <p>Paste a GitHub URL or start from a template. Advanced project fields can wait.</p>
+                        <p>Paste a GitHub URL or start from a template. Advanced workspace details can wait.</p>
                         <a class="btn btn-primary" href="/projects/new">Create your first workspace</a>
                     </div>
                 }
@@ -233,8 +233,8 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Things AgentDeck can open</h2>
-                        <p>Terminals, desktops, app windows, VS Code, emulators, simulators, logs, and job output appear here when machines support them.</p>
+                        <h2>Available remote screens</h2>
+                        <p>Desktops, app windows, VS Code, emulators, simulators, logs, and job output appear here when machines support them.</p>
                     </div>
                 </div>
 
@@ -242,8 +242,8 @@
                 {
                     <div class="empty-state empty-state--actionable">
                         <div class="empty-icon">▣</div>
-                        <h3>No openable surfaces yet</h3>
-                        <p>Create a workspace or add a run option to see terminals, desktops, app windows, emulators, and logs here.</p>
+                        <h3>No remote screens yet</h3>
+                        <p>Create a workspace or add a run option to see desktops, app windows, emulators, and logs here.</p>
                         <a class="btn btn-primary" href="/projects/new">Create or import a workspace</a>
                     </div>
                 }
@@ -415,7 +415,7 @@
             ? (_dashboard.CoordinatorUrl.Length > 48
                 ? $"{_dashboard.CoordinatorUrl[..48]}..."
                 : _dashboard.CoordinatorUrl)
-            : (_dashboard.CoordinatorErrorMessage ?? "Coordinator health check failed");
+            : (_dashboard.CoordinatorErrorMessage ?? "AgentDeck service health check failed");
     }
 
     private string GetMachineSummary()

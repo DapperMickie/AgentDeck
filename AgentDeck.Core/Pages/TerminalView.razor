@@ -41,14 +41,15 @@
                        @bind="_quickCommand"
                        @bind:event="oninput"
                        @onkeydown="OnQuickCommandKey" />
-                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("copilot")'>copilot</button>
-                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("copilot --yolo")'>copilot --yolo</button>
-                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("clear")'>clear</button>
-                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("exit")'>exit</button>
+                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("copilot")'>Copilot</button>
+                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("copilot --yolo")'>Copilot auto-approve</button>
+                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("clear")'>Clear</button>
+                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("exit")'>Exit</button>
             </div>
             @if (!IsSessionRunning())
             {
-                <p class="project-template-target__note">This terminal has ended. Open a new terminal to send more commands.</p>
+                <p class="project-template-target__note">This terminal has ended. Go back to terminals to open a fresh one.</p>
+                <a class="btn btn-accent" href="/terminals">Open another terminal</a>
             }
 
             <div class="terminal-area terminal-area--single">
