@@ -180,7 +180,12 @@
 
                 @if (_editor.LaunchProfiles.Count == 0)
                 {
-                    <p>No run options are configured yet.</p>
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">▶</div>
+                        <h3>No run options yet</h3>
+                        <p>Add at least one run option so AgentDeck knows which command and machine type to use when you launch this workspace.</p>
+                        <button type="button" class="btn btn-primary" disabled="@_saving" @onclick="AddProfile">Add run option</button>
+                    </div>
                 }
                 else
                 {
