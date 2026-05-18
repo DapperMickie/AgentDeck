@@ -24,7 +24,7 @@
             <div class="empty-state">
                 <div class="empty-icon">⌂</div>
                 <h2>Project not found</h2>
-                <p>Return to the <a href="/">dashboard</a> to pick a coordinator-managed project.</p>
+                <p>Return to the <a href="/">dashboard</a> to pick another workspace.</p>
             </div>
         </div>
     }
@@ -91,14 +91,14 @@
                                          workflowPackStatus.State != RunnerWorkflowPackState.None)
                                     {
                                         <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowPackChipClass(workflowPackStatus.State))">
-                                            Workflow pack @GetWorkflowPackStateLabel(workflowPackStatus.State)
+                                            Tools @GetWorkflowPackStateLabel(workflowPackStatus.State)
                                         </span>
                                     }
                                     @if (machine.WorkflowCatalogStatus is { } workflowCatalogStatus &&
                                          workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
                                     {
                                         <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowCatalogChipClass(workflowCatalogStatus.State))">
-                                            Catalog @GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)
+                                            Setup @GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)
                                         </span>
                                     }
                                 </div>
@@ -694,7 +694,7 @@
         var machine = GetMachine(machineId);
         if (machine is null || !CanOpenProjectOnMachine(machine))
         {
-            Toasts.Show("That machine is not currently eligible for coordinator-managed project actions.", ToastKind.Warning);
+            Toasts.Show("That machine is not ready for this workspace yet. Choose a ready machine or open Settings to finish setup.", ToastKind.Warning);
             return;
         }
 

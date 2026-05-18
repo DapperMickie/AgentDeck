@@ -2547,3 +2547,13 @@ html, body {
     justify-content: center;
   }
 }
+
+.advanced-panel--compact {
+  margin-top: 0.65rem;
+  padding: 0.6rem;
+  box-shadow: none;
+}
+
+.advanced-panel--compact summary {
+  font-size: 0.82rem;
+}

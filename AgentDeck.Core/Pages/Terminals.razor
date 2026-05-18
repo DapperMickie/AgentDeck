@@ -24,11 +24,11 @@
                 <p>
                     @if (SessionState.Sessions.Count > 0)
                     {
-                        <span>Project-owned terminals stay inside their project pages. Use Project Links to reopen them.</span>
+                        <span>Workspace terminals stay with their workspace. Open the dashboard to resume them.</span>
                     }
                     else if (Connections.ConnectedMachineCount == 0)
                     {
-                        <span>Connect to a runner in <a href="/settings">Settings</a> to create a terminal.</span>
+                        <span>Create or connect a runner in <a href="/settings">Settings</a> to open a terminal.</span>
                     }
                     else
                     {
@@ -96,8 +96,8 @@
         if (count == 0)
         {
             return SessionState.Sessions.Count > 0
-                ? "Project-owned terminals are available through Project Links."
-                : "Create and switch between active sessions.";
+                ? "Workspace terminals are available from their workspace pages."
+                : "Create and switch between shell sessions.";
         }
 
         return count == 1 ? "1 active session" : $"{count} active sessions";

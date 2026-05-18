@@ -137,14 +137,14 @@
                                              workflowPackStatus.State != RunnerWorkflowPackState.None)
                                         {
                                             <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowPackChipClass(workflowPackStatus.State))">
-                                                Workflow pack @GetWorkflowPackStateLabel(workflowPackStatus.State)
+                                                Tools @GetWorkflowPackStateLabel(workflowPackStatus.State)
                                             </span>
                                         }
                                         @if (machine.WorkflowCatalogStatus is { } workflowCatalogStatus &&
                                              workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
                                         {
                                             <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowCatalogChipClass(workflowCatalogStatus.State))">
-                                                Catalog @GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)
+                                                Setup @GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)
                                             </span>
                                         }
                                     </div>
@@ -410,7 +410,7 @@
     {
         if (_dashboard.Machines.Count == 0)
         {
-            return "No workers discovered";
+            return "No machines connected";
         }
 
         var onlineCount = _dashboard.Machines.Count(machine => machine.IsOnline);
@@ -421,9 +421,9 @@
 
     private static string GetPlatformLabel(RunnerHostPlatform platform) => platform switch
     {
-        RunnerHostPlatform.Windows => "Windows worker",
-        RunnerHostPlatform.Linux => "Linux worker",
-        RunnerHostPlatform.MacOS => "macOS worker",
+        RunnerHostPlatform.Windows => "Windows machine",
+        RunnerHostPlatform.Linux => "Linux machine",
+        RunnerHostPlatform.MacOS => "macOS machine",
         _ => "Unknown platform"
     };
 
