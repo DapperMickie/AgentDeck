@@ -358,7 +358,15 @@
 
                 @if (_projectViewerSessions.Count == 0)
                 {
-                    <p>No viewer sessions are currently registered for this project.</p>
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">◫</div>
+                        <h3>No viewer sessions yet</h3>
+                        <p>Open a desktop or launch a profile with a remote surface to see viewer links and control status here.</p>
+                        <div class="setup-checklist__actions">
+                            <a class="btn btn-primary" href="#workspace-machines">Open desktop</a>
+                            <a class="btn btn-accent" href="#run-debug">Run or debug</a>
+                        </div>
+                    </div>
                 }
                 else
                 {
