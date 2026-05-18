@@ -11,6 +11,7 @@ public interface IRunnerControlClient
     Task ResizeTerminalAsync(string sessionId, int cols, int rows);
 
     Task<WorkspaceInfo?> GetWorkspaceAsync();
+    Task<WorkspaceDirectoryInfo?> InspectWorkspaceDirectoryAsync(InspectWorkspaceRequest request);
     Task<OpenProjectOnRunnerResult?> OpenProjectAsync(OpenProjectOnRunnerRequest request, string actorId);
     Task<MachineCapabilitiesSnapshot> GetMachineCapabilitiesAsync();
     Task<MachineCapabilityInstallResult?> InstallMachineCapabilityAsync(string capabilityId, MachineCapabilityInstallRequest request, string actorId);

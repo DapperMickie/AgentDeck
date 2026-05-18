@@ -261,6 +261,26 @@ public static class RunnerEndpointModules
         app.MapGet("/api/workspace", (IWorkspaceService workspace) =>
             Results.Ok(workspace.GetWorkspaceInfo()));
 
+        app.MapPost("/api/workspace/inspect", (InspectWorkspaceRequest request, IWorkspaceService workspace) =>
+        {
+            try
+            {
+                return Results.Ok(workspace.InspectDirectory(request.RelativePath));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        });
+
         app.MapGet("/api/diagnostics/bundle", async (
             IOptions<RunnerOptions> runnerOptions,
             IOptions<WorkerCoordinatorOptions> coordinatorOptions,
@@ -350,7 +370,7 @@ public static class RunnerEndpointModules
                 [
                     "Diagnostic bundles are local snapshots and do not include durable terminal scrollback beyond current in-memory session state.",
                     "Secrets are represented as configured/unconfigured booleans or redacted placeholders, not raw values.",
-                    "Coordinator persistence/HA and full project repository dirty-state tracking remain follow-up work."
+                    "Coordinator persistence/HA and persisted project-to-repository state refresh remain follow-up work."
                 ]
             };
 

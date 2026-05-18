@@ -327,6 +327,28 @@ public static class CoordinatorEndpointModules
             }
         });
 
+        app.MapPost("/api/machines/{machineId}/workspace/inspect", async (string machineId, InspectWorkspaceRequest request, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                TrackMachineAttachment(httpContext, companions, machineId);
+                var workspace = await runners.InspectWorkspaceDirectoryAsync(machineId, request, cancellationToken);
+                return workspace is null ? Results.NotFound() : Results.Ok(workspace);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+            }
+        });
+
         app.MapGet("/api/machines/{machineId}/capabilities", async (string machineId, HttpContext httpContext, ICompanionRegistryService companions, IRunnerBrokerService runners, CancellationToken cancellationToken) =>
         {
             try
