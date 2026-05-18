@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Net.Http.Json;
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Shared.Enums;
+using AgentDeck.Shared;
 using AgentDeck.Shared.Models;
 using Microsoft.Extensions.Options;
 
@@ -76,6 +77,10 @@ public sealed class WorkerCoordinatorRegistrationService : BackgroundService
             {
                 using var httpClient = _httpClientFactory.CreateClient();
                 httpClient.BaseAddress = new Uri(coordinatorUrl, UriKind.Absolute);
+                if (!string.IsNullOrWhiteSpace(_coordinatorOptions.AccessKey))
+                {
+                    httpClient.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeckHeaderNames.AccessKey, _coordinatorOptions.AccessKey.Trim());
+                }
 
                 var snapshot = await _capabilities.GetSnapshotAsync(stoppingToken);
                 var workflowCatalogStatus = await _workflowCatalog.GetCurrentStatusAsync(stoppingToken);

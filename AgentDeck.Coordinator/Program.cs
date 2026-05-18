@@ -1,6 +1,7 @@
 using AgentDeck.Coordinator.Configuration;
 using AgentDeck.Coordinator.Services;
 using AgentDeck.Coordinator.Endpoints;
+using AgentDeck.Shared;
 using AgentDeck.Shared.Protocol;
 using System.Text.Json.Serialization;
 
@@ -54,6 +55,30 @@ app.Logger.LogInformation(
     coordinatorOptions.Port,
     coordinatorOptions.WorkerHeartbeatInterval,
     coordinatorOptions.WorkerExpiry);
+
+if (AgentDeckAccessKey.IsConfigured(coordinatorOptions.AccessKey))
+{
+    app.Use(async (context, next) =>
+    {
+        if (HttpMethods.IsOptions(context.Request.Method) ||
+            (HttpMethods.IsGet(context.Request.Method) && context.Request.Path.Equals("/health", StringComparison.OrdinalIgnoreCase)))
+        {
+            await next(context);
+            return;
+        }
+
+        var suppliedAccessKey = context.Request.Headers[AgentDeckHeaderNames.AccessKey].FirstOrDefault()
+            ?? context.Request.Query["access_key"].FirstOrDefault();
+        if (!AgentDeckAccessKey.Matches(coordinatorOptions.AccessKey, suppliedAccessKey))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { message = "AgentDeck access key is required." });
+            return;
+        }
+
+        await next(context);
+    });
+}
 
 app.MapCoordinatorEndpoints();
 

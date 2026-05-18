@@ -6,6 +6,7 @@ namespace AgentDeck.Runner.Configuration;
 public sealed class WorkerCoordinatorOptions
 {
     public const string SectionName = "Coordinator";
+    public const string AccessKeyEnvironmentVariable = "AGENTDECK_COORDINATOR_ACCESS_KEY";
 
     /// <summary>Stable identifier this runner advertises to the coordinator.</summary>
     public string MachineId { get; set; } = Environment.MachineName;
@@ -15,6 +16,9 @@ public sealed class WorkerCoordinatorOptions
 
     /// <summary>Coordinator base URL that worker runners register with.</summary>
     public string? CoordinatorUrl { get; set; }
+
+    /// <summary>Optional shared access key sent when registering with a protected coordinator.</summary>
+    public string? AccessKey { get; set; }
 
     /// <summary>Optional runner URL the worker advertises back to the coordinator for future dispatch.</summary>
     public string? AdvertisedRunnerUrl { get; set; }
@@ -69,4 +73,13 @@ public sealed class WorkerCoordinatorOptions
 
     /// <summary>Default interval workers use when refreshing coordinator registration.</summary>
     public TimeSpan WorkerHeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
+
+    public static void ApplyEnvironmentOverrides(WorkerCoordinatorOptions options)
+    {
+        var accessKey = Environment.GetEnvironmentVariable(AccessKeyEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(accessKey))
+        {
+            options.AccessKey = accessKey.Trim();
+        }
+    }
 }

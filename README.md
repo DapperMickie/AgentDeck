@@ -113,7 +113,7 @@ cd AgentDeck.Coordinator
 dotnet run
 ```
 
-The coordinator starts on `http://localhost:5001` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Use `AGENTDECK_COORDINATOR_PORT` and `AGENTDECK_COORDINATOR_BIND_ADDRESS` to override those startup defaults; for example, set `AGENTDECK_COORDINATOR_BIND_ADDRESS=0.0.0.0` only when you intend to expose the coordinator to other devices on a trusted network.
+The coordinator starts on `http://localhost:5001` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Use `AGENTDECK_COORDINATOR_PORT` and `AGENTDECK_COORDINATOR_BIND_ADDRESS` to override those startup defaults; for example, set `AGENTDECK_COORDINATOR_BIND_ADDRESS=0.0.0.0` only when you intend to expose the coordinator to other devices on a trusted network. Set `Coordinator:AccessKey` or `AGENTDECK_COORDINATOR_ACCESS_KEY` to require the same shared key on coordinator API and SignalR calls (health checks stay unauthenticated for local readiness probes).
 
 ### Running the Runner
 
@@ -122,16 +122,18 @@ cd AgentDeck.Runner
 dotnet run
 ```
 
-The runner starts on `http://localhost:5000` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Browser CORS origins are denied by default; configure `AllowedOrigins` only for trusted companion origins, or use `["*"]` for local development experiments.
+The runner starts on `http://localhost:5000` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Browser CORS origins are denied by default; configure `AllowedOrigins` only for trusted companion origins, or use `["*"]` for local development experiments. Set `Runner:AccessKey` or `AGENTDECK_ACCESS_KEY` to require the same shared key on direct runner API and SignalR calls; set `Coordinator:AccessKey` or `AGENTDECK_COORDINATOR_ACCESS_KEY` when this runner registers with a protected coordinator.
 
 Use these environment variables to override runtime defaults:
 
 - `AGENTDECK_WORKSPACE` sets the workspace root (defaults to `~/AgentDeck`)
 - `AGENTDECK_PORT` sets the HTTP port (defaults to `5000`)
 - `AGENTDECK_BIND_ADDRESS` sets the listening address (defaults to `127.0.0.1`; use `0.0.0.0` only for intentional LAN/container exposure)
+- `AGENTDECK_ACCESS_KEY` sets the optional shared key for direct runner access
+- `AGENTDECK_COORDINATOR_ACCESS_KEY` sets the optional shared key used when the runner talks to a protected coordinator
 - `AGENTDECK_DEFAULT_SHELL` sets the default shell command
 
-The companion now starts with an empty coordinator URL plus auto-connect disabled by default. Configure a network-reachable coordinator explicitly instead of assuming `localhost`, which is only valid when the coordinator is actually running on the same device as the client.
+The companion now starts with an empty coordinator URL plus auto-connect disabled by default. Configure a network-reachable coordinator explicitly instead of assuming `localhost`, which is only valid when the coordinator is actually running on the same device as the client. If the coordinator uses an access key, enter the same key in Settings so companion HTTP and hub calls include `X-AgentDeck-Access-Key`.
 
 ### Running the Runner in Docker (Linux)
 

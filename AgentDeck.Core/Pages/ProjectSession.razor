@@ -296,6 +296,7 @@
     protected override void OnInitialized()
     {
         SessionState.SessionsChanged += OnSessionsChanged;
+        AgentClient.OrchestrationJobUpdated += OnOrchestrationJobUpdated;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -1066,9 +1067,42 @@
         !string.IsNullOrWhiteSpace(AgentClient.CompanionId) &&
         string.Equals(state.ControllerCompanionId, AgentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
 
+    private async void OnOrchestrationJobUpdated(object? sender, OrchestrationJob job)
+    {
+        if (_projectSession is null ||
+            !string.Equals(job.ProjectId, _projectSession.ProjectId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_projectSession.MachineId) &&
+            !string.Equals(job.TargetMachineId, _projectSession.MachineId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await InvokeAsync(() =>
+        {
+            UpsertRuntimeJob(job);
+            BuildSurfaceTabs();
+            SyncActiveSurface();
+            StateHasChanged();
+        });
+    }
+
+    private void UpsertRuntimeJob(OrchestrationJob job)
+    {
+        var jobs = _runtimeJobs.Where(existing => !string.Equals(existing.Id, job.Id, StringComparison.OrdinalIgnoreCase)).ToList();
+        jobs.Add(job);
+        _runtimeJobs = jobs
+            .OrderByDescending(candidate => candidate.UpdatedAt)
+            .ToArray();
+    }
+
     public async ValueTask DisposeAsync()
     {
         SessionState.SessionsChanged -= OnSessionsChanged;
+        AgentClient.OrchestrationJobUpdated -= OnOrchestrationJobUpdated;
         if (!string.IsNullOrWhiteSpace(_attachedSessionId) && !string.IsNullOrWhiteSpace(_coordinatorUrl))
         {
             try

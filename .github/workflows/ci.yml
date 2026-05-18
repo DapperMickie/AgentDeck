@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: |
+          dotnet restore AgentDeck.Shared/AgentDeck.Shared.csproj
+          dotnet restore AgentDeck.Coordinator/AgentDeck.Coordinator.csproj
+          dotnet restore AgentDeck.Runner/AgentDeck.Runner.csproj
+          dotnet restore AgentDeck.Core.Client/AgentDeck.Core.Client.csproj
+          dotnet restore AgentDeck.Core/AgentDeck.Core.csproj
+          dotnet restore AgentDeck.Runner.Tests/AgentDeck.Runner.Tests.csproj
+
+      - name: Build server/client projects
+        run: |
+          dotnet build AgentDeck.Shared/AgentDeck.Shared.csproj --no-restore
+          dotnet build AgentDeck.Coordinator/AgentDeck.Coordinator.csproj --no-restore
+          dotnet build AgentDeck.Runner/AgentDeck.Runner.csproj --no-restore
+          dotnet build AgentDeck.Core.Client/AgentDeck.Core.Client.csproj --no-restore
+          dotnet build AgentDeck.Core/AgentDeck.Core.csproj --no-restore
+
+      - name: Test runner suite
+        run: dotnet test AgentDeck.Runner.Tests/AgentDeck.Runner.Tests.csproj --no-build

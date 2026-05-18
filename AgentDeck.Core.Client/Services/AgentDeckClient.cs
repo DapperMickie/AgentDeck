@@ -22,12 +22,14 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
 
     public HubConnectionState ConnectionState { get; private set; } = HubConnectionState.Disconnected;
     public string? CompanionId => _companion?.CompanionId;
+    public string? AccessKey { get; set; }
 
     public event EventHandler<HubConnectionState>? ConnectionStateChanged;
     public event EventHandler<TerminalOutput>? OutputReceived;
     public event EventHandler<TerminalSession>? SessionCreated;
     public event EventHandler<TerminalSession>? SessionUpdated;
     public event EventHandler<string>? SessionClosed;
+    public event EventHandler<OrchestrationJob>? OrchestrationJobUpdated;
 
     public AgentDeckClient(ILogger<AgentDeckClient> logger)
     {
@@ -64,6 +66,10 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
             .WithUrl(hubUrl, options =>
             {
                 options.Headers[AgentDeckHeaderNames.Actor] = _companion.CompanionId;
+                if (!string.IsNullOrWhiteSpace(AccessKey))
+                {
+                    options.Headers[AgentDeckHeaderNames.AccessKey] = AccessKey.Trim();
+                }
             })
             .AddJsonProtocol(options =>
             {
@@ -84,6 +90,9 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
 
         _connection.On<string>(nameof(IAgentHubClient.SessionClosedAsync),
             sessionId => SessionClosed?.Invoke(this, sessionId));
+
+        _connection.On<OrchestrationJob>(nameof(IAgentHubClient.OrchestrationJobUpdatedAsync),
+            job => OrchestrationJobUpdated?.Invoke(this, job));
 
         _connection.Reconnecting += _ => { SetState(HubConnectionState.Reconnecting); return Task.CompletedTask; };
         _connection.Reconnected += _ => { SetState(HubConnectionState.Connected); return Task.CompletedTask; };
@@ -264,6 +273,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         {
             BaseAddress = new Uri($"{coordinatorUrl}/", UriKind.Absolute)
         };
+        AddAccessKeyHeader(httpClient);
 
         var request = new RegisterCompanionRequest
         {
@@ -280,7 +290,7 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
         return companion;
     }
 
-    private static HttpClient CreateCoordinatorClient(string coordinatorUrl, string companionId)
+    private HttpClient CreateCoordinatorClient(string coordinatorUrl, string companionId)
     {
         var client = new HttpClient
         {
@@ -289,7 +299,16 @@ public sealed class AgentDeckClient : IAgentDeckClient, IAsyncDisposable
 
         client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeckHeaderNames.Companion, companionId);
         client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeckHeaderNames.Actor, companionId);
+        AddAccessKeyHeader(client);
         return client;
+    }
+
+    private void AddAccessKeyHeader(HttpClient client)
+    {
+        if (!string.IsNullOrWhiteSpace(AccessKey))
+        {
+            client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeckHeaderNames.AccessKey, AccessKey.Trim());
+        }
     }
 
     private void SetState(HubConnectionState state)

@@ -1,6 +1,7 @@
 @page "/settings"
 @inject IConnectionSettingsService SettingsService
 @inject IRunnerConnectionManager Connections
+@inject IAgentDeckClient AgentClient
 @inject ICoordinatorApiClient CoordinatorClient
 @inject IToastService ToastService
 @inject ILogger<Settings> Logger
@@ -47,7 +48,13 @@
                     <input id="coordinator-url" type="text" class="input" @bind="_settings.CoordinatorUrl"
                        placeholder="@GetCoordinatorUrlPlaceholder()" />
                 </div>
-                <p class="settings-card__description">Use a coordinator host or IP that is reachable from this client. Only use localhost when the coordinator is actually running on this same device.</p>
+                <div class="form-field">
+                    <label for="coordinator-access-key">Shared access key</label>
+                    <input id="coordinator-access-key" type="password" class="input" @bind="_settings.AccessKey"
+                           autocomplete="off"
+                           placeholder="Optional key configured on the coordinator/runner" />
+                </div>
+                <p class="settings-card__description">Use a coordinator host or IP that is reachable from this client. Only use localhost when the coordinator is actually running on this same device. If the service is configured with an access key, enter the same key here.</p>
             </div>
 
         <div class="settings-status-list">
@@ -914,6 +921,7 @@
     protected override async Task OnInitializedAsync()
     {
         _settings = await SettingsService.LoadAsync();
+        AgentClient.AccessKey = _settings.AccessKey;
         _selectedMachineId = _settings.PreferredMachineId;
         await Task.WhenAll(
             RefreshAllMachineCapabilitiesAsync(),
@@ -929,6 +937,7 @@
         try
         {
             _settings.Normalize();
+            AgentClient.AccessKey = _settings.AccessKey;
             await SettingsService.SaveAsync(_settings);
             ToastService.Show("Settings saved", ToastKind.Success);
         }
@@ -1305,6 +1314,8 @@
 
         try
         {
+            _settings.Normalize();
+            AgentClient.AccessKey = _settings.AccessKey;
             if (string.IsNullOrWhiteSpace(_settings.CoordinatorUrl))
             {
                 _registeredMachines = [];

@@ -176,6 +176,10 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
                 .WithUrl(hubUrl, options =>
                 {
                     options.Headers[AgentDeckHeaderNames.Machine] = _options.MachineId;
+                    if (!string.IsNullOrWhiteSpace(_options.AccessKey))
+                    {
+                        options.Headers[AgentDeckHeaderNames.AccessKey] = _options.AccessKey.Trim();
+                    }
                     options.Transports = transportPolicy.Transports;
                     options.SkipNegotiation = transportPolicy.SkipNegotiation;
                 })
@@ -720,8 +724,11 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
             LaunchProfileId = job.LaunchProfileId,
             LaunchProfileName = job.LaunchProfileName,
             Platform = job.Platform,
+            WorkloadId = job.WorkloadId,
             Mode = job.Mode,
             LaunchDriver = job.LaunchDriver,
+            LaunchDriverId = job.LaunchDriverId,
+            RequiredSurfaceKinds = job.RequiredSurfaceKinds.ToArray(),
             TargetMachineRole = job.TargetMachineRole,
             TargetMachineId = job.TargetMachineId,
             TargetMachineName = job.TargetMachineName,

@@ -8,6 +8,9 @@ public sealed class ConnectionSettings
     /// <summary>Base URL of the central coordinator API.</summary>
     public string CoordinatorUrl { get; set; } = string.Empty;
 
+    /// <summary>Optional shared access key sent to protected coordinator/runner endpoints.</summary>
+    public string? AccessKey { get; set; }
+
     /// <summary>Configured runner machines.</summary>
     public List<RunnerMachineSettings> Machines { get; set; } = [CreateMachineTemplate()];
 
@@ -51,6 +54,9 @@ public sealed class ConnectionSettings
         CoordinatorUrl = string.IsNullOrWhiteSpace(CoordinatorUrl)
             ? string.Empty
             : CoordinatorUrl.Trim();
+        AccessKey = string.IsNullOrWhiteSpace(AccessKey)
+            ? null
+            : AccessKey.Trim();
 
         Machines ??= [];
 

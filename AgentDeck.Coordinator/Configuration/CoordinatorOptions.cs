@@ -10,6 +10,8 @@ public sealed class CoordinatorOptions
 
     public string BindAddress { get; set; } = "127.0.0.1";
 
+    public string? AccessKey { get; set; }
+
     public string? PublicBaseUrl { get; set; }
 
     public string ArtifactRoot { get; set; } = "artifacts";
@@ -65,5 +67,9 @@ public sealed class CoordinatorOptions
         var bindAddress = Environment.GetEnvironmentVariable(BindAddressEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(bindAddress))
             options.BindAddress = bindAddress.Trim();
+
+        var accessKey = Environment.GetEnvironmentVariable("AGENTDECK_COORDINATOR_ACCESS_KEY");
+        if (!string.IsNullOrWhiteSpace(accessKey))
+            options.AccessKey = accessKey.Trim();
     }
 }

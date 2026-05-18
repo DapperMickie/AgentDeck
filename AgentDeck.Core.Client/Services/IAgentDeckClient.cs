@@ -20,6 +20,9 @@ public interface IAgentDeckClient
     /// <summary>Current coordinator-issued companion identity, when connected.</summary>
     string? CompanionId { get; }
 
+    /// <summary>Optional shared access key sent to protected coordinator/runner surfaces.</summary>
+    string? AccessKey { get; set; }
+
     /// <summary>Fired whenever the connection state changes.</summary>
     event EventHandler<HubConnectionState>? ConnectionStateChanged;
 
@@ -34,6 +37,9 @@ public interface IAgentDeckClient
 
     /// <summary>Fired when a session has been closed.</summary>
     event EventHandler<string>? SessionClosed;
+
+    /// <summary>Fired when an orchestration job changes on a runner through the coordinator.</summary>
+    event EventHandler<OrchestrationJob>? OrchestrationJobUpdated;
 
     /// <summary>Connect to the coordinator at the given base URL.</summary>
     Task ConnectAsync(string coordinatorUrl, CancellationToken cancellationToken = default);
