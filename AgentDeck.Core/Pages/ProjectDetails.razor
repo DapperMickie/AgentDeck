@@ -291,7 +291,12 @@
 
                 @if (_projectJobs.Count == 0)
                 {
-                    <p>No orchestration jobs are currently tracked for this project.</p>
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">▶</div>
+                        <h3>No run or debug jobs yet</h3>
+                        <p>Queue a run/debug profile to see job progress, logs, sessions, and viewer links here.</p>
+                        <a class="btn btn-primary" href="#run-debug">Choose a run profile</a>
+                    </div>
                 }
                 else
                 {
