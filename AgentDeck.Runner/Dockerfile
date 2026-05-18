@@ -30,9 +30,9 @@ RUN apt-get update \
     && chmod 0440 /etc/sudoers.d/agentdeck \
     && rm -rf /var/lib/apt/lists/*
 
-ENV ASPNETCORE_URLS=http://0.0.0.0:5000
 ENV ASPNETCORE_ENVIRONMENT=Production
 ENV AGENTDECK_WORKSPACE=/workspace
+ENV AGENTDECK_BIND_ADDRESS=0.0.0.0
 
 EXPOSE 5000
 VOLUME ["/workspace"]

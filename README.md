@@ -109,7 +109,7 @@ cd AgentDeck.Coordinator
 dotnet run
 ```
 
-The coordinator starts on `http://localhost:5001` by default.
+The coordinator starts on `http://localhost:5001` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Use `AGENTDECK_COORDINATOR_PORT` and `AGENTDECK_COORDINATOR_BIND_ADDRESS` to override those startup defaults; for example, set `AGENTDECK_COORDINATOR_BIND_ADDRESS=0.0.0.0` only when you intend to expose the coordinator to other devices on a trusted network.
 
 ### Running the Runner
 
@@ -118,10 +118,13 @@ cd AgentDeck.Runner
 dotnet run
 ```
 
-The runner starts on `http://localhost:5000` by default. Use these environment variables to override its runtime defaults:
+The runner starts on `http://localhost:5000` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Browser CORS origins are denied by default; configure `AllowedOrigins` only for trusted companion origins, or use `["*"]` for local development experiments.
+
+Use these environment variables to override runtime defaults:
 
 - `AGENTDECK_WORKSPACE` sets the workspace root (defaults to `~/AgentDeck`)
 - `AGENTDECK_PORT` sets the HTTP port (defaults to `5000`)
+- `AGENTDECK_BIND_ADDRESS` sets the listening address (defaults to `127.0.0.1`; use `0.0.0.0` only for intentional LAN/container exposure)
 - `AGENTDECK_DEFAULT_SHELL` sets the default shell command
 
 The companion now starts with an empty coordinator URL plus auto-connect disabled by default. Configure a network-reachable coordinator explicitly instead of assuming `localhost`, which is only valid when the coordinator is actually running on the same device as the client.
@@ -147,7 +150,7 @@ docker run --rm \
   agentdeck-runner
 ```
 
-The image exposes port `5000`, defaults the workspace to `/workspace`, sets `ASPNETCORE_ENVIRONMENT=Production` so detailed error responses are off, and falls back to `/bin/sh` if `/bin/bash` is unavailable. Override with `-e ASPNETCORE_ENVIRONMENT=Development` if you want development-only diagnostics (verbose SignalR errors, dev-only middleware, etc.) — never in a deployment exposed to untrusted networks.
+The image exposes port `5000`, defaults the workspace to `/workspace`, explicitly sets `AGENTDECK_BIND_ADDRESS=0.0.0.0` so Docker port publishing works, sets `ASPNETCORE_ENVIRONMENT=Production` so detailed error responses are off, and falls back to `/bin/sh` if `/bin/bash` is unavailable. Override with `-e ASPNETCORE_ENVIRONMENT=Development` if you want development-only diagnostics (verbose SignalR errors, dev-only middleware, etc.) — never in a deployment exposed to untrusted networks.
 
 The checked-in runner image now uses a Debian-based self-contained final stage instead of the stock minimal ASP.NET runtime image, includes the native ICU dependency that .NET needs at runtime, and runs as a non-root `agentdeck` user with passwordless `sudo` for machine-setup actions.
 
@@ -186,6 +189,7 @@ Coordinator configuration (`AgentDeck.Coordinator/appsettings.json`):
 {
   "Coordinator": {
     "Port": 5001,
+    "BindAddress": "127.0.0.1",
     "PublicBaseUrl": "http://localhost:5001",
     "DesiredRunnerVersion": "0.1.0-dev",
     "MinimumSupportedProtocolVersion": 1,
@@ -225,7 +229,8 @@ Runner configuration (`AgentDeck.Runner/appsettings.json`):
   "Runner": {
     "WorkspaceRoot": "/workspace",
     "Port": 5000,
-    "AllowedOrigins": ["*"]
+    "BindAddress": "127.0.0.1",
+    "AllowedOrigins": []
   },
   "DesktopViewerTransport": {
     "Managed": {
