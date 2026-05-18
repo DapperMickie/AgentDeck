@@ -124,8 +124,17 @@
                 {
                     <div class="empty-state empty-state--actionable">
                         <div class="empty-icon">▣</div>
-                        <h3>Choose something to open</h3>
-                        <p>Select a terminal, desktop, app window, editor, emulator, simulator, log, or job output surface.</p>
+                        @if (_surfaceTabs.Count == 0)
+                        {
+                            <h3>No surfaces open yet</h3>
+                            <p>Open this workspace or run/debug a profile from the project page to create terminals, viewers, jobs, and other surfaces.</p>
+                            <a class="btn btn-primary" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Open project actions</a>
+                        }
+                        else
+                        {
+                            <h3>Choose something to open</h3>
+                            <p>Select a terminal, desktop, app window, editor, emulator, simulator, log, or job output surface.</p>
+                        }
                     </div>
                 }
                 else if (_activeSurface.Kind == ProjectSessionSurfaceKind.Terminal && _attachedTerminalSession is not null)
