@@ -49,8 +49,8 @@
                 {
                     <a class="btn btn-accent" href="/">Dashboard</a>
                 }
-                <button class="btn btn-primary" disabled="@_saving" @onclick="SaveAsync">
-                    @(_saving ? "Saving..." : "Save project")
+                <button class="btn btn-primary" disabled="@(_saving || !IsReadyToSave())" @onclick="SaveAsync">
+                    @(_saving ? "Saving..." : "Save workspace")
                 </button>
             </div>
         </div>
@@ -86,6 +86,28 @@
                                 <span class="machine-badge">@template.Workload</span>
                             </div>
                         </button>
+                    }
+                </div>
+            </section>
+
+            <section class="dashboard-section-card readiness-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <span class="eyebrow">Readiness</span>
+                        <h2>@GetReadinessTitle()</h2>
+                        <p>@GetReadinessDescription()</p>
+                    </div>
+                </div>
+                <div class="readiness-list">
+                    @foreach (var item in GetReadinessItems())
+                    {
+                        <div class="readiness-item readiness-item--@(item.Complete ? "complete" : "todo")">
+                            <span>@(item.Complete ? "✓" : "•")</span>
+                            <div>
+                                <strong>@item.Title</strong>
+                                <p>@item.Description</p>
+                            </div>
+                        </div>
                     }
                 </div>
             </section>
@@ -286,6 +308,16 @@
                 }
             </section>
 
+            <div class="sticky-save-bar" role="region" aria-label="Save workspace">
+                <div>
+                    <strong>@GetReadinessTitle()</strong>
+                    <span>@GetReadinessDescription()</span>
+                </div>
+                <button class="btn btn-primary" disabled="@(_saving || !IsReadyToSave())" @onclick="SaveAsync">
+                    @(_saving ? "Saving..." : "Save workspace")
+                </button>
+            </div>
+
             @if (_editor.Workspaces.Count > 0)
             {
                 <section class="dashboard-section-card">
@@ -474,6 +506,54 @@
         }
     }
 
+    private bool IsReadyToSave() => GetReadinessItems().All(item => item.Complete);
+
+    private string GetReadinessTitle() => IsReadyToSave()
+        ? "Ready to save"
+        : "A few details are missing";
+
+    private string GetReadinessDescription()
+    {
+        var missing = GetReadinessItems().Count(item => !item.Complete);
+        return missing == 0
+            ? $"AgentDeck will save {_editor.Name} with {_editor.LaunchProfiles.Count} run option(s)."
+            : $"Finish {missing} item(s) before saving this workspace.";
+    }
+
+    private IReadOnlyList<ReadinessItem> GetReadinessItems()
+    {
+        var normalizedId = NormalizeProjectId(_editor.ProjectId, _editor.Name);
+        return
+        [
+            new ReadinessItem(
+                "Workspace name",
+                !string.IsNullOrWhiteSpace(normalizedId),
+                string.IsNullOrWhiteSpace(normalizedId)
+                    ? "Add a name so AgentDeck can create a stable workspace ID."
+                    : $"Will save as {normalizedId}."),
+            new ReadinessItem(
+                "Source",
+                !string.IsNullOrWhiteSpace(_editor.RepositoryUrl) || !string.IsNullOrWhiteSpace(_editor.RepositoryName),
+                !string.IsNullOrWhiteSpace(_editor.RepositoryUrl)
+                    ? "Repository URL is ready."
+                    : !string.IsNullOrWhiteSpace(_editor.RepositoryName)
+                        ? "Repository details are ready."
+                        : "Paste a repo URL or keep this as a blank workspace by naming the repository."),
+            new ReadinessItem(
+                "Run option",
+                _editor.LaunchProfiles.Any(profile => !string.IsNullOrWhiteSpace(profile.DisplayName) || !string.IsNullOrWhiteSpace(profile.Id)),
+                _editor.LaunchProfiles.Count == 0
+                    ? "Add at least one way to run this workspace."
+                    : $"{_editor.LaunchProfiles.Count} run option(s) configured."),
+            new ReadinessItem(
+                "Default branch",
+                !string.IsNullOrWhiteSpace(_editor.RepositoryDefaultBranch),
+                string.IsNullOrWhiteSpace(_editor.RepositoryDefaultBranch)
+                    ? "Set the branch AgentDeck should use when cloning."
+                    : $"Default branch is {_editor.RepositoryDefaultBranch}.")
+        ];
+    }
+
     private async Task SaveAsync()
     {
         if (_saving || string.IsNullOrWhiteSpace(_coordinatorUrl))
@@ -504,7 +584,7 @@
         var projectId = NormalizeProjectId(_editor.ProjectId, _editor.Name);
         if (string.IsNullOrWhiteSpace(projectId))
         {
-            throw new InvalidOperationException("Project ID is required.");
+            throw new InvalidOperationException("Add a workspace name or ID before saving.");
         }
 
         var projectName = NormalizeText(_editor.Name) ?? projectId;
@@ -515,7 +595,7 @@
             .ToArray();
         if (profiles.Length == 0)
         {
-            throw new InvalidOperationException("At least one launch profile is required.");
+            throw new InvalidOperationException("Choose at least one way to run this workspace before saving.");
         }
 
         var duplicateProfileId = profiles
@@ -523,7 +603,7 @@
             .FirstOrDefault(group => group.Count() > 1)?.Key;
         if (!string.IsNullOrWhiteSpace(duplicateProfileId))
         {
-            throw new InvalidOperationException($"Launch profile ID '{duplicateProfileId}' must be unique.");
+            throw new InvalidOperationException($"Two run options are using the same ID ('{duplicateProfileId}'). Open advanced launch details and make them unique.");
         }
 
         return new ProjectDefinition
@@ -549,7 +629,7 @@
         var profileId = NormalizeProjectId(editor.Id, editor.DisplayName);
         if (string.IsNullOrWhiteSpace(profileId))
         {
-            throw new InvalidOperationException("Each launch profile needs an ID or display name.");
+            throw new InvalidOperationException("Each run option needs a display name. Open advanced launch details if you want to set a custom ID.");
         }
 
         var requiresEmulator = editor.RequiresEmulator;
@@ -699,6 +779,8 @@
     private readonly record struct SimpleProjectTemplate(string Name, string Description, ProjectWorkloadKind Workload, string BuildCommand, string? LaunchCommand);
 
     private readonly record struct RepositoryParseResult(string Owner, string Name, string Url);
+
+    private readonly record struct ReadinessItem(string Title, bool Complete, string Description);
 
     private sealed class ProjectEditorModel
     {
