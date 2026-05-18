@@ -63,14 +63,14 @@
                                  workflowPackStatus.State != RunnerWorkflowPackState.None)
                             {
                                 <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowPackChipClass(workflowPackStatus.State))">
-                                    Workflow pack @GetWorkflowPackStateLabel(workflowPackStatus.State)
+                                    Tool pack @GetWorkflowPackStateLabel(workflowPackStatus.State)
                                 </span>
                             }
                             @if (_sessionMachine.WorkflowCatalogStatus is { } workflowCatalogStatus &&
                                  workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
                             {
                                 <span class="project-target-chip project-target-chip--@GetControlPlaneChipClass(GetWorkflowCatalogChipClass(workflowCatalogStatus.State))">
-                                    Catalog @GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)
+                                    Tool setup @GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)
                                 </span>
                             }
                         </div>
@@ -82,7 +82,7 @@
                 }
             </div>
             <div class="project-page__actions">
-                <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Project</a>
+                <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Workspace</a>
                 <button class="btn btn-accent" @onclick="RefreshAsync">Refresh live items</button>
                 @if (IsController())
                 {
@@ -552,29 +552,29 @@
 
         if (string.IsNullOrWhiteSpace(_projectSession.CompanionId))
         {
-            return "No controller companion recorded";
+            return "No one is controlling this workspace right now";
         }
 
         return IsController()
             ? "You control this workspace session"
-            : $"View-only while {_projectSession.CompanionId} controls this session";
+            : $"View-only while {_projectSession.CompanionId} controls this workspace";
     }
 
     private string GetViewerSummary()
     {
         if (_projectSession is null)
         {
-            return "No viewers";
+            return "No observers";
         }
 
         return _projectSession.ViewerCompanionIds.Count == 1
-            ? "1 viewer attached"
-            : $"{_projectSession.ViewerCompanionIds.Count} viewers attached";
+            ? "1 observer attached"
+            : $"{_projectSession.ViewerCompanionIds.Count} observers attached";
     }
 
     private string GetLocationLabel() =>
         string.IsNullOrWhiteSpace(_projectSession?.MachineName)
-            ? "Coordinator-managed session"
+            ? "Workspace service session"
             : $"Hosted on {_projectSession.MachineName}";
 
     private static bool HasControlPlaneSignals(CompanionMachineSummary machine) =>

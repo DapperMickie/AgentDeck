@@ -14,7 +14,7 @@
         </div>
         @if (Connections.ConnectedMachineCount == 0)
         {
-            <a class="btn btn-primary" href="/settings#machines">Set up runner</a>
+            <a class="btn btn-primary" href="/settings#machines">Set up machine</a>
         }
         else
         {
@@ -35,7 +35,7 @@
                     }
                     else if (Connections.ConnectedMachineCount == 0)
                     {
-                        <span>Create or connect a runner in Settings to open a terminal.</span>
+                        <span>Create or connect a machine in Settings to open a terminal.</span>
                     }
                     else
                     {
@@ -49,7 +49,7 @@
                     }
                     else if (Connections.ConnectedMachineCount == 0)
                     {
-                        <a class="btn btn-primary" href="/settings#machines">Create or connect a runner</a>
+                        <a class="btn btn-primary" href="/settings#machines">Create or connect a machine</a>
                     }
                     else
                     {

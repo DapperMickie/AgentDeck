@@ -38,7 +38,7 @@
         <div class="page-header project-editor__header">
             <div>
                 <h1>@(_isExistingProject ? "Edit workspace" : "Import workspace")</h1>
-                <p>Paste a repo, pick a template, and only open advanced launch details if you need them.</p>
+                <p>Paste a repo, pick a template, and only open advanced run settings if you need them.</p>
             </div>
             <div class="project-page__actions">
                 @if (_isExistingProject)
@@ -61,7 +61,7 @@
                     <div>
                         <span class="eyebrow">Simple setup</span>
                         <h2>Start with a repository or template</h2>
-                        <p>AgentDeck can fill in the workspace details for you. Advanced IDs and launch commands stay editable below.</p>
+                        <p>AgentDeck can fill in the workspace details for you. Advanced IDs and run commands stay editable below.</p>
                     </div>
                 </div>
                 <div class="project-editor__grid">
@@ -173,7 +173,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Ways to run this workspace</h2>
-                        <p>Most workspaces only need one default run option. Open advanced details to tune commands, devices, or VS Code behavior.</p>
+                        <p>Most workspaces only need one default run option. Open advanced run settings to tune commands, devices, or VS Code behavior.</p>
                     </div>
                     <button class="btn btn-accent" disabled="@_saving" @onclick="AddProfile">Add run option</button>
                 </div>
@@ -205,7 +205,7 @@
                                     </div>
 
                                     <details class="advanced-panel">
-                                        <summary>Advanced launch details</summary>
+                                        <summary>Advanced run settings</summary>
                                         <div class="project-editor__grid">
                                         <div class="form-field">
                                             <label>Run option ID</label>
@@ -256,8 +256,9 @@
                                             <input class="input" @bind="profile.PreferredMachineId" />
                                         </div>
                                         <div class="form-field">
-                                            <label>Default device profile ID</label>
-                                            <input class="input" @bind="profile.DefaultDeviceProfileId" />
+                                            <label>Default device profile</label>
+                                            <input class="input" @bind="profile.DefaultDeviceProfileId" placeholder="Optional emulator/simulator profile ID" />
+                                            <span class="form-hint">Leave blank to let AgentDeck choose from available devices.</span>
                                         </div>
                                         <div class="form-field project-editor__field--full">
                                             <label>Build command</label>
@@ -644,7 +645,7 @@
             .FirstOrDefault(group => group.Count() > 1)?.Key;
         if (!string.IsNullOrWhiteSpace(duplicateProfileId))
         {
-            throw new InvalidOperationException($"Two run options are using the same ID ('{duplicateProfileId}'). Open advanced launch details and make them unique.");
+            throw new InvalidOperationException($"Two run options are using the same ID ('{duplicateProfileId}'). Open advanced run settings and make them unique.");
         }
 
         return new ProjectDefinition
@@ -670,7 +671,7 @@
         var profileId = NormalizeProjectId(editor.Id, editor.DisplayName);
         if (string.IsNullOrWhiteSpace(profileId))
         {
-            throw new InvalidOperationException("Each run option needs a display name. Open advanced launch details if you want to set a custom ID.");
+            throw new InvalidOperationException("Each run option needs a display name. Open advanced run settings if you want to set a custom ID.");
         }
 
         var requiresEmulator = editor.RequiresEmulator;

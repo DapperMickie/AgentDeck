@@ -71,9 +71,9 @@
                 {
                     <div class="empty-state empty-state--actionable">
                         <div class="empty-icon">▣</div>
-                        <h3>No runner machines yet</h3>
-                        <p>Create or connect a runner in Settings, then return here to open this workspace.</p>
-                        <a class="btn btn-primary" href="/settings#machines">Create or connect a runner</a>
+                        <h3>No machines yet</h3>
+                        <p>Create or connect a machine in Settings, then return here to open this workspace.</p>
+                        <a class="btn btn-primary" href="/settings#machines">Create or connect a machine</a>
                     </div>
                 }
                 else
@@ -503,7 +503,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Live sessions</h2>
-                        <p>Each workspace session groups terminals, remote screens, and future VS Code, simulator, or emulator surfaces.</p>
+                        <p>Each workspace session groups terminals, remote screens, and future VS Code, simulator, or emulator tabs.</p>
                     </div>
                 </div>
 
@@ -530,7 +530,7 @@
                                         <h3>@(session.MachineName ?? "Workspace session")</h3>
                                         <p>@GetControllerSummary(session)</p>
                                     </div>
-                                    <span class="machine-badge">@session.Surfaces.Count tabs</span>
+                                    <span class="machine-badge">@session.Surfaces.Count open item(s)</span>
                                 </div>
                                 <p class="project-session-card__meta">@GetProjectSessionMeta(session)</p>
                             </a>
@@ -955,7 +955,7 @@
 
             Toasts.Show(
                 !string.IsNullOrWhiteSpace(session.ConnectionUri)
-                    ? $"Viewer ready: {session.ConnectionUri}"
+                    ? $"Remote screen ready: {session.ConnectionUri}"
                     : session.StatusMessage ?? $"Opened desktop remote screen on {machine.MachineName}.",
                 session.Status == RemoteViewerSessionStatus.Ready ? ToastKind.Success : ToastKind.Info);
             await LoadAsync();
@@ -1274,10 +1274,10 @@
 
     private string GetControllerSummary(ProjectSessionRecord session) =>
         string.IsNullOrWhiteSpace(session.CompanionId)
-            ? "No controller companion recorded"
+            ? "No one is controlling this workspace right now"
             : IsCurrentCompanionController(session)
-                ? "You control this session"
-                : $"Controller {session.CompanionId}";
+                ? "You control this workspace"
+                : $"Controlled by {session.CompanionId}";
 
     private string GetProjectSessionMeta(ProjectSessionRecord session)
     {
@@ -1430,7 +1430,7 @@
 
         if (machine.UpdateRollout is { State: RunnerUpdateRolloutState.Failed })
         {
-            return "The runner update last failed on this machine.";
+            return "The machine update last failed.";
         }
 
         return null;
@@ -1550,12 +1550,12 @@
 
         if (string.IsNullOrWhiteSpace(session.CompanionId))
         {
-            return $"Live session {GetShortId(session.Id)} exists on this machine, but no controller companion is currently recorded.";
+            return $"Live workspace {GetShortId(session.Id)} exists on this machine, but no one is controlling it right now.";
         }
 
         return IsCurrentCompanionController(session)
-            ? $"You control live session {GetShortId(session.Id)} on this machine."
-            : $"View-only while {session.CompanionId} controls live session {GetShortId(session.Id)} on this machine.";
+            ? $"You control live workspace {GetShortId(session.Id)} on this machine."
+            : $"View-only while {session.CompanionId} controls live workspace {GetShortId(session.Id)} on this machine.";
     }
 
     private ProjectSessionRecord? GetLatestProjectSessionForMachine(string? machineId) =>
@@ -1608,9 +1608,9 @@
 
     private static string GetPlatformLabel(RunnerHostPlatform platform) => platform switch
     {
-        RunnerHostPlatform.Windows => "Windows worker",
-        RunnerHostPlatform.Linux => "Linux worker",
-        RunnerHostPlatform.MacOS => "macOS worker",
+        RunnerHostPlatform.Windows => "Windows machine",
+        RunnerHostPlatform.Linux => "Linux machine",
+        RunnerHostPlatform.MacOS => "macOS machine",
         _ => "Unknown platform"
     };
 
