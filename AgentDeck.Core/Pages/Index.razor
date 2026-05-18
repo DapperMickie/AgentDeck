@@ -8,32 +8,58 @@
 <div class="workspace-dashboard">
     <div class="page-header workspace-dashboard__header">
         <div>
-            <h1>Projects</h1>
-            <p>Track runner readiness, open projects on workers, and reopen live project sessions through Project Links without mixing them into standalone terminals.</p>
+            <h1>Welcome to AgentDeck</h1>
+            <p>Connect a workspace, make sure you have somewhere to run it, then jump back into the last thing you were doing.</p>
         </div>
     </div>
 
     <div class="workspace-dashboard__content">
+        <section class="setup-checklist" aria-label="Setup checklist">
+            <article class="setup-checklist__intro">
+                <span class="eyebrow">Next best step</span>
+                <h2>@GetNextActionTitle()</h2>
+                <p>@GetNextActionDescription()</p>
+                <div class="setup-checklist__actions">
+                    <a class="btn btn-primary" href="@GetNextActionHref()">@GetNextActionLabel()</a>
+                    @if (_dashboard.ProjectSessions.Count > 0)
+                    {
+                        var recentSession = _dashboard.ProjectSessions.OrderByDescending(session => session.UpdatedAt).First();
+                        <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(recentSession.ProjectId)">Resume last workspace</a>
+                    }
+                </div>
+            </article>
+            <div class="setup-checklist__steps">
+                @foreach (var step in GetSetupSteps())
+                {
+                    <article class="setup-step setup-step--@step.StateClass">
+                        <span class="setup-step__status">@step.StatusLabel</span>
+                        <strong>@step.Title</strong>
+                        <p>@step.Description</p>
+                    </article>
+                }
+            </div>
+        </section>
+
         <section class="dashboard-summary-grid">
             <article class="dashboard-summary-card">
-                <span class="dashboard-summary-card__label">Coordinator</span>
+                <span class="dashboard-summary-card__label">Connection</span>
                 <strong>@GetCoordinatorSummary()</strong>
                 <span class="dashboard-summary-card__subtext">@GetCoordinatorSubtext()</span>
             </article>
             <article class="dashboard-summary-card">
-                <span class="dashboard-summary-card__label">Machines</span>
+                <span class="dashboard-summary-card__label">Your machines</span>
                 <strong>@_dashboard.Machines.Count</strong>
                 <span class="dashboard-summary-card__subtext">@GetMachineSummary()</span>
             </article>
             <article class="dashboard-summary-card">
-                <span class="dashboard-summary-card__label">Project sessions</span>
+                <span class="dashboard-summary-card__label">Open workspaces</span>
                 <strong>@_dashboard.ProjectSessions.Count</strong>
-                <span class="dashboard-summary-card__subtext">Live sessions modeled separately from terminal-only routing</span>
+                <span class="dashboard-summary-card__subtext">Things you can resume right now</span>
             </article>
             <article class="dashboard-summary-card">
-                <span class="dashboard-summary-card__label">Active terminals</span>
+                <span class="dashboard-summary-card__label">Terminals</span>
                 <strong>@GetStandaloneTerminalCount()</strong>
-                <span class="dashboard-summary-card__subtext">Standalone sessions visible through dedicated terminal pages</span>
+                <span class="dashboard-summary-card__subtext">Standalone shell sessions</span>
             </article>
         </section>
 
@@ -56,14 +82,19 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Machine readiness</h2>
-                        <p>Coordinator-discovered runners and the targets they can currently host.</p>
+                        <h2>Your machines</h2>
+                        <p>Where AgentDeck can run projects right now, with plain-language setup blockers.</p>
                     </div>
                 </div>
 
                 @if (_dashboard.Machines.Count == 0)
                 {
-                    <p>No worker machines are currently visible through the coordinator.</p>
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">▣</div>
+                        <h3>No machines yet</h3>
+                        <p>Create a runner from Settings, or start one with the quickstart command in the README.</p>
+                        <a class="btn btn-primary" href="/settings">Create or connect a runner</a>
+                    </div>
                 }
                 else
                 {
@@ -77,20 +108,12 @@
                                         <p>@GetPlatformLabel(machine.HostPlatform)</p>
                                     </div>
                                     <span class="machine-state machine-state--@(machine.IsOnline ? "connected" : "disconnected")">
-                                        @(machine.IsOnline ? "Online" : "Offline")
+                                        @GetMachineHealthLabel(machine)
                                     </span>
                                 </div>
                                 <p class="project-machine-card__meta">
-                                    Agent @machine.AgentVersion
+                                    @GetMachineReadinessSummary(machine)
                                     <span>• last seen @machine.LastSeenAt.ToLocalTime().ToString("g")</span>
-                                    @if (machine.IsConnected)
-                                    {
-                                        <span>• companion connected</span>
-                                    }
-                                    @if (!string.IsNullOrWhiteSpace(machine.SecurityPolicyVersion))
-                                    {
-                                        <span>• security @machine.SecurityPolicyVersion</span>
-                                    }
                                 </p>
                                 @if (HasControlPlaneSignals(machine))
                                 {
@@ -143,15 +166,20 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Projects</h2>
-                        <p>Open a project page to choose a machine, inspect workspaces, and jump into its live sessions.</p>
+                        <h2>Workspaces</h2>
+                        <p>Import a repo, choose where it should run, and open a terminal or app surface.</p>
                     </div>
-                    <a class="btn btn-primary" href="/projects/new">New project</a>
+                    <a class="btn btn-primary" href="/projects/new">Import or create workspace</a>
                 </div>
 
                 @if (_dashboard.Projects.Count == 0)
                 {
-                    <p>No coordinator-managed projects are registered yet.</p>
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">＋</div>
+                        <h3>No workspaces yet</h3>
+                        <p>Paste a GitHub URL or start from a template. Advanced project fields can wait.</p>
+                        <a class="btn btn-primary" href="/projects/new">Create your first workspace</a>
+                    </div>
                 }
                 else
                 {
@@ -205,8 +233,8 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Viewer surfaces</h2>
-                        <p>Viewer experiences are still modeled separately from terminals so remote windows, emulators, simulators, and VS Code can surface independently.</p>
+                        <h2>Things AgentDeck can open</h2>
+                        <p>Terminals, desktops, app windows, VS Code, emulators, simulators, logs, and job output appear here when machines support them.</p>
                     </div>
                 </div>
 
@@ -249,6 +277,105 @@
         string.IsNullOrWhiteSpace(session.CompanionId)
             ? "No controller companion recorded"
             : $"Controller {session.CompanionId}";
+
+    private IEnumerable<SetupStep> GetSetupSteps()
+    {
+        yield return new SetupStep(
+            "Connect",
+            _dashboard.CoordinatorReachable ? "Done" : _dashboard.CoordinatorConfigured ? "Fix" : "Start",
+            _dashboard.CoordinatorReachable ? "Coordinator is reachable." : "Connect to a coordinator so AgentDeck can load projects and machines.",
+            _dashboard.CoordinatorReachable ? "complete" : "todo");
+        yield return new SetupStep(
+            "Create a runner",
+            _dashboard.Machines.Any(machine => machine.IsOnline) ? "Done" : "Next",
+            _dashboard.Machines.Any(machine => machine.IsOnline) ? "At least one machine is online." : "Create or connect somewhere for projects to run.",
+            _dashboard.Machines.Any(machine => machine.IsOnline) ? "complete" : "todo");
+        yield return new SetupStep(
+            "Verify tools",
+            _dashboard.Machines.Any(machine => machine.SupportedTargets.Any(target => target.Status == MachineTargetSupportStatus.Supported)) ? "Done" : "Check",
+            "AgentDeck will call out missing tools before you open a workspace.",
+            _dashboard.Machines.Any(machine => machine.SupportedTargets.Any(target => target.Status == MachineTargetSupportStatus.Supported)) ? "complete" : "todo");
+        yield return new SetupStep(
+            "Open a workspace",
+            _dashboard.Projects.Count > 0 ? "Done" : "Next",
+            _dashboard.Projects.Count > 0 ? "Projects are ready to open." : "Import a repo or start from a template.",
+            _dashboard.Projects.Count > 0 ? "complete" : "todo");
+    }
+
+    private string GetNextActionTitle()
+    {
+        if (!_dashboard.CoordinatorReachable)
+        {
+            return _dashboard.CoordinatorConfigured ? "Fix the connection" : "Connect AgentDeck";
+        }
+
+        if (!_dashboard.Machines.Any(machine => machine.IsOnline))
+        {
+            return "Create your first runner";
+        }
+
+        return _dashboard.Projects.Count == 0 ? "Import your first workspace" : "Resume or open a workspace";
+    }
+
+    private string GetNextActionDescription()
+    {
+        if (!_dashboard.CoordinatorReachable)
+        {
+            return _dashboard.CoordinatorConfigured
+                ? "The saved coordinator URL did not respond. Check the URL or start the coordinator."
+                : "Add the coordinator URL once, then AgentDeck can discover runners and projects for you.";
+        }
+
+        if (!_dashboard.Machines.Any(machine => machine.IsOnline))
+        {
+            return "Use the runner templates in Settings to create capacity, or connect an existing runner. No raw IDs required.";
+        }
+
+        return _dashboard.Projects.Count == 0
+            ? "Paste a GitHub URL or choose a template. You can keep advanced launch profile details collapsed."
+            : "Pick up where you left off or open a project on a ready machine.";
+    }
+
+    private string GetNextActionHref() =>
+        !_dashboard.CoordinatorReachable || !_dashboard.Machines.Any(machine => machine.IsOnline)
+            ? "/settings"
+            : _dashboard.Projects.Count == 0 ? "/projects/new" : "/";
+
+    private string GetNextActionLabel() =>
+        !_dashboard.CoordinatorReachable ? "Open connection setup" :
+        !_dashboard.Machines.Any(machine => machine.IsOnline) ? "Create or connect a runner" :
+        _dashboard.Projects.Count == 0 ? "Import workspace" : "View workspaces";
+
+    private static string GetMachineHealthLabel(CompanionMachineSummary machine)
+    {
+        if (!machine.IsOnline)
+        {
+            return "Offline";
+        }
+
+        return machine.SupportedTargets.Any(target => target.Status == MachineTargetSupportStatus.Supported)
+            ? "Ready"
+            : "Needs setup";
+    }
+
+    private static string GetMachineReadinessSummary(CompanionMachineSummary machine)
+    {
+        if (!machine.IsOnline)
+        {
+            return "This machine is not currently reachable";
+        }
+
+        var readyTargets = machine.SupportedTargets.Count(target => target.Status == MachineTargetSupportStatus.Supported);
+        var setupTargets = machine.SupportedTargets.Count(target => target.Status == MachineTargetSupportStatus.RequiresSetup);
+        if (readyTargets > 0)
+        {
+            return setupTargets > 0
+                ? $"Ready for {readyTargets} target(s); {setupTargets} need tools"
+                : $"Ready for {readyTargets} target(s)";
+        }
+
+        return setupTargets > 0 ? "Tools need setup before this machine can run projects" : "No supported project targets advertised yet";
+    }
 
     private static string GetProjectSessionLocationLabel(ProjectSessionRecord session) =>
         string.IsNullOrWhiteSpace(session.MachineName)
@@ -424,6 +551,8 @@
 
     private void OnSettingsChanged(object? sender, ConnectionSettings settings) =>
         _ = RefreshDashboardAsync();
+
+    private sealed record SetupStep(string Title, string StatusLabel, string Description, string StateClass);
 
     public async ValueTask DisposeAsync()
     {

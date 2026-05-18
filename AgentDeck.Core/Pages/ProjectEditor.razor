@@ -37,8 +37,8 @@
     {
         <div class="page-header project-editor__header">
             <div>
-                <h1>@(_isExistingProject ? "Edit project" : "New project")</h1>
-                <p>Manage coordinator-backed project metadata and launch profiles without dropping to manual API calls.</p>
+                <h1>@(_isExistingProject ? "Edit workspace" : "Import workspace")</h1>
+                <p>Paste a repo, pick a template, and only open advanced launch details if you need them.</p>
             </div>
             <div class="project-page__actions">
                 @if (_isExistingProject)
@@ -56,21 +56,55 @@
         </div>
 
         <div class="project-editor__content">
+            <section class="dashboard-section-card setup-wizard-card">
+                <div class="dashboard-section-card__header">
+                    <div>
+                        <span class="eyebrow">Simple setup</span>
+                        <h2>Start with a repository or template</h2>
+                        <p>AgentDeck can fill in the raw project fields for you. Advanced IDs and launch commands stay editable below.</p>
+                    </div>
+                </div>
+                <div class="project-editor__grid">
+                    <div class="form-field project-editor__field--full">
+                        <label for="quick-repo-url">GitHub or Git repository URL</label>
+                        <div class="inline-action-field">
+                            <input id="quick-repo-url" class="input" @bind="_quickRepositoryUrl" placeholder="https://github.com/owner/repo" />
+                            <button class="btn btn-primary" type="button" @onclick="ApplyRepositoryUrl">Use repo</button>
+                        </div>
+                        <span class="form-hint">Supports GitHub HTTPS, SSH, and owner/repo shorthand.</span>
+                    </div>
+                </div>
+                <div class="project-template-grid project-template-grid--compact">
+                    @foreach (var template in SimpleTemplates)
+                    {
+                        <button type="button" class="project-template-card project-template-card--button" @onclick="() => ApplySimpleTemplate(template)">
+                            <div class="project-template-card__header">
+                                <div>
+                                    <h3>@template.Name</h3>
+                                    <p>@template.Description</p>
+                                </div>
+                                <span class="machine-badge">@template.Workload</span>
+                            </div>
+                        </button>
+                    }
+                </div>
+            </section>
+
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Project basics</h2>
-                        <p>These values become the coordinator-managed project record that the dashboard and project pages consume.</p>
+                        <h2>Workspace basics</h2>
+                        <p>Name the workspace and choose the broad app type. AgentDeck uses this to recommend machines and tools.</p>
                     </div>
                 </div>
 
                 <div class="project-editor__grid">
                     <div class="form-field">
-                        <label for="project-id">Project ID</label>
+                        <label for="project-id">Workspace ID</label>
                         <input id="project-id" class="input" @bind="_editor.ProjectId" disabled="@_isExistingProject" />
                     </div>
                     <div class="form-field">
-                        <label for="project-name">Project name</label>
+                        <label for="project-name">Workspace name</label>
                         <input id="project-name" class="input" @bind="_editor.Name" />
                     </div>
                     <div class="form-field">
@@ -92,8 +126,8 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Repository</h2>
-                        <p>Leave the repository URL empty for a blank workspace bootstrap; set it to clone the repo automatically when the project is opened on a machine.</p>
+                        <h2>Source</h2>
+                        <p>Leave the repository URL empty for a blank workspace; set it to clone automatically when opened on a machine.</p>
                     </div>
                 </div>
 
@@ -116,8 +150,8 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Launch profiles</h2>
-                        <p>Add, edit, or delete the exact run/debug profiles the coordinator should expose for this project.</p>
+                        <h2>Ways to run this workspace</h2>
+                        <p>Most projects only need one default run profile. Open advanced details to tune commands, devices, or VS Code behavior.</p>
                     </div>
                     <button class="btn btn-accent" disabled="@_saving" @onclick="AddProfile">Add launch profile</button>
                 </div>
@@ -143,7 +177,9 @@
                                         <button class="btn btn-danger" disabled="@_saving" @onclick="() => RemoveProfile(profileIndex)">Delete profile</button>
                                     </div>
 
-                                    <div class="project-editor__grid">
+                                    <details class="advanced-panel">
+                                        <summary>Advanced launch details</summary>
+                                        <div class="project-editor__grid">
                                         <div class="form-field">
                                             <label>Profile ID</label>
                                             <input class="input" @bind="profile.Id" />
@@ -228,20 +264,21 @@
                                         </div>
                                     </div>
 
-                                    <div class="project-editor__toggles">
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" @bind="profile.RequiresVsCode" />
-                                            <span>Requires VS Code viewer</span>
-                                        </label>
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" @bind="profile.RequiresEmulator" />
-                                            <span>Requires emulator</span>
-                                        </label>
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" @bind="profile.RequiresSimulator" />
-                                            <span>Requires simulator</span>
-                                        </label>
-                                    </div>
+                                        <div class="project-editor__toggles">
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" @bind="profile.RequiresVsCode" />
+                                                <span>Requires VS Code viewer</span>
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" @bind="profile.RequiresEmulator" />
+                                                <span>Requires emulator</span>
+                                            </label>
+                                            <label class="checkbox-label">
+                                                <input type="checkbox" @bind="profile.RequiresSimulator" />
+                                                <span>Requires simulator</span>
+                                            </label>
+                                        </div>
+                                    </details>
                                 </div>
                             </article>
                         }
@@ -289,12 +326,19 @@
     private static readonly ProjectLaunchDriver[] LaunchDriverOptions = Enum.GetValues<ProjectLaunchDriver>();
     private static readonly RunnerMachineRole[] MachineRoleOptions = Enum.GetValues<RunnerMachineRole>();
     private static readonly VirtualDeviceCatalogKind[] DeviceCatalogOptions = Enum.GetValues<VirtualDeviceCatalogKind>();
+    private static readonly SimpleProjectTemplate[] SimpleTemplates =
+    [
+        new("Blazor app", "Web app with a browser-friendly run profile", ProjectWorkloadKind.Blazor, "dotnet build", "dotnet run"),
+        new(".NET MAUI app", "Mobile/desktop app with simulator and device targets", ProjectWorkloadKind.Maui, "dotnet build", "dotnet build"),
+        new("Blank workspace", "Start with a generic shell and fill commands later", ProjectWorkloadKind.Blazor, "echo Ready", null)
+    ];
 
     private bool _loading = true;
     private bool _saving;
     private bool _projectNotFound;
     private bool _isExistingProject;
     private string? _coordinatorUrl;
+    private string _quickRepositoryUrl = string.Empty;
     private ProjectEditorModel _editor = ProjectEditorModel.CreateDefault();
     private IReadOnlyList<ProjectTargetDefinition> _existingTargets = [];
 
@@ -356,6 +400,70 @@
     private void AddProfile()
     {
         _editor.LaunchProfiles.Add(ProjectLaunchProfileEditor.CreateDefault(_editor.Workload, _editor.LaunchProfiles.Count + 1));
+    }
+
+    private void ApplyRepositoryUrl()
+    {
+        var parsed = ParseRepositoryInput(_quickRepositoryUrl);
+        if (parsed is null)
+        {
+            Toasts.Show("Paste a GitHub URL, git URL, or owner/repo shorthand.", ToastKind.Warning);
+            return;
+        }
+
+        _editor.RepositoryUrl = parsed.Value.Url;
+        _editor.RepositoryOwner = parsed.Value.Owner;
+        _editor.RepositoryName = parsed.Value.Name;
+        if (string.IsNullOrWhiteSpace(_editor.Name) || _editor.Name == "New Project")
+        {
+            _editor.Name = ToDisplayName(parsed.Value.Name);
+        }
+
+        if (string.IsNullOrWhiteSpace(_editor.ProjectId))
+        {
+            _editor.ProjectId = NormalizeProjectId(parsed.Value.Name, parsed.Value.Name);
+        }
+
+        Toasts.Show("Repository details filled in.", ToastKind.Success);
+    }
+
+    private void ApplySimpleTemplate(SimpleProjectTemplate template)
+    {
+        var projectName = string.IsNullOrWhiteSpace(_editor.Name) || _editor.Name == "New Project"
+            ? template.Name
+            : _editor.Name;
+        var definition = ProjectTemplateCatalog.CreateDefault(template.Workload, projectName);
+        _editor.Workload = definition.Workload;
+        _editor.Name = projectName;
+        if (string.IsNullOrWhiteSpace(_editor.ProjectId))
+        {
+            _editor.ProjectId = NormalizeProjectId(projectName, projectName);
+        }
+
+        _existingTargets = definition.Targets;
+        _editor.LaunchProfiles = definition.LaunchProfiles
+            .Select(ProjectLaunchProfileEditor.FromDefinition)
+            .ToList();
+        if (_editor.LaunchProfiles.Count == 0)
+        {
+            _editor.LaunchProfiles.Add(new ProjectLaunchProfileEditor
+            {
+                Id = NormalizeProjectId(template.Name, template.Name),
+                DisplayName = template.Name,
+                Platform = template.Workload == ProjectWorkloadKind.Maui ? ApplicationTargetPlatform.Android : ApplicationTargetPlatform.Linux,
+                Mode = ProjectLaunchMode.Run,
+                BuildCommand = template.BuildCommand,
+                LaunchCommand = template.LaunchCommand
+            });
+        }
+
+        foreach (var profile in _editor.LaunchProfiles)
+        {
+            profile.BuildCommand = template.BuildCommand;
+            profile.LaunchCommand ??= template.LaunchCommand;
+        }
+
+        Toasts.Show($"Applied {template.Name} template.", ToastKind.Success);
     }
 
     private void RemoveProfile(int index)
@@ -521,6 +629,46 @@
     private static string? NormalizeText(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    private static RepositoryParseResult? ParseRepositoryInput(string? input)
+    {
+        var value = NormalizeText(input);
+        if (value is null)
+        {
+            return null;
+        }
+
+        var shorthand = System.Text.RegularExpressions.Regex.Match(value, @"^(?<owner>[A-Za-z0-9_.-]+)/(?<name>[A-Za-z0-9_.-]+?)(?:\.git)?$");
+        if (shorthand.Success)
+        {
+            var owner = shorthand.Groups["owner"].Value;
+            var name = shorthand.Groups["name"].Value;
+            return new RepositoryParseResult(owner, name, $"https://github.com/{owner}/{name}");
+        }
+
+        var ssh = System.Text.RegularExpressions.Regex.Match(value, @"git@[^:]+:(?<owner>[A-Za-z0-9_.-]+)/(?<name>[A-Za-z0-9_.-]+?)(?:\.git)?$");
+        if (ssh.Success)
+        {
+            return new RepositoryParseResult(ssh.Groups["owner"].Value, ssh.Groups["name"].Value, value);
+        }
+
+        if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length >= 2)
+            {
+                var name = segments[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase)
+                    ? segments[1][..^4]
+                    : segments[1];
+                return new RepositoryParseResult(segments[0], name, value);
+            }
+        }
+
+        return null;
+    }
+
+    private static string ToDisplayName(string value) =>
+        System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(value.Replace('-', ' ').Replace('_', ' '));
+
     private static string NormalizeProjectId(string? id, string? fallbackName)
     {
         var source = NormalizeText(id) ?? NormalizeText(fallbackName);
@@ -547,6 +695,10 @@
 
         return builder.ToString().Trim('-');
     }
+
+    private readonly record struct SimpleProjectTemplate(string Name, string Description, ProjectWorkloadKind Workload, string BuildCommand, string? LaunchCommand);
+
+    private readonly record struct RepositoryParseResult(string Owner, string Name, string Url);
 
     private sealed class ProjectEditorModel
     {
