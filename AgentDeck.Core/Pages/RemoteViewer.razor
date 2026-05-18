@@ -139,7 +139,7 @@
                         <dd>@(ViewerClient.LastInputActivity ?? "No input dispatched yet.")</dd>
                     </div>
                     <div>
-                        <dt>Viewer status</dt>
+                        <dt>Remote-screen status</dt>
                         <dd>@(_lastInteropStatus ?? "Waiting for the screen to report readiness.")</dd>
                     </div>
                 </dl>
@@ -437,7 +437,7 @@
 
         if (!ViewerClient.SupportsInAppViewer)
         {
-            return "This remote screen is not using the managed transport required for in-app viewing.";
+            return "This remote screen is not using the managed connection required for in-app viewing.";
         }
 
         return ViewerClient.StatusMessage;
@@ -459,11 +459,11 @@
         {
             return ViewerClient.CanSendInput
                 ? "You can interact with this remote screen."
-                : "This remote screen is currently view-only.";
+                : "This remote screen is currently view-only. Take control when you need to interact.";
         }
 
         var controllerLabel = string.IsNullOrWhiteSpace(state.ControllerDisplayName)
-            ? "Another companion"
+            ? "Another user"
             : state.ControllerDisplayName;
 
         if (string.Equals(state.ViewerSessionId, ViewerClient.CurrentSession.Id, StringComparison.OrdinalIgnoreCase))
@@ -475,8 +475,8 @@
 
         var activeTarget = state.TargetDisplayName ?? state.TargetKind.ToString();
         return IsCurrentRemoteController(state)
-            ? $"You currently control {activeTarget} on this machine. Input here is allowed, and Take control will switch the active remote target."
-            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this remote screen requires force takeover.";
+            ? $"You currently control {activeTarget} on this machine. Input here is allowed, and Take control will switch the active remote screen."
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Taking this remote screen requires force takeover.";
     }
 
     private async Task RunBusyAsync(Func<Task> action)

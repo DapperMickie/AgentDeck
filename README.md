@@ -1,6 +1,6 @@
 # AgentDeck
 
-AgentDeck is a private local-network app for running AI-assisted development workflows across the machines you already own. Start one AgentDeck service, connect one or more runner machines, then use the companion app to choose workspaces, discover machine capabilities, launch terminals or app/debug workflows, and open managed remote screens without manually juggling per-machine endpoints.
+AgentDeck is a private local-network app for running AI-assisted development workflows across the machines you already own. Start one AgentDeck service, connect one or more machines, then use the companion app to choose workspaces, discover what each machine can do, launch terminals or app/debug workflows, and open managed remote screens without manually juggling per-machine endpoints.
 
 ---
 
@@ -8,11 +8,11 @@ AgentDeck is a private local-network app for running AI-assisted development wor
 
 AgentDeck is being built to make it easy to:
 - connect multiple local machines into one developer workspace
-- discover what each machine can run, including CLIs, SDKs, IDEs, emulators/simulators, and remote-screen transports
-- open a project on the best available runner for the requested workflow
+- discover what each machine can run, including CLIs, SDKs, IDEs, emulators/simulators, and remote-screen options
+- open a workspace on the best available machine for the requested workflow
 - launch terminals, app/debug workflows, and managed remote screens from one UI
-- keep runner tools, setup catalogs, and runner updates coordinated from the local AgentDeck service
-- support collaboration where one companion controls a session while other companions can observe or request control
+- keep machine tools, setup catalogs, and updates coordinated from the local AgentDeck service
+- support collaboration where one user controls a session while others can observe or request control
 
 ## Non-goals for Now
 
@@ -62,9 +62,9 @@ A .NET MAUI + Blazor WebView shell plus shared Core UI that:
 | Project | Framework | Purpose |
 |---------|-----------|---------|
 | `AgentDeck` | .NET MAUI 10 | Companion app shell (all platforms) |
-| `AgentDeck.Coordinator` | ASP.NET Core 10 | Central coordinator API |
+| `AgentDeck.Coordinator` | ASP.NET Core 10 | Local AgentDeck service API |
 | `AgentDeck.Core` | Blazor Razor Library | Shared UI pages and services |
-| `AgentDeck.Runner` | ASP.NET Core 10 | Worker runner agent |
+| `AgentDeck.Runner` | ASP.NET Core 10 | Machine agent for terminals, setup, and remote screens |
 | `AgentDeck.Shared` | .NET 10 | Shared contracts, models, hub interfaces |
 
 ---
@@ -82,7 +82,7 @@ From a fresh checkout, the fastest reliable path is:
    dotnet run --project AgentDeck.Coordinator/AgentDeck.Coordinator.csproj
    ```
 
-2. In a second terminal, start a Linux runner and point it at that service. Registration uses .NET configuration environment keys with double underscores:
+2. In a second terminal, start a Linux machine agent and point it at that service. Registration uses .NET configuration environment keys with double underscores:
 
    ```bash
    Coordinator__CoordinatorUrl=http://localhost:5001 \
@@ -91,7 +91,7 @@ From a fresh checkout, the fastest reliable path is:
    dotnet run --project AgentDeck.Runner/AgentDeck.Runner.csproj
    ```
 
-3. Run the companion for your platform and paste the AgentDeck service URL in **Settings → Connection**.
+3. Run the companion app for your platform and paste the AgentDeck service URL in **Settings → Connection**.
 
 Use `http://localhost:5001` only when the companion is running on the same machine as the service. For a phone, tablet, VM, or another laptop, paste a LAN-reachable host name or IP address such as `http://192.168.1.25:5001`.
 
@@ -104,7 +104,7 @@ dotnet build AgentDeck/AgentDeck.csproj -f net10.0 --no-restore
 dotnet test AgentDeck.Runner.Tests/AgentDeck.Runner.Tests.csproj --no-build
 ```
 
-A full solution build on Linux also targets Android; install the Android SDK or build a specific framework if you only want the desktop companion.
+A full solution build on Linux also targets Android; install the Android SDK or build a specific framework if you only want the desktop companion app.
 
 ### Running the Coordinator API
 
@@ -133,7 +133,7 @@ Use these environment variables to override runtime defaults:
 - `AGENTDECK_COORDINATOR_ACCESS_KEY` sets the optional shared key used when the runner talks to a protected coordinator
 - `AGENTDECK_DEFAULT_SHELL` sets the default shell command
 
-The companion now starts with an empty coordinator URL plus auto-connect disabled by default. Configure a network-reachable coordinator explicitly instead of assuming `localhost`, which is only valid when the coordinator is actually running on the same device as the client. If the coordinator uses an access key, enter the same key in Settings so companion HTTP and hub calls include `X-AgentDeck-Access-Key`.
+The companion app now starts with an empty AgentDeck service URL plus auto-connect disabled by default. Configure a network-reachable service explicitly instead of assuming `localhost`, which is only valid when the service is actually running on the same device as the app. If the service uses an access key, enter the same key in Settings so app HTTP and hub calls include `X-AgentDeck-Access-Key`.
 
 ### Running the Runner in Docker (Linux)
 
