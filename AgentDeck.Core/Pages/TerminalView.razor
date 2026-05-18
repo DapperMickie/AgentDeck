@@ -107,7 +107,7 @@
             return "Dedicated terminal view";
         }
 
-        var machineLabel = string.IsNullOrWhiteSpace(_session.MachineName) ? "runner" : _session.MachineName;
+        var machineLabel = string.IsNullOrWhiteSpace(_session.MachineName) ? "machine" : _session.MachineName;
         return $"Connected to {machineLabel} • {_session.Status}";
     }
 

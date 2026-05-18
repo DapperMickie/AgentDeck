@@ -92,8 +92,8 @@
                     <div class="empty-state empty-state--actionable">
                         <div class="empty-icon">▣</div>
                         <h3>No machines yet</h3>
-                        <p>Create a runner from Settings, or start one with the quickstart command in the README.</p>
-                        <a class="btn btn-primary" href="/settings">Create or connect a runner</a>
+                        <p>Create or connect a machine from Settings, or start one with the quickstart command in the README.</p>
+                        <a class="btn btn-primary" href="/settings">Create or connect a machine</a>
                     </div>
                 }
                 else
@@ -287,8 +287,8 @@
 
     private string GetProjectSessionControllerLabel(ProjectSessionRecord session) =>
         string.IsNullOrWhiteSpace(session.CompanionId)
-            ? "No controller companion recorded"
-            : $"Controller {session.CompanionId}";
+            ? "No active controller recorded"
+            : $"Controlled by {session.CompanionId}";
 
     private IEnumerable<SetupStep> GetSetupSteps()
     {
@@ -298,9 +298,9 @@
             _dashboard.CoordinatorReachable ? "AgentDeck is connected." : "Connect AgentDeck so it can load workspaces and machines.",
             _dashboard.CoordinatorReachable ? "complete" : "todo");
         yield return new SetupStep(
-            "Create a runner",
+            "Create a machine",
             _dashboard.Machines.Any(machine => machine.IsOnline) ? "Done" : "Next",
-            _dashboard.Machines.Any(machine => machine.IsOnline) ? "At least one machine is online." : "Create or connect somewhere for projects to run.",
+            _dashboard.Machines.Any(machine => machine.IsOnline) ? "At least one machine is online." : "Create or connect a machine for workspaces to run.",
             _dashboard.Machines.Any(machine => machine.IsOnline) ? "complete" : "todo");
         yield return new SetupStep(
             "Verify tools",
@@ -323,7 +323,7 @@
 
         if (!_dashboard.Machines.Any(machine => machine.IsOnline))
         {
-            return "Create your first runner";
+            return "Create your first machine";
         }
 
         return _dashboard.Projects.Count == 0 ? "Import your first workspace" : "Resume or open a workspace";
@@ -340,7 +340,7 @@
 
         if (!_dashboard.Machines.Any(machine => machine.IsOnline))
         {
-            return "Use the runner templates in Settings to create capacity, or connect an existing runner. No raw IDs required.";
+            return "Use the machine templates in Settings to create capacity, or connect an existing machine. No raw IDs required.";
         }
 
         return _dashboard.Projects.Count == 0
@@ -355,7 +355,7 @@
 
     private string GetNextActionLabel() =>
         !_dashboard.CoordinatorReachable ? "Open connection setup" :
-        !_dashboard.Machines.Any(machine => machine.IsOnline) ? "Create or connect a runner" :
+        !_dashboard.Machines.Any(machine => machine.IsOnline) ? "Create or connect a machine" :
         _dashboard.Projects.Count == 0 ? "Import workspace" : "View workspaces";
 
     private static string GetMachineHealthLabel(CompanionMachineSummary machine)
@@ -386,12 +386,12 @@
                 : $"Ready for {readyTargets} target(s)";
         }
 
-        return setupTargets > 0 ? "Tools need setup before this machine can run projects" : "No supported project targets advertised yet";
+        return setupTargets > 0 ? "Tools need setup before this machine can open workspaces" : "No supported workspace targets advertised yet";
     }
 
     private static string GetProjectSessionLocationLabel(ProjectSessionRecord session) =>
         string.IsNullOrWhiteSpace(session.MachineName)
-            ? "Coordinator-managed session"
+            ? "Workspace service session"
             : $"Hosted on {session.MachineName}";
 
     private string GetCoordinatorSummary()
