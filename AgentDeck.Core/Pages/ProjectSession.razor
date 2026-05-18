@@ -184,7 +184,7 @@
                             @if (_activeSurface.Job is not null)
                             {
                                 <div>
-                                    <dt>Runtime job</dt>
+                                    <dt>Run/debug work</dt>
                                     <dd>@GetJobSummary(_activeSurface.Job)</dd>
                                 </div>
                                 @if (_activeSurface.Job.DeviceSelection is not null)
@@ -198,7 +198,7 @@
                             @if (_activeSurface.Viewer is not null)
                             {
                                 <div>
-                                    <dt>Viewer</dt>
+                                    <dt>Remote screen</dt>
                                     <dd>@GetViewerSummary(_activeSurface.Viewer)</dd>
                                 </div>
                                 @if (GetActiveViewerControlNotice() is { } viewerControlNotice)
@@ -1015,8 +1015,8 @@
             return null;
         }
 
-        var controllerLabel = _remoteControlState.ControllerDisplayName ?? _remoteControlState.ControllerCompanionId;
-        var activeTarget = _remoteControlState.TargetDisplayName ?? "another viewer";
+        var controllerLabel = string.IsNullOrWhiteSpace(_remoteControlState.ControllerDisplayName) ? "Another user" : _remoteControlState.ControllerDisplayName;
+        var activeTarget = _remoteControlState.TargetDisplayName ?? "another remote screen";
         if (string.Equals(_remoteControlState.ViewerSessionId, _activeSurface.Viewer.Id, StringComparison.OrdinalIgnoreCase))
         {
             return IsActiveViewerControlledByCurrentCompanion()
@@ -1025,8 +1025,8 @@
         }
 
         return IsCurrentRemoteController(_remoteControlState)
-            ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote target."
-            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this remote screen requires force takeover.";
+            ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote screen."
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Taking this remote screen requires force takeover.";
     }
 
     private bool CanControlActiveViewer() =>

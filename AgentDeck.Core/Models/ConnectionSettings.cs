@@ -2,16 +2,16 @@ using AgentDeck.Shared.Enums;
 
 namespace AgentDeck.Core.Models;
 
-/// <summary>User-configured runner machine profiles for the companion app.</summary>
+/// <summary>User-configured machine profiles for the companion app.</summary>
 public sealed class ConnectionSettings
 {
-    /// <summary>Base URL of the central coordinator API.</summary>
+    /// <summary>Base URL of the local AgentDeck service API.</summary>
     public string CoordinatorUrl { get; set; } = string.Empty;
 
-    /// <summary>Optional shared access key sent to protected coordinator/runner endpoints.</summary>
+    /// <summary>Optional shared access key sent to protected service and machine endpoints.</summary>
     public string? AccessKey { get; set; }
 
-    /// <summary>Configured runner machines.</summary>
+    /// <summary>Configured machines.</summary>
     public List<RunnerMachineSettings> Machines { get; set; } = [CreateMachineTemplate()];
 
     /// <summary>Machine selected by default when creating a new terminal.</summary>
@@ -112,5 +112,5 @@ public sealed class ConnectionSettings
     }
 
     private static string GetDefaultMachineName(int index) =>
-        index == 0 ? "Runner machine" : $"Runner machine {index + 1}";
+        index == 0 ? "AgentDeck machine" : $"AgentDeck machine {index + 1}";
 }
