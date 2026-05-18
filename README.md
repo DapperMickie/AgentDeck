@@ -1,6 +1,22 @@
 # AgentDeck
 
-A cross-platform system for managing GitHub Copilot and other CLI agents. AgentDeck consists of a **Coordinator API**, one or more **Runner** agents, and a **Companion App** built with .NET MAUI.
+AgentDeck is a private local-network control plane for running AI-assisted development workflows across the machines you already own. It coordinates **Coordinator**, **Runner**, and **Companion/Core UI** pieces so a developer can choose projects, discover machine capabilities, launch terminals or app/debug workflows, and open managed viewer surfaces without manually juggling per-machine endpoints.
+
+---
+
+## Product Direction
+
+AgentDeck is being built to make it easy to:
+- connect multiple local machines into one developer workspace
+- discover what each machine can run, including CLIs, SDKs, IDEs, emulators/simulators, and viewer transports
+- open a project on the best available runner for the requested workflow
+- launch terminals, app/debug workflows, and managed viewer surfaces from one UI
+- keep runner capabilities, workflow packs, setup catalogs, and runner updates coordinated from the local control plane
+- support collaboration semantics where one companion actively controls a session while other companions can observe or request control
+
+## Non-goals for Now
+
+AgentDeck targets trusted/private local networks. It is not currently intended to be an internet-facing multi-tenant SaaS control plane, so product work should avoid public-exposure hardening and tenant-management complexity unless that direction changes.
 
 ---
 
@@ -8,9 +24,10 @@ A cross-platform system for managing GitHub Copilot and other CLI agents. AgentD
 
 ### Coordinator API (`AgentDeck.Coordinator`)
 A lightweight ASP.NET Core service that:
-- Acts as the single public entry point for companion apps
-- Tracks registered runner agents
-- Exposes the coordinator-side machine directory
+- Acts as the local hub and single public entry point for companion apps
+- Tracks registered runner agents and companion identities
+- Brokers live terminal, viewer, project-session, and machine-control traffic to runners
+- Exposes the coordinator-side machine, project, project-session, capability, update, setup, and workflow-pack model
 - Declares desired runner version and protocol compatibility for connected workers
 - Publishes first-pass update manifests and workflow packs for connected workers
 
@@ -18,22 +35,22 @@ Coordinator registries are intentionally process-local in this slice. Companion 
 
 ### Runner (`AgentDeck.Runner`)
 A cross-platform ASP.NET Core service that:
-- Runs on a worker machine
+- Runs on a worker machine and registers outward to the coordinator API
 - Manages pseudo-terminal (PTY) sessions for CLI processes (GitHub Copilot, Bash, PowerShell, etc.)
 - Streams terminal I/O in real-time over SignalR
-- Exposes a REST API for session management
+- Exposes REST and SignalR surfaces for session management, orchestration jobs, machine setup/capability checks, update staging, workflow-pack execution, virtual-device discovery, and managed viewer relays
 - Scopes project creation to a configurable workspace root directory
-- Can register outward to the coordinator API
-- Reports its agent/protocol version in its coordinator heartbeat
+- Reports its agent/protocol version, capability/workflow/setup status, and target readiness in coordinator heartbeats
 
 **Supported platforms:** Windows, Linux (macOS planned)
 
-### Companion App (`AgentDeck`)
-A .NET MAUI + Blazor WebView app that:
+### Companion App (`AgentDeck` + `AgentDeck.Core`)
+A .NET MAUI + Blazor WebView shell plus shared Core UI that:
 - Connects to the Coordinator via SignalR and HTTP
-- Lets the coordinator broker terminal and machine-control traffic to runners
+- Lets the coordinator broker terminal, workflow, viewer, and machine-control traffic to runners
+- Presents projects-first navigation for choosing machines, launch/debug workflows, terminals, and viewer sessions
 - Shows each terminal session in its own panel with a full xterm.js terminal emulator
-- Allows creating new sessions, picking directories, and selecting CLI presets
+- Allows creating new sessions, picking directories, selecting CLI presets, and inspecting machine setup/readiness
 - Provides a clean dark-theme UI
 
 **Supported platforms:** Windows, macOS, Android, iOS
