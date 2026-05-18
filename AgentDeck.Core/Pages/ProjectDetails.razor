@@ -182,16 +182,27 @@
                     </div>
                 </div>
 
-                <div class="project-template-grid">
-                    @foreach (var profile in _project.Definition.LaunchProfiles.OrderBy(profile => profile.Platform).ThenBy(profile => profile.Mode).ThenBy(profile => profile.DisplayName, StringComparer.OrdinalIgnoreCase))
-                    {
-                        var availableMachines = GetAvailableMachines(profile);
-                        var selectedMachineId = GetSelectedMachineId(profile, availableMachines);
-                        var selectedMachine = availableMachines.FirstOrDefault(machine => string.Equals(machine.MachineId, selectedMachineId, StringComparison.OrdinalIgnoreCase));
-                        var deviceChoices = GetDeviceChoices(profile, selectedMachineId);
-                        var selectedDeviceChoice = GetSelectedDeviceChoice(profile, deviceChoices);
+                @if (_project.Definition.LaunchProfiles.Count == 0)
+                {
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">▶</div>
+                        <h3>No run options yet</h3>
+                        <p>Add a run option so AgentDeck knows which command, machine type, or device to use for this workspace.</p>
+                        <a class="btn btn-primary" href="/projects/@Uri.EscapeDataString(_project.Definition.Id)/edit">Add a run option</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="project-template-grid">
+                        @foreach (var profile in _project.Definition.LaunchProfiles.OrderBy(profile => profile.Platform).ThenBy(profile => profile.Mode).ThenBy(profile => profile.DisplayName, StringComparer.OrdinalIgnoreCase))
+                        {
+                            var availableMachines = GetAvailableMachines(profile);
+                            var selectedMachineId = GetSelectedMachineId(profile, availableMachines);
+                            var selectedMachine = availableMachines.FirstOrDefault(machine => string.Equals(machine.MachineId, selectedMachineId, StringComparison.OrdinalIgnoreCase));
+                            var deviceChoices = GetDeviceChoices(profile, selectedMachineId);
+                            var selectedDeviceChoice = GetSelectedDeviceChoice(profile, deviceChoices);
 
-                        <article class="project-template-card">
+                            <article class="project-template-card">
                             <div class="project-template-card__header">
                                 <div>
                                     <h3>@profile.DisplayName</h3>
@@ -264,9 +275,10 @@
                                     </button>
                                 </div>
                             </div>
-                        </article>
-                    }
-                </div>
+                            </article>
+                        }
+                    </div>
+                }
             </section>
 
             <section class="dashboard-section-card">
