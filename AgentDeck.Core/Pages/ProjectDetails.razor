@@ -174,7 +174,7 @@
                 }
             </section>
 
-            <section class="dashboard-section-card">
+            <section id="run-debug" class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Run or debug</h2>
@@ -480,7 +480,15 @@
 
                 @if (_projectSessions.Count == 0)
                 {
-                    <p>No live sessions are registered for this project yet.</p>
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">▣</div>
+                        <h3>No live sessions yet</h3>
+                        <p>Open this workspace on a runner or queue a run/debug profile to create the first live session.</p>
+                        <div class="setup-checklist__actions">
+                            <a class="btn btn-primary" href="#workspace-machines">Open workspace</a>
+                            <a class="btn btn-accent" href="#run-debug">Run or debug</a>
+                        </div>
+                    </div>
                 }
                 else
                 {
