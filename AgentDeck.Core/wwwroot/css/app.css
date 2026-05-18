@@ -2458,6 +2458,12 @@ html, body {
   color: #cbd5e1;
 }
 
+.form-label__optional {
+  color: var(--color-subtext);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
 .setup-checklist__actions,
 .inline-action-field {
   display: flex;

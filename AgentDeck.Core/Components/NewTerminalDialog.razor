@@ -17,8 +17,9 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">Session Name</label>
-                <input class="form-input" type="text" @bind="_name" placeholder="Session name" />
+                <label class="form-label">Session name <span class="form-label__optional">optional</span></label>
+                <input class="form-input" type="text" @bind="_name" placeholder="@GetDefaultSessionName()" />
+                <span class="form-hint">Leave blank to use <strong>@GetDefaultSessionName()</strong>.</span>
             </div>
 
             <div class="form-group">
@@ -111,25 +112,28 @@
             _machineId = ResolveDefaultMachineId();
             if (_presets.Count > 0)
                 SelectPreset(_presets[0]);
+            _name = GetDefaultSessionName();
         }
         _wasOpen = IsOpen;
     }
 
     private void SelectPreset(CliPreset preset)
     {
+        var previousDefaultName = GetDefaultSessionName();
+        var shouldRefreshName = string.IsNullOrWhiteSpace(_name) || string.Equals(_name, previousDefaultName, StringComparison.Ordinal);
+
         _selectedPreset = preset;
         _command = preset.Command;
+
+        if (shouldRefreshName)
+        {
+            _name = GetDefaultSessionName();
+        }
     }
 
     private async Task Create()
     {
         _error = "";
-        if (string.IsNullOrWhiteSpace(_name))
-        {
-            _error = "Session name is required.";
-            return;
-        }
-
         if (SelectedMachine is null)
         {
             _error = "Add a machine in Settings before creating a terminal.";
@@ -145,7 +149,7 @@
 
         var req = new CreateTerminalRequest
         {
-            Name = _name.Trim(),
+            Name = ResolveSessionName(),
             WorkingDirectory = _workingDir,
             Command = cmd.Trim(),
             Arguments = ResolveArguments(),
@@ -156,6 +160,26 @@
             MachineId = SelectedMachine.Id,
             Terminal = req
         });
+    }
+
+    private string ResolveSessionName() =>
+        string.IsNullOrWhiteSpace(_name) ? GetDefaultSessionName() : _name.Trim();
+
+    private string GetDefaultSessionName()
+    {
+        var presetName = _selectedPreset?.Name;
+        if (string.IsNullOrWhiteSpace(presetName))
+        {
+            return "Terminal";
+        }
+
+        var baseName = string.Equals(presetName, "Custom", StringComparison.OrdinalIgnoreCase)
+            ? "Terminal"
+            : presetName;
+
+        return SelectedMachine is null || string.IsNullOrWhiteSpace(SelectedMachine.Name)
+            ? baseName
+            : $"{baseName} on {SelectedMachine.Name}";
     }
 
     private string ResolveCommandText()
