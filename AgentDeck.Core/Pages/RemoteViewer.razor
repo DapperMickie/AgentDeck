@@ -120,8 +120,8 @@
                         <dd>@(session.StatusMessage ?? session.Status.ToString())</dd>
                     </div>
                     <div>
-                        <dt>Relay</dt>
-                        <dd>Coordinator-brokered</dd>
+                        <dt>Connection</dt>
+                        <dd>Securely routed through AgentDeck</dd>
                     </div>
                     @if (ViewerClient.RemoteControlState is { } remoteControlState)
                     {
@@ -139,13 +139,13 @@
                         <dd>@(ViewerClient.LastInputActivity ?? "No input dispatched yet.")</dd>
                     </div>
                     <div>
-                        <dt>Viewer hooks</dt>
-                        <dd>@(_lastInteropStatus ?? "No JS hook status reported yet.")</dd>
+                        <dt>Viewer status</dt>
+                        <dd>@(_lastInteropStatus ?? "Waiting for the screen to report readiness.")</dd>
                     </div>
                 </dl>
                 @if (!ViewerClient.SupportsInAppViewer)
                 {
-                    <p class="surface-details-card__note">This viewer session is not backed by the coordinator-managed relay.</p>
+                    <p class="surface-details-card__note">This remote screen cannot be shown in-app yet. Try opening the desktop again from the workspace or machine card.</p>
                 }
             </section>
         </div>

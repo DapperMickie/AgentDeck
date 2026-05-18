@@ -16,21 +16,21 @@
 
     <nav class="settings-nav" aria-label="Settings sections">
         <a href="#connection">Connection</a>
-        <a href="#machines">Machines</a>
-        <a href="#setup-capabilities">Setup &amp; Capabilities</a>
-        <a href="#runner-updates">Runner Updates</a>
-        <a href="#advanced">Advanced</a>
+        <a href="#machines">Create runners</a>
+        <a href="#setup-capabilities">Tools</a>
+        <a href="#runner-updates">Updates</a>
+        <a href="#advanced">Advanced diagnostics</a>
     </nav>
 
     <div id="connection" class="settings-card settings-page__card settings-card--anchored">
         <div class="settings-card__header settings-page__section-header">
             <div>
                 <h2>Connection</h2>
-                <p class="settings-card__description">Use one coordinator as the only client-facing endpoint. The companion now routes terminal and machine-control traffic through the coordinator instead of connecting to runners directly.</p>
+                <p class="settings-card__description">Connect AgentDeck to the service that keeps your machines, workspaces, and sessions in sync.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
                 <button class="btn btn-accent" @onclick="RefreshCoordinatorDirectoryAsync" disabled="@_registeredMachinesBusy">
-                    @(_registeredMachinesBusy ? "Refreshing..." : "Refresh Directory")
+                    @(_registeredMachinesBusy ? "Refreshing..." : "Refresh machines")
                 </button>
                 <button class="btn btn-danger" @onclick="ClearCoordinatorDirectory" disabled="@(!_coordinatorReachable && _registeredMachines.Count == 0 && _registeredMachinesErrorMessage is null)">
                     Clear Status
@@ -55,7 +55,7 @@
                 </strong>
             </div>
             <div class="settings-status-row">
-                <span class="settings-status-row__label">Directory source</span>
+                <span class="settings-status-row__label">Connected to</span>
                 <code class="settings-status-row__value">@_settings.CoordinatorUrl</code>
             </div>
         </div>
@@ -66,11 +66,11 @@
         }
         else if (_registeredMachinesBusy)
         {
-            <p>Refreshing registered workers from the coordinator...</p>
+            <p>Refreshing your machines...</p>
         }
         else if (_registeredMachines.Count == 0)
         {
-            <p>No worker machines are currently visible through the coordinator.</p>
+            <p>No machines are visible yet. Create a runner below or start an existing runner and refresh.</p>
         }
         else
         {
@@ -79,7 +79,7 @@
                 {
                     <article class="machine-card">
                         <span class="machine-card__title">@machine.MachineName</span>
-                        <span class="machine-card__url">@(!string.IsNullOrWhiteSpace(machine.RunnerUrl) ? machine.RunnerUrl : "(runner URL not advertised)")</span>
+                        <span class="machine-card__url">@(machine.IsOnline ? "Ready to receive work" : "Not currently reachable")</span>
                         <span class="machine-card__meta">
                             <span class="machine-badge">@GetMachineRoleLabel(machine.Role)</span>
                             <span class="machine-state machine-state--@(machine.IsOnline ? "connected" : "disconnected")">
@@ -88,45 +88,54 @@
                         </span>
                         <span class="settings-card__description">
                             Last seen @machine.LastSeenAt.ToLocalTime().ToString("g")
-                            <span> • agent @machine.AgentVersion</span>
-                            <span> • protocol @machine.ProtocolVersion</span>
-                            @if (!string.IsNullOrWhiteSpace(machine.WorkflowCatalogVersion))
+                            @if (machine.UpdateRollout is { } rollout && ShouldShowUpdateRolloutChip(rollout.State))
                             {
-                                <span> • workflow @machine.WorkflowCatalogVersion</span>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(machine.CapabilityCatalogVersion))
-                            {
-                                <span> • capabilities @machine.CapabilityCatalogVersion</span>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(machine.SetupCatalogVersion))
-                            {
-                                <span> • setup @machine.SetupCatalogVersion</span>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(machine.SecurityPolicyVersion))
-                            {
-                                <span> • security @machine.SecurityPolicyVersion</span>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(machine.DesiredWorkflowPackId))
-                            {
-                                <span> • pack @machine.DesiredWorkflowPackId</span>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(machine.DesiredUpdateManifestId))
-                            {
-                                <span> • manifest @machine.DesiredUpdateManifestId</span>
-                            }
-                            @if (machine.UpdateRollout is not null)
-                            {
-                                <span> • rollout @GetUpdateRolloutLabel(machine.UpdateRollout.State)</span>
+                                <span> • update @GetUpdateRolloutLabel(rollout.State)</span>
                             }
                             @if (!machine.ProtocolCompatible)
                             {
-                                <span> • protocol mismatch</span>
+                                <span> • needs app/runner compatibility fix</span>
                             }
                             @if (machine.Platform is not null)
                             {
                                 <span> • @GetHostPlatformLabel(machine.Platform.HostPlatform)</span>
                             }
                         </span>
+                        <details class="advanced-panel advanced-panel--compact">
+                            <summary>Advanced machine details</summary>
+                            <span class="settings-card__description">
+                                Agent @machine.AgentVersion
+                                <span> • protocol @machine.ProtocolVersion</span>
+                                @if (!string.IsNullOrWhiteSpace(machine.WorkflowCatalogVersion))
+                                {
+                                    <span> • workflow @machine.WorkflowCatalogVersion</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(machine.CapabilityCatalogVersion))
+                                {
+                                    <span> • capabilities @machine.CapabilityCatalogVersion</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(machine.SetupCatalogVersion))
+                                {
+                                    <span> • setup @machine.SetupCatalogVersion</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(machine.SecurityPolicyVersion))
+                                {
+                                    <span> • security @machine.SecurityPolicyVersion</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(machine.DesiredWorkflowPackId))
+                                {
+                                    <span> • pack @machine.DesiredWorkflowPackId</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(machine.DesiredUpdateManifestId))
+                                {
+                                    <span> • manifest @machine.DesiredUpdateManifestId</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(machine.RunnerUrl))
+                                {
+                                    <span> • runner URL @machine.RunnerUrl</span>
+                                }
+                            </span>
+                        </details>
                         @if (machine.UpdateRollout is not null)
                         {
                             <span class="settings-card__description">@machine.UpdateRollout.StatusMessage</span>
@@ -140,8 +149,8 @@
     <div id="machines" class="settings-card settings-page__card settings-card--anchored">
         <div class="settings-card__header settings-page__section-header">
             <div>
-                <h2>Machines</h2>
-                <p class="settings-card__description">Choose coordinator-discovered runner machines, keep local preferences like auto-connect/default terminal, and control how new terminals are created through the coordinator.</p>
+                <h2>Create runners</h2>
+                <p class="settings-card__description">Create new runner capacity, connect existing machines, and choose your default place to open work.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
                 <button class="btn btn-accent" @onclick="AddMachine">Add Machine</button>
@@ -1006,6 +1015,9 @@
         RunnerHostPlatform.MacOS => "macOS",
         _ => "Unknown"
     };
+
+    private static bool ShouldShowUpdateRolloutChip(RunnerUpdateRolloutState state) =>
+        state is not (RunnerUpdateRolloutState.UpToDate or RunnerUpdateRolloutState.Applied);
 
     private static string GetUpdateRolloutLabel(RunnerUpdateRolloutState state) => state switch
     {
