@@ -238,8 +238,19 @@
                     </div>
                 </div>
 
-                <div class="viewer-surface-grid">
-                    @foreach (var viewerSurface in _dashboard.ViewerSurfaces)
+                @if (_dashboard.ViewerSurfaces.Count == 0)
+                {
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">▣</div>
+                        <h3>No openable surfaces yet</h3>
+                        <p>Create a workspace or add a run option to see terminals, desktops, app windows, emulators, and logs here.</p>
+                        <a class="btn btn-primary" href="/projects/new">Create or import a workspace</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="viewer-surface-grid">
+                        @foreach (var viewerSurface in _dashboard.ViewerSurfaces)
                         {
                             <article class="viewer-surface-card">
                                 <h3>@viewerSurface.Title</h3>
@@ -248,6 +259,7 @@
                             </article>
                         }
                     </div>
+                }
             </section>
         }
     </div>

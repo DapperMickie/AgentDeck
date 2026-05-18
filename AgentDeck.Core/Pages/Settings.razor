@@ -29,6 +29,9 @@
                 <p class="settings-card__description">Connect AgentDeck to the service that keeps your machines, workspaces, and sessions in sync.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
+                <button class="btn btn-primary" @onclick="SaveAndRefreshConnectionAsync" disabled="@(_saving || _registeredMachinesBusy)">
+                    @(_saving || _registeredMachinesBusy ? "Saving..." : "Save and refresh")
+                </button>
                 <button class="btn btn-accent" @onclick="RefreshCoordinatorDirectoryAsync" disabled="@_registeredMachinesBusy">
                     @(_registeredMachinesBusy ? "Refreshing..." : "Refresh machines")
                 </button>
@@ -180,6 +183,7 @@
                 @foreach (var template in _runnerOrchestrationCatalog.Templates.OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase))
                 {
                     var provider = GetRunnerProvider(template.ProviderId);
+                    var canCreateRunner = CanCreateRunnerFromTemplate(template, provider);
                     <article class="project-template-card">
                         <div class="project-template-card__header">
                             <div>
@@ -193,16 +197,55 @@
                         @if (provider is not null && !provider.Configured)
                         {
                             <p class="error-message">@provider.StatusMessage</p>
+                            <p class="project-template-target__note">Configure @provider.Name before creating this runner.</p>
                         }
                         <div class="project-machine-card__actions">
                             <button class="btn btn-primary"
-                                    disabled="@(_creatingRunnerTemplateId == template.Id || provider is null || !provider.Enabled)"
-                                    @onclick="() => CreateRunnerFromTemplateAsync(template)">
-                                @(_creatingRunnerTemplateId == template.Id ? "Creating..." : "Create runner")
+                                    disabled="@(_creatingRunnerTemplateId == template.Id || !canCreateRunner)"
+                                    @onclick="() => OpenRunnerCreatePreview(template)">
+                                @GetCreateRunnerButtonLabel(template, provider)
                             </button>
                         </div>
                     </article>
                 }
+            </div>
+        }
+
+        @if (SelectedRunnerTemplateDraft is not null)
+        {
+            var template = SelectedRunnerTemplateDraft;
+            var provider = GetRunnerProvider(template.ProviderId);
+            <div class="settings-callout settings-callout--actionable">
+                <strong>Review runner before creating</strong>
+                <span>@template.Name on @(provider?.Name ?? template.ProviderId) • @template.HostPlatform • port @template.RunnerPort</span>
+                <div class="project-editor__grid">
+                    <div class="form-field">
+                        <label for="runner-create-name">Runner name</label>
+                        <input id="runner-create-name" class="input" @bind="_runnerCreateName" />
+                    </div>
+                    <div class="form-field">
+                        <label for="runner-create-lifecycle">Lifecycle</label>
+                        <select id="runner-create-lifecycle" class="input" @bind="_runnerCreateLifecyclePolicy">
+                            @foreach (var policy in Enum.GetValues<RunnerInstanceLifecyclePolicy>())
+                            {
+                                <option value="@policy">@policy</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-field project-editor__field--full">
+                        <label for="runner-create-coordinator">Coordinator URL</label>
+                        <input id="runner-create-coordinator" class="input" @bind="_runnerCreateCoordinatorUrl" />
+                        <p class="settings-card__description">Use a URL the new runner can reach, not necessarily the client-local URL.</p>
+                    </div>
+                </div>
+                <div class="form-actions form-actions--settings">
+                    <button class="btn btn-primary"
+                            disabled="@(_creatingRunnerTemplateId == template.Id || string.IsNullOrWhiteSpace(_runnerCreateName) || string.IsNullOrWhiteSpace(_runnerCreateCoordinatorUrl))"
+                            @onclick="() => CreateRunnerFromTemplateAsync(template)">
+                        @(_creatingRunnerTemplateId == template.Id ? "Creating..." : "Create runner")
+                    </button>
+                    <button class="btn btn-accent" disabled="@(_creatingRunnerTemplateId == template.Id)" @onclick="ClearRunnerCreatePreview">Cancel</button>
+                </div>
             </div>
         }
 
@@ -836,6 +879,10 @@
     private IReadOnlyList<RegisteredRunnerMachine> _registeredMachines = [];
     private RunnerOrchestratorCatalog _runnerOrchestrationCatalog = new();
     private string? _creatingRunnerTemplateId;
+    private string? _runnerCreateTemplateId;
+    private string _runnerCreateName = string.Empty;
+    private string _runnerCreateCoordinatorUrl = string.Empty;
+    private RunnerInstanceLifecyclePolicy _runnerCreateLifecyclePolicy = RunnerInstanceLifecyclePolicy.Ephemeral;
     private bool _registeredMachinesBusy;
     private string? _registeredMachinesErrorMessage;
     private bool _coordinatorReachable;
@@ -844,6 +891,11 @@
     private string? _workflowPackRetryMachineId;
 
     private RunnerMachineSettings? SelectedMachine => _settings.FindMachine(_selectedMachineId);
+    private RunnerOrchestratorTemplate? SelectedRunnerTemplateDraft =>
+        string.IsNullOrWhiteSpace(_runnerCreateTemplateId)
+            ? null
+            : _runnerOrchestrationCatalog.Templates.FirstOrDefault(template =>
+                string.Equals(template.Id, _runnerCreateTemplateId, StringComparison.OrdinalIgnoreCase));
     private MachineCapabilitiesSnapshot? _machineCapabilities =>
         SelectedMachine is not null && _machineCapabilitiesByMachine.TryGetValue(SelectedMachine.Id, out var snapshot)
             ? snapshot
@@ -878,7 +930,7 @@
         {
             _settings.Normalize();
             await SettingsService.SaveAsync(_settings);
-            ToastService.Show("Machine settings saved", ToastKind.Success);
+            ToastService.Show("Settings saved", ToastKind.Success);
         }
         catch (Exception ex)
         {
@@ -887,6 +939,15 @@
         finally
         {
             _saving = false;
+        }
+    }
+
+    private async Task SaveAndRefreshConnectionAsync()
+    {
+        await SaveAsync();
+        if (_errorMessage is null)
+        {
+            await RefreshCoordinatorDirectoryAsync();
         }
     }
 
@@ -1144,11 +1205,61 @@
     private RunnerOrchestratorProvider? GetRunnerProvider(string providerId) =>
         _runnerOrchestrationCatalog.Providers.FirstOrDefault(provider => string.Equals(provider.Id, providerId, StringComparison.OrdinalIgnoreCase));
 
+    private bool CanCreateRunnerFromTemplate(RunnerOrchestratorTemplate template, RunnerOrchestratorProvider? provider) =>
+        provider is not null && provider.Enabled && provider.Configured;
+
+    private string GetCreateRunnerButtonLabel(RunnerOrchestratorTemplate template, RunnerOrchestratorProvider? provider)
+    {
+        if (_creatingRunnerTemplateId == template.Id)
+        {
+            return "Creating...";
+        }
+
+        if (provider is null)
+        {
+            return "Provider unavailable";
+        }
+
+        if (!provider.Configured)
+        {
+            return "Configure provider first";
+        }
+
+        if (!provider.Enabled)
+        {
+            return "Provider disabled";
+        }
+
+        return "Review and create";
+    }
+
+    private void OpenRunnerCreatePreview(RunnerOrchestratorTemplate template)
+    {
+        _runnerCreateTemplateId = template.Id;
+        _runnerCreateName = $"{template.Name} {DateTimeOffset.Now:HHmm}";
+        _runnerCreateLifecyclePolicy = template.DefaultLifecyclePolicy;
+        _runnerCreateCoordinatorUrl = _settings.CoordinatorUrl;
+    }
+
+    private void ClearRunnerCreatePreview()
+    {
+        _runnerCreateTemplateId = null;
+        _runnerCreateName = string.Empty;
+        _runnerCreateCoordinatorUrl = string.Empty;
+        _runnerCreateLifecyclePolicy = RunnerInstanceLifecyclePolicy.Ephemeral;
+    }
+
     private async Task CreateRunnerFromTemplateAsync(RunnerOrchestratorTemplate template)
     {
         if (string.IsNullOrWhiteSpace(_settings.CoordinatorUrl))
         {
             ToastService.Show("Set a coordinator URL before creating a runner.", ToastKind.Warning);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_runnerCreateCoordinatorUrl) || string.IsNullOrWhiteSpace(_runnerCreateName))
+        {
+            ToastService.Show("Review the runner name and coordinator URL before creating.", ToastKind.Warning);
             return;
         }
 
@@ -1160,9 +1271,9 @@
                 new CreateRunnerOrchestratorInstanceRequest
                 {
                     TemplateId = template.Id,
-                    Name = $"{template.Name} {DateTimeOffset.Now:HHmm}",
-                    LifecyclePolicy = template.DefaultLifecyclePolicy,
-                    CoordinatorUrl = _settings.CoordinatorUrl
+                    Name = _runnerCreateName.Trim(),
+                    LifecyclePolicy = _runnerCreateLifecyclePolicy,
+                    CoordinatorUrl = _runnerCreateCoordinatorUrl.Trim()
                 });
 
             if (instance is null)
@@ -1172,6 +1283,7 @@
             }
 
             ToastService.Show($"Runner {instance.Name} is {instance.State}. Refresh the directory once it registers.", instance.State == RunnerInstanceLifecycleState.Failed ? ToastKind.Warning : ToastKind.Success);
+            ClearRunnerCreatePreview();
             await RefreshCoordinatorDirectoryAsync();
         }
         catch (Exception ex)
