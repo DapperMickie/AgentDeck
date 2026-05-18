@@ -173,7 +173,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Ways to run this workspace</h2>
-                        <p>Most projects only need one default run profile. Open advanced details to tune commands, devices, or VS Code behavior.</p>
+                        <p>Most workspaces only need one default run option. Open advanced details to tune commands, devices, or VS Code behavior.</p>
                     </div>
                     <button class="btn btn-accent" disabled="@_saving" @onclick="AddProfile">Add run option</button>
                 </div>
@@ -329,7 +329,7 @@
                     <div class="dashboard-section-card__header">
                         <div>
                             <h2>Existing workspaces</h2>
-                            <p>Workspace mappings stay attached to the project when you save metadata/profile changes.</p>
+                            <p>Saved machine paths stay attached to the workspace when you update details or run options.</p>
                         </div>
                     </div>
 
@@ -365,7 +365,7 @@
     private static readonly VirtualDeviceCatalogKind[] DeviceCatalogOptions = Enum.GetValues<VirtualDeviceCatalogKind>();
     private static readonly SimpleProjectTemplate[] SimpleTemplates =
     [
-        new("Blazor app", "Web app with a browser-friendly run profile", ProjectWorkloadKind.Blazor, "dotnet build", "dotnet run"),
+        new("Blazor app", "Web app with a browser-friendly run option", ProjectWorkloadKind.Blazor, "dotnet build", "dotnet run"),
         new(".NET MAUI app", "Mobile/desktop app with simulator and device targets", ProjectWorkloadKind.Maui, "dotnet build", "dotnet build"),
         new("Blank workspace", "Start with a generic shell and fill commands later", ProjectWorkloadKind.Blazor, "echo Ready", null, AllowBlankSource: true)
     ];
@@ -928,8 +928,8 @@
             return template is null
                 ? new ProjectLaunchProfileEditor
                 {
-                    Id = $"{workload.ToString().ToLowerInvariant()}-profile-{index}",
-                    DisplayName = $"Launch profile {index}",
+                    Id = $"{workload.ToString().ToLowerInvariant()}-run-{index}",
+                    DisplayName = $"Run option {index}",
                     Platform = defaultTarget.Platform,
                     Mode = ProjectLaunchMode.Run,
                     LaunchDriver = ProjectLaunchDriver.DirectCommand,

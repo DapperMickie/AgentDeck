@@ -105,11 +105,14 @@
                     <ErrorContent Context="exception">
                         <div class="app-error-backdrop">
                             <div class="app-error-modal">
-                                <h2>Application error</h2>
-                                <p>The app hit an unhandled exception. The full stack trace is below.</p>
-                                <pre class="app-error-stacktrace">@exception.ToString()</pre>
+                                <h2>Something went wrong</h2>
+                                <p>AgentDeck hit a problem on this screen. Try reloading the app; if it keeps happening, copy the technical details for support.</p>
+                                <details class="advanced-panel advanced-panel--compact">
+                                    <summary>Technical details</summary>
+                                    <pre class="app-error-stacktrace">@exception.ToString()</pre>
+                                </details>
                                 <div class="modal__footer">
-                                    <button class="btn btn-accent" @onclick="RecoverFromError">Dismiss modal</button>
+                                    <button class="btn btn-accent" @onclick="RecoverFromError">Close message</button>
                                     <button class="btn btn-primary" @onclick="ReloadApp">Reload app</button>
                                 </div>
                             </div>

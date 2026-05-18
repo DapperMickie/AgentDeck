@@ -36,7 +36,7 @@
                     @(_registeredMachinesBusy ? "Refreshing..." : "Refresh machines")
                 </button>
                 <button class="btn btn-danger" @onclick="ClearCoordinatorDirectory" disabled="@(!_coordinatorReachable && _registeredMachines.Count == 0 && _registeredMachinesErrorMessage is null)">
-                    Clear Status
+                    Clear status
                 </button>
             </div>
         </div>
@@ -156,7 +156,7 @@
                 <p class="settings-card__description">Create new runner capacity, connect existing machines, and choose your default place to open work.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
-                <button class="btn btn-accent" @onclick="AddMachine">Add Machine</button>
+                <button class="btn btn-accent" @onclick="AddMachine">Add machine</button>
                 <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
                     @(_saving ? "Saving..." : "Save")
                 </button>
@@ -300,19 +300,19 @@
             {
                 <div class="machine-editor machine-editor--settings">
                     <div class="form-field">
-                        <label for="machine-name">Machine Name</label>
+                        <label for="machine-name">Machine name</label>
                         <input id="machine-name" type="text" class="input" @bind="SelectedMachine.Name" />
                     </div>
 
                     <div class="form-field">
-                        <label for="runner-url">Advertised Runner URL</label>
+                        <label for="runner-url">Advertised runner URL</label>
                         <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
                                placeholder="@GetRunnerUrlPlaceholder()" />
                         <p class="settings-card__description">Informational only. The companion does not connect directly to this URL.</p>
                     </div>
 
                     <div class="form-field">
-                        <label for="machine-role">Machine Role</label>
+                        <label for="machine-role">Machine role</label>
                         <select id="machine-role" class="input" @bind="SelectedMachine.Role">
                             @foreach (var role in _machineRoles)
                             {
@@ -331,7 +331,7 @@
 
                     <div class="form-actions form-actions--settings">
                         <button class="btn btn-accent" @onclick="() => SetPreferredMachine(SelectedMachine.Id)">
-                            Make Default For New Terminals
+                            Use for new terminals
                         </button>
 
                         @if (Connections.GetConnectionState(SelectedMachine.Id) == HubConnectionState.Connected)
@@ -348,7 +348,7 @@
                         <button class="btn btn-danger"
                                 @onclick="() => DeleteMachineAsync(SelectedMachine.Id)"
                                 disabled="@(_settings.Machines.Count == 1)">
-                            Delete Machine
+                            Delete machine
                         </button>
                     </div>
                 </div>
@@ -362,13 +362,13 @@
             <div id="runner-updates" class="settings-card settings-page__card settings-card--status settings-card--anchored">
                 <div class="settings-card__header settings-page__section-header">
                     <div>
-                        <h2>Runner Updates</h2>
-                        <p class="settings-card__description">Rollout intent, catalog reconciliation, and current state for @SelectedMachine?.Name.</p>
+                        <h2>Runner updates</h2>
+                        <p class="settings-card__description">Stage or apply updates for @SelectedMachine?.Name, and see whether tool lists are in sync.</p>
                     </div>
                 </div>
                     <div class="settings-callout">
                         <strong>Update lane</strong>
-                        <span>Use this section when a runner advertises a desired manifest or workflow pack. General machine editing stays above; setup tools stay below.</span>
+                        <span>Use this section when AgentDeck has an update or tool pack ready for this machine. General machine editing stays above; setup tools stay below.</span>
                     </div>
                     <div class="settings-status-list">
                     <div class="settings-status-row">
@@ -380,7 +380,7 @@
                         <strong class="settings-status-row__value">@GetMachineRoleLabel(SelectedMachine!.Role)</strong>
                     </div>
                     <div class="settings-status-row">
-                        <span class="settings-status-row__label">Coordinator hub</span>
+                        <span class="settings-status-row__label">Connection hub</span>
                         <code class="settings-status-row__value">@GetHubUrl(SelectedMachine!)</code>
                     </div>
                     @if (SelectedRegisteredMachine?.UpdateRollout is { } rollout)
@@ -412,17 +412,17 @@
                             <button class="btn btn-accent"
                                     disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
                                     @onclick="() => UpdateMachineApplyIntentAsync(SelectedMachine!.Id, MachineUpdateApplyIntentMode.RequestApply)">
-                                Request Apply
+                                Apply update
                             </button>
                             <button class="btn btn-primary"
                                     disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
                                     @onclick="() => UpdateMachineApplyIntentAsync(SelectedMachine!.Id, MachineUpdateApplyIntentMode.StageOnly)">
-                                Stage Only
+                                Stage only
                             </button>
                             <button class="btn"
                                     disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
                                     @onclick="() => UpdateMachineApplyIntentAsync(SelectedMachine!.Id, MachineUpdateApplyIntentMode.Inherit)">
-                                Use Coordinator Default
+                                Use service default
                             </button>
                         </div>
                         @if (!string.IsNullOrWhiteSpace(rollout.BlockingReason))
@@ -464,7 +464,7 @@
                         @if (!string.IsNullOrWhiteSpace(SelectedRegisteredMachine?.DesiredWorkflowPackId))
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Desired workflow pack</span>
+                                <span class="settings-status-row__label">Desired tool pack</span>
                                 <span class="settings-status-row__value">@GetDesiredWorkflowPackLabel(SelectedRegisteredMachine)</span>
                             </div>
                         }
@@ -472,27 +472,27 @@
                              workflowPackStatus.State != RunnerWorkflowPackState.None)
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Workflow pack state</span>
+                                <span class="settings-status-row__label">Tool pack state</span>
                                 <span class="settings-status-row__value">@GetWorkflowPackStateLabel(workflowPackStatus.State)</span>
                             </div>
                             @if (!string.IsNullOrWhiteSpace(workflowPackStatus.StatusMessage))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Workflow pack summary</span>
+                                    <span class="settings-status-row__label">Tool pack summary</span>
                                     <span class="settings-status-row__value">@workflowPackStatus.StatusMessage</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(workflowPackStatus.FailureMessage))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Workflow pack failure</span>
+                                    <span class="settings-status-row__label">Tool pack failure</span>
                                     <span class="settings-status-row__value">@workflowPackStatus.FailureMessage</span>
                                 </div>
                             }
                             @if (workflowPackStatus.FetchedAt is not null)
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Workflow pack fetched</span>
+                                    <span class="settings-status-row__label">Tool pack fetched</span>
                                     <span class="settings-status-row__value">@workflowPackStatus.FetchedAt.Value.ToLocalTime().ToString("g")</span>
                                 </div>
                             }
@@ -502,7 +502,7 @@
                                     <button class="btn btn-accent"
                                             disabled="@(_workflowPackRetryMachineId == SelectedMachine.Id)"
                                             @onclick="() => RetryWorkflowPackAsync(SelectedMachine.Id)">
-                                        @(_workflowPackRetryMachineId == SelectedMachine.Id ? "Retrying..." : "Retry workflow pack")
+                                        @(_workflowPackRetryMachineId == SelectedMachine.Id ? "Retrying..." : "Retry tool pack")
                                     </button>
                                 </div>
                             }
@@ -511,27 +511,27 @@
                              workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Workflow catalog state</span>
+                                <span class="settings-status-row__label">Tool catalog state</span>
                                 <span class="settings-status-row__value">@GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)</span>
                             </div>
                             @if (!string.IsNullOrWhiteSpace(workflowCatalogStatus.LocalCatalogVersion))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Local workflow catalog</span>
+                                    <span class="settings-status-row__label">Local tool catalog</span>
                                     <span class="settings-status-row__value">@workflowCatalogStatus.LocalCatalogVersion</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(workflowCatalogStatus.DesiredCatalogVersion))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Desired workflow catalog</span>
+                                    <span class="settings-status-row__label">Desired tool catalog</span>
                                     <span class="settings-status-row__value">@workflowCatalogStatus.DesiredCatalogVersion</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(workflowCatalogStatus.StatusMessage))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Workflow catalog summary</span>
+                                    <span class="settings-status-row__label">Tool catalog summary</span>
                                     <span class="settings-status-row__value">@workflowCatalogStatus.StatusMessage</span>
                                 </div>
                             }
@@ -635,12 +635,12 @@
             <div id="setup-capabilities" class="settings-card settings-page__card settings-card--anchored">
                 <div class="settings-card__header settings-page__section-header">
                     <div>
-                        <h2>Setup &amp; Capabilities</h2>
-                        <p class="settings-card__description">Tool/SDK detection and setup actions for @SelectedMachine!.Name.</p>
+                        <h2>Tools and setup</h2>
+                        <p class="settings-card__description">Check installed tools and run setup actions for @SelectedMachine!.Name.</p>
                     </div>
                     <div class="form-actions form-actions--toolbar">
                         <button class="btn btn-accent" @onclick="RefreshMachineCapabilitiesAsync" disabled="@_capabilitiesBusy">
-                            Refresh Capabilities
+                            Check tools again
                         </button>
                     </div>
                 </div>
@@ -770,7 +770,7 @@
                                                     disabled="@(_capabilitiesBusy || IsCapabilityBusy(capability))">
                                                 @(IsCapabilityActionRunning(capability, "install")
                                                     ? "Installing..."
-                                                    : SupportsVersionSelection(capability) ? "Install Version" : "Install")
+                                                    : SupportsVersionSelection(capability) ? "Install version" : "Install")
                                             </button>
                                         }
 
@@ -792,7 +792,7 @@
                     @if (_lastCapabilityInstallResult is not null)
                     {
                         <div class="capability-install-result">
-                            <h3>Last Setup Action</h3>
+                            <h3>Last setup action</h3>
                             <p>
                                 <strong>@_lastCapabilityInstallResult.CapabilityName:</strong>
                                 @(GetCapabilityActionResultLabel(_lastCapabilityInstallResult))
@@ -811,12 +811,12 @@
                             }
                             @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.StandardOutput))
                             {
-                                <h3>Standard Output</h3>
+                                <h3>Command output</h3>
                                 <pre class="command-preview">@_lastCapabilityInstallResult.StandardOutput</pre>
                             }
                             @if (!string.IsNullOrWhiteSpace(_lastCapabilityInstallResult.StandardError))
                             {
-                                <h3>Standard Error</h3>
+                                <h3>Command errors</h3>
                                 <pre class="command-preview">@_lastCapabilityInstallResult.StandardError</pre>
                             }
                         </div>
@@ -828,7 +828,7 @@
                 <div class="settings-card__header settings-page__section-header">
                     <div>
                         <h2>Advanced</h2>
-                        <p class="settings-card__description">Low-level coordinator and runner identifiers useful for debugging support issues.</p>
+                        <p class="settings-card__description">Low-level service and runner identifiers useful for debugging support issues.</p>
                     </div>
                 </div>
 
@@ -1065,8 +1065,8 @@
 
     private static string GetMachineRoleDescription(RunnerMachineRole role) => role switch
     {
-        RunnerMachineRole.Worker => "Use this machine as a remote worker agent that registers outward to the central coordinator API.",
-        _ => "Use this machine independently without assigning it to coordinator/worker orchestration yet."
+        RunnerMachineRole.Worker => "Use this machine as shared runner capacity that checks in with the AgentDeck service.",
+        _ => "Use this machine independently without assigning it to shared runner orchestration yet."
     };
 
     private static string GetHostPlatformLabel(RunnerHostPlatform platform) => platform switch

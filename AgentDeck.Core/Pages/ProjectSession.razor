@@ -15,7 +15,7 @@
         <div class="project-page__content">
             <div class="empty-state">
                 <div class="empty-icon">◌</div>
-                <h2>Loading project session</h2>
+                <h2>Loading workspace session</h2>
             </div>
         </div>
     }
@@ -24,7 +24,7 @@
         <div class="project-page__content">
             <div class="empty-state">
                 <div class="empty-icon">⌂</div>
-                <h2>Project session not found</h2>
+                <h2>Workspace session not found</h2>
                 <p>Return to the <a href="/">dashboard</a> to choose another session.</p>
             </div>
         </div>
@@ -127,8 +127,8 @@
                         @if (_surfaceTabs.Count == 0)
                         {
                             <h3>No surfaces open yet</h3>
-                            <p>Open this workspace or run/debug a profile from the project page to create terminals, viewers, jobs, and other surfaces.</p>
-                            <a class="btn btn-primary" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Open project actions</a>
+                            <p>Open this workspace or choose a run option from the workspace page to create terminals, remote screens, jobs, and other live items.</p>
+                            <a class="btn btn-primary" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Open workspace actions</a>
                         }
                         else
                         {
@@ -225,7 +225,7 @@
                         }
                         else if (_activeSurface.Job is not null || _activeSurface.Viewer is not null)
                         {
-                            <p class="surface-details-card__note">This runtime tab is derived from the current machine orchestration/viewer state for this project session.</p>
+                            <p class="surface-details-card__note">This live item reflects the current machine job and remote-screen state for this workspace session.</p>
                         }
                         @if (_activeSurface.Viewer is not null && CanControlActiveViewer())
                         {
@@ -555,7 +555,7 @@
         }
 
         return IsController()
-            ? "You control this project session"
+            ? "You control this workspace session"
             : $"View-only while {_projectSession.CompanionId} controls this session";
     }
 
@@ -661,22 +661,22 @@
 
         if (_sessionMachine.WorkflowPackStatus?.State == RunnerWorkflowPackState.Failed)
         {
-            return "The host runner's assigned workflow pack last failed.";
+            return "This machine's assigned tool pack last failed.";
         }
 
         if (_sessionMachine.WorkflowPackStatus?.State == RunnerWorkflowPackState.Blocked)
         {
-            return "The host runner's assigned workflow pack is currently blocked.";
+            return "This machine's assigned tool pack is currently blocked.";
         }
 
         if (_sessionMachine.UpdateRollout is { State: RunnerUpdateRolloutState.Blocked })
         {
-            return "Host runner update rollout is currently blocked.";
+            return "This machine's update is currently blocked.";
         }
 
         if (_sessionMachine.UpdateRollout is { State: RunnerUpdateRolloutState.Failed })
         {
-            return "Host runner update rollout last failed.";
+            return "This machine's update last failed.";
         }
 
         return null;
@@ -855,7 +855,7 @@
         }
         catch (Exception ex)
         {
-            return $"Project-session control updated, but syncing viewer control for {viewer.Target.DisplayName} failed: {ex.Message}";
+            return $"Workspace control updated, but syncing remote-screen control for {viewer.Target.DisplayName} failed: {ex.Message}";
         }
     }
 

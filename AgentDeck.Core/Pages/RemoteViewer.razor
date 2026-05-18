@@ -99,7 +99,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Session details</h2>
-                        <p>Coordinator-managed viewer metadata for this live relay session.</p>
+                        <p>Technical details for this live remote-screen connection.</p>
                     </div>
                 </div>
                 <dl class="surface-details-list">
@@ -437,7 +437,7 @@
 
         if (!ViewerClient.SupportsInAppViewer)
         {
-            return "This viewer is not using the managed relay transport required for in-app viewing.";
+            return "This remote screen is not using the managed transport required for in-app viewing.";
         }
 
         return ViewerClient.StatusMessage;
