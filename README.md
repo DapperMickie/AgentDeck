@@ -371,6 +371,13 @@ VS Code-backed debug jobs now build first, materialize `.vscode` debug assets pl
 
 Privileged orchestration, viewer, and machine setup actions now also run through a first-pass trust-policy hook and emit bounded audit records at `/api/audit/events`. Audit entries include the action, actor, remote address, target, and success/denied/failed outcome so later authorization work has a stable trail to build on.
 
+For troubleshooting, both services now expose redacted local diagnostic bundles:
+
+- Coordinator: `GET /api/diagnostics/bundle`
+- Runner: `GET /api/diagnostics/bundle`
+
+The coordinator bundle captures a point-in-time snapshot of coordinator configuration, desired runner definitions, companions, machines, projects, project sessions, update rollouts, and runner-orchestration state. The runner bundle captures runtime configuration, coordinator connection state, workspace info, terminal sessions, orchestration jobs, viewer sessions, capability/setup/update/workflow status, and recent audit events. Secret-like values are not emitted; access keys and signer/private-key settings are represented as configured/unconfigured booleans or redacted placeholders. Use these bundles when debugging local setup, firewall/bind issues, stale sessions, runner update problems, viewer bootstrap failures, or workflow-pack state without manually collecting many separate endpoints.
+
 The runner now also exposes a remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. Runtime viewer readiness is now based on the AgentDeck-managed helper transport for supported desktop, VS Code, emulator, simulator, and window targets. Platform-native remoting fallbacks such as Windows RDP, macOS Screen Sharing, and Linux `x11vnc` are no longer part of the default ready path; they only apply when `DesktopViewerTransport:AllowNativeFallbackProviders` is explicitly enabled for compatibility-only scenarios. When a real managed transport is not available, the session fails explicitly instead of silently satisfying readiness through host-native remoting.
 
 Window-, emulator-, simulator-, and VS Code-targeted viewer sessions still remain additive modeling layers above the transport. They keep their distinct target metadata, and the bootstrap path now covers those session types too, but focused capture and transport-specific semantics for those narrower surfaces remain follow-up work on top of the shared helper seam.
