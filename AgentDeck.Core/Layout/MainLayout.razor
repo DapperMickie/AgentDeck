@@ -52,10 +52,20 @@
                 </button>
             }
 
-            <button class="nav-new-terminal" @onclick="OpenNewTerminal">
-                <span>＋</span>
-                <span>New Terminal</span>
-            </button>
+            @if (Connections.ConnectedMachineCount == 0)
+            {
+                <a class="nav-new-terminal" href="/settings#machines">
+                    <span>＋</span>
+                    <span>Set up runner</span>
+                </a>
+            }
+            else
+            {
+                <button class="nav-new-terminal" @onclick="OpenNewTerminal">
+                    <span>＋</span>
+                    <span>New Terminal</span>
+                </button>
+            }
 
             <div class="nav-divider"></div>
 
