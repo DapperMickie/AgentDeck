@@ -43,7 +43,7 @@
         </div>
 
         <div class="project-page__content">
-            <section class="dashboard-section-card">
+            <section id="workspace-machines" class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Where do you want to run this?</h2>
@@ -443,7 +443,12 @@
 
                 @if (_project.Definition.Workspaces.Count == 0)
                 {
-                    <p>No machine workspaces have been registered yet.</p>
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">⌂</div>
+                        <h3>No machine workspace yet</h3>
+                        <p>Open this workspace on a runner to let AgentDeck prepare the project folder and remember where it lives.</p>
+                        <a class="btn btn-primary" href="#workspace-machines">Choose a runner</a>
+                    </div>
                 }
                 else
                 {
