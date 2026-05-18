@@ -299,8 +299,8 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Live orchestration jobs</h2>
-                        <p>Real runner-backed run and debug jobs, including session IDs, viewer links, and current lifecycle state.</p>
+                        <h2>Live runs</h2>
+                        <p>Recent run/debug activity for this workspace, including terminal links, remote screens, and current status.</p>
                     </div>
                 </div>
 
@@ -309,8 +309,8 @@
                     <div class="empty-state empty-state--actionable">
                         <div class="empty-icon">▶</div>
                         <h3>No run or debug jobs yet</h3>
-                        <p>Queue a run/debug profile to see job progress, logs, sessions, and viewer links here.</p>
-                        <a class="btn btn-primary" href="#run-debug">Choose a run profile</a>
+                        <p>Choose a run option to see progress, logs, sessions, and remote-screen links here.</p>
+                        <a class="btn btn-primary" href="#run-debug">Choose a run option</a>
                     </div>
                 }
                 else
@@ -366,8 +366,8 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Viewer session entry points</h2>
-                        <p>Remote screens created by runs and debug sessions. AgentDeck routes them safely through the app connection.</p>
+                        <h2>Remote screens</h2>
+                        <p>Remote screens created by workspace runs and debug sessions. AgentDeck routes them safely through the app connection.</p>
                     </div>
                 </div>
 
@@ -375,8 +375,8 @@
                 {
                     <div class="empty-state empty-state--actionable">
                         <div class="empty-icon">◫</div>
-                        <h3>No viewer sessions yet</h3>
-                        <p>Open a desktop or launch a profile with a remote surface to see viewer links and control status here.</p>
+                        <h3>No remote screens yet</h3>
+                        <p>Open a desktop or launch a run option with a remote screen to see links and control status here.</p>
                         <div class="setup-checklist__actions">
                             <a class="btn btn-primary" href="#workspace-machines">Open desktop</a>
                             <a class="btn btn-accent" href="#run-debug">Run or debug</a>
@@ -502,7 +502,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Live sessions</h2>
-                        <p>Each project session becomes a tab container for terminals and future VS Code, simulator, emulator, and viewer surfaces.</p>
+                        <p>Each workspace session groups terminals, remote screens, and future VS Code, simulator, or emulator surfaces.</p>
                     </div>
                 </div>
 
@@ -511,7 +511,7 @@
                     <div class="empty-state empty-state--actionable">
                         <div class="empty-icon">▣</div>
                         <h3>No live sessions yet</h3>
-                        <p>Open this workspace on a runner or queue a run/debug profile to create the first live session.</p>
+                        <p>Open this workspace on a machine or choose a run option to create the first live session.</p>
                         <div class="setup-checklist__actions">
                             <a class="btn btn-primary" href="#workspace-machines">Open workspace</a>
                             <a class="btn btn-accent" href="#run-debug">Run or debug</a>
@@ -526,7 +526,7 @@
                             <a class="project-session-card project-session-card--link" href="/project-sessions/@Uri.EscapeDataString(session.Id)">
                                 <div class="project-session-card__header">
                                     <div>
-                                        <h3>@(session.MachineName ?? "Coordinator session")</h3>
+                                        <h3>@(session.MachineName ?? "Workspace session")</h3>
                                         <p>@GetControllerSummary(session)</p>
                                     </div>
                                     <span class="machine-badge">@session.Surfaces.Count tabs</span>
@@ -822,14 +822,14 @@
         var machineId = GetSelectedMachineId(profile, availableMachines);
         if (string.IsNullOrWhiteSpace(machineId))
         {
-            Toasts.Show("Select a machine before launching this profile.", ToastKind.Warning);
+            Toasts.Show("Select a machine before launching this run option.", ToastKind.Warning);
             return;
         }
 
         var machine = GetMachine(machineId);
         if (machine is null || !CanOpenProjectOnMachine(machine) || !MachineSupportsProfile(machine, profile))
         {
-            Toasts.Show("That machine is not currently eligible for this launch profile's required viewer surfaces.", ToastKind.Warning);
+            Toasts.Show("That machine is not currently eligible for this run option's required remote screens.", ToastKind.Warning);
             return;
         }
 
@@ -1055,7 +1055,7 @@
         var selectedValue = GetSelectedDeviceChoice(profile, GetDeviceChoices(profile, machineId));
         if (string.IsNullOrWhiteSpace(selectedValue) || profile.DeviceCatalog is null)
         {
-            throw new InvalidOperationException("Select a device or profile before launching this target.");
+            throw new InvalidOperationException("Select a device before launching this run option.");
         }
 
         var selection = selectedValue.StartsWith("device:", StringComparison.OrdinalIgnoreCase)
@@ -1210,7 +1210,7 @@
     private string GetMachineStatusMessage(ProjectLaunchProfile profile, int machineCount) =>
         machineCount == 0
             ? GetUnavailableMachineStatusMessage(profile)
-            : $"{machineCount} ready machine(s) can host this profile and expose its required viewer surfaces.";
+            : $"{machineCount} ready machine(s) can host this run option and expose its required remote screens.";
 
     private string GetDeviceStatusMessage(ProjectLaunchProfile profile, string? machineId, int deviceChoiceCount)
     {
@@ -1238,7 +1238,7 @@
 
         return requiredTargets.Length == 0
             ? null
-            : $"Required viewer surfaces: {string.Join(", ", requiredTargets)}.";
+            : $"Required remote screens: {string.Join(", ", requiredTargets)}.";
     }
 
     private static string GetRequiredViewerSurfaceSummary(ProjectLaunchProfile profile)
@@ -1248,7 +1248,7 @@
             .ToArray();
 
         return requiredTargets.Length == 0
-            ? "required viewer surfaces"
+            ? "required remote screens"
             : string.Join(", ", requiredTargets);
     }
 
@@ -1380,12 +1380,12 @@
 
         if (incompatibleCount > 0)
         {
-            return $"No protocol-compatible machine currently advertises {profile.Platform} with {viewerSurfaceSummary}. {incompatibleCount} matching machine(s) are blocked by protocol compatibility.";
+            return $"No compatible machine currently advertises {profile.Platform} with {viewerSurfaceSummary}. {incompatibleCount} matching machine(s) need an AgentDeck compatibility update.";
         }
 
         if (missingViewerSurfaceCount > 0)
         {
-            return $"No ready machine currently advertises {profile.Platform} with {viewerSurfaceSummary}. {missingViewerSurfaceCount} matching machine(s) are missing at least one required viewer surface.";
+            return $"No ready machine currently advertises {profile.Platform} with {viewerSurfaceSummary}. {missingViewerSurfaceCount} matching machine(s) are missing at least one required remote screen.";
         }
 
         return $"No ready machine currently advertises {profile.Platform}.";

@@ -1,6 +1,6 @@
 # AgentDeck
 
-AgentDeck is a private local-network control plane for running AI-assisted development workflows across the machines you already own. It coordinates **Coordinator**, **Runner**, and **Companion/Core UI** pieces so a developer can choose projects, discover machine capabilities, launch terminals or app/debug workflows, and open managed viewer surfaces without manually juggling per-machine endpoints.
+AgentDeck is a private local-network app for running AI-assisted development workflows across the machines you already own. Start one AgentDeck service, connect one or more runner machines, then use the companion app to choose workspaces, discover machine capabilities, launch terminals or app/debug workflows, and open managed remote screens without manually juggling per-machine endpoints.
 
 ---
 
@@ -10,7 +10,7 @@ AgentDeck is being built to make it easy to:
 - connect multiple local machines into one developer workspace
 - discover what each machine can run, including CLIs, SDKs, IDEs, emulators/simulators, and viewer transports
 - open a project on the best available runner for the requested workflow
-- launch terminals, app/debug workflows, and managed viewer surfaces from one UI
+- launch terminals, app/debug workflows, and managed remote screens from one UI
 - keep runner capabilities, workflow packs, setup catalogs, and runner updates coordinated from the local control plane
 - support collaboration semantics where one companion actively controls a session while other companions can observe or request control
 
@@ -75,21 +75,25 @@ A .NET MAUI + Blazor WebView shell plus shared Core UI that:
 
 From a fresh checkout, the fastest reliable path is:
 
-```bash
-dotnet restore AgentDeck.slnx
-dotnet run --project AgentDeck.Coordinator/AgentDeck.Coordinator.csproj
-```
+1. Start the AgentDeck service:
 
-In a second terminal, start a Linux runner and register it with that coordinator. Coordinator registration uses .NET configuration environment keys with double underscores:
+   ```bash
+   dotnet restore AgentDeck.slnx
+   dotnet run --project AgentDeck.Coordinator/AgentDeck.Coordinator.csproj
+   ```
 
-```bash
-Coordinator__CoordinatorUrl=http://localhost:5001 \
-Coordinator__MachineId=local-linux \
-Coordinator__MachineName="Local Linux" \
-dotnet run --project AgentDeck.Runner/AgentDeck.Runner.csproj
-```
+2. In a second terminal, start a Linux runner and point it at that service. Registration uses .NET configuration environment keys with double underscores:
 
-Then run the companion for your platform and set the coordinator URL to `http://localhost:5001` in **Settings → Connection**. Use `localhost` only when the companion is on the same machine as the coordinator; phones/tablets should use a LAN-reachable host name or IP address.
+   ```bash
+   Coordinator__CoordinatorUrl=http://localhost:5001 \
+   Coordinator__MachineId=local-linux \
+   Coordinator__MachineName="Local Linux" \
+   dotnet run --project AgentDeck.Runner/AgentDeck.Runner.csproj
+   ```
+
+3. Run the companion for your platform and paste the AgentDeck service URL in **Settings → Connection**.
+
+Use `http://localhost:5001` only when the companion is running on the same machine as the service. For a phone, tablet, VM, or another laptop, paste a LAN-reachable host name or IP address such as `http://192.168.1.25:5001`.
 
 Known-good local verification commands:
 
