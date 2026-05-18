@@ -36,4 +36,4 @@ jobs:
           dotnet build AgentDeck.Core/AgentDeck.Core.csproj --no-restore
 
       - name: Test runner suite
-        run: dotnet test AgentDeck.Runner.Tests/AgentDeck.Runner.Tests.csproj --no-build
+        run: dotnet test AgentDeck.Runner.Tests/AgentDeck.Runner.Tests.csproj --no-restore
