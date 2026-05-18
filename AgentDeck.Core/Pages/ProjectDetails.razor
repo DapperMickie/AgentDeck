@@ -18,6 +18,21 @@
             </div>
         </div>
     }
+    else if (_loadError is not null)
+    {
+        <div class="project-page__content">
+            <div class="empty-state empty-state--actionable">
+                <div class="empty-icon">!</div>
+                <h2>Could not load this workspace</h2>
+                <p>@_loadError</p>
+                <div class="form-actions">
+                    <button class="btn btn-primary" @onclick="LoadAsync">Try again</button>
+                    <a class="btn btn-accent" href="/settings">Check connection</a>
+                    <a class="btn btn-accent" href="/">Dashboard</a>
+                </div>
+            </div>
+        </div>
+    }
     else if (_project is null)
     {
         <div class="project-page__content">
@@ -545,6 +560,7 @@
     private string? _queueingProfileId;
     private string? _cancellingJobId;
     private string? _coordinatorUrl;
+    private string? _loadError;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -554,6 +570,7 @@
     private async Task LoadAsync()
     {
         _loading = true;
+        _loadError = null;
         try
         {
             var settings = await SettingsService.LoadAsync();
@@ -571,6 +588,15 @@
                 await EnsureDeviceCatalogsAsync();
                 await LoadRuntimeStateAsync();
             }
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+            _project = null;
+            _projectSessions = [];
+            _projectJobs = [];
+            _projectViewerSessions = [];
+            _remoteControlByMachineId.Clear();
         }
         finally
         {

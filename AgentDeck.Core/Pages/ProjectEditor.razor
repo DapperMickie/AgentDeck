@@ -49,7 +49,7 @@
                 {
                     <a class="btn btn-accent" href="/">Dashboard</a>
                 }
-                <button class="btn btn-primary" disabled="@(_saving || !IsReadyToSave())" @onclick="SaveAsync">
+                <button class="btn btn-primary" disabled="@(_saving || !IsReadyToSave())" title="@GetSaveButtonTitle()" @onclick="SaveAsync">
                     @(_saving ? "Saving..." : "Save workspace")
                 </button>
             </div>
@@ -318,7 +318,7 @@
                     <strong>@GetReadinessTitle()</strong>
                     <span>@GetReadinessDescription()</span>
                 </div>
-                <button class="btn btn-primary" disabled="@(_saving || !IsReadyToSave())" @onclick="SaveAsync">
+                <button class="btn btn-primary" disabled="@(_saving || !IsReadyToSave())" title="@GetSaveButtonTitle()" @onclick="SaveAsync">
                     @(_saving ? "Saving..." : "Save workspace")
                 </button>
             </div>
@@ -538,6 +538,19 @@
         return missing == 0
             ? $"AgentDeck will save {_editor.Name} with {_editor.LaunchProfiles.Count} run option(s)."
             : $"Finish {missing} item(s) before saving this workspace.";
+    }
+
+    private string GetSaveButtonTitle()
+    {
+        if (_saving)
+        {
+            return "Saving workspace...";
+        }
+
+        var nextMissing = GetReadinessItems().FirstOrDefault(item => !item.Complete);
+        return nextMissing == default
+            ? "Save workspace"
+            : $"Finish {nextMissing.Title}: {nextMissing.Description}";
     }
 
     private IReadOnlyList<ReadinessItem> GetReadinessItems()

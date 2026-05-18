@@ -63,12 +63,12 @@ dotnet restore AgentDeck.slnx
 dotnet run --project AgentDeck.Coordinator/AgentDeck.Coordinator.csproj
 ```
 
-In a second terminal, start a Linux runner and register it with that coordinator:
+In a second terminal, start a Linux runner and register it with that coordinator. Coordinator registration uses .NET configuration environment keys with double underscores:
 
 ```bash
-AGENTDECK_COORDINATOR_URL=http://localhost:5001 \
-AGENTDECK_MACHINE_ID=local-linux \
-AGENTDECK_MACHINE_NAME="Local Linux" \
+Coordinator__CoordinatorUrl=http://localhost:5001 \
+Coordinator__MachineId=local-linux \
+Coordinator__MachineName="Local Linux" \
 dotnet run --project AgentDeck.Runner/AgentDeck.Runner.csproj
 ```
 
@@ -117,12 +117,15 @@ Build the image from the repository root:
 docker build -t agentdeck-runner -f AgentDeck.Runner/Dockerfile .
 ```
 
-Run the container with a mounted workspace:
+Run the container with a mounted workspace and coordinator registration settings. On Docker Desktop, `host.docker.internal` reaches the host coordinator; on native Linux, replace it with a LAN-reachable host name/IP or add Docker's host-gateway mapping for that name.
 
 ```bash
 docker run --rm \
   -p 5000:5000 \
   -e AGENTDECK_WORKSPACE=/workspace \
+  -e Coordinator__CoordinatorUrl=http://host.docker.internal:5001 \
+  -e Coordinator__MachineId=local-docker \
+  -e Coordinator__MachineName="Local Docker Runner" \
   -v "$(pwd):/workspace" \
   agentdeck-runner
 ```
@@ -131,7 +134,7 @@ The image exposes port `5000`, defaults the workspace to `/workspace`, sets `ASP
 
 The checked-in runner image now uses a Debian-based self-contained final stage instead of the stock minimal ASP.NET runtime image, includes the native ICU dependency that .NET needs at runtime, and runs as a non-root `agentdeck` user with passwordless `sudo` for machine-setup actions.
 
-If you run the runner inside a container, AgentDeck treats that container as just another machine. Register the runner with the coordinator, then use the companion app through that coordinator to inspect which supported tools are installed and install missing ones inside that machine.
+If you run the runner inside a container, AgentDeck treats that container as just another machine. Keep `Coordinator__CoordinatorUrl` pointed at the coordinator URL the container can reach, then use the companion app through that coordinator to inspect which supported tools are installed and install missing ones inside that machine.
 
 If you override the container user, Linux setup actions still need either `root` or a passwd-backed user with passwordless `sudo`. Arbitrary numeric UIDs that are not present in `/etc/passwd` can run the runner, but they cannot perform privileged package installs through the setup flow.
 
