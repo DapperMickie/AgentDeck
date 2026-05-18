@@ -10,7 +10,7 @@
     <div class="page-header settings-page__header">
         <div>
             <h1>Settings</h1>
-            <p>Connect to a coordinator, choose runner machines, inspect setup capabilities, manage runner updates, and keep advanced machine details in one place.</p>
+            <p>Connect AgentDeck, create runner machines, check required tools, manage updates, and keep advanced diagnostics in one place.</p>
         </div>
     </div>
 
@@ -40,7 +40,7 @@
 
             <div class="machine-editor machine-editor--settings">
                 <div class="form-field">
-                    <label for="coordinator-url">Coordinator URL</label>
+                    <label for="coordinator-url">AgentDeck service URL</label>
                     <input id="coordinator-url" type="text" class="input" @bind="_settings.CoordinatorUrl"
                        placeholder="@GetCoordinatorUrlPlaceholder()" />
                 </div>
@@ -1167,7 +1167,7 @@
 
             if (instance is null)
             {
-                ToastService.Show("The coordinator did not return a runner instance.", ToastKind.Warning);
+                ToastService.Show("AgentDeck could not confirm the new runner. Refresh machines in a moment.", ToastKind.Warning);
                 return;
             }
 
@@ -1196,7 +1196,7 @@
             if (string.IsNullOrWhiteSpace(_settings.CoordinatorUrl))
             {
                 _registeredMachines = [];
-                _registeredMachinesErrorMessage = "Set a coordinator URL before refreshing the directory.";
+                _registeredMachinesErrorMessage = "Set the AgentDeck service URL before refreshing machines.";
                 return;
             }
 
@@ -1204,7 +1204,7 @@
             if (!_coordinatorReachable)
             {
                 _registeredMachines = [];
-                _registeredMachinesErrorMessage = "The coordinator API did not respond successfully.";
+                _registeredMachinesErrorMessage = "The AgentDeck service did not respond successfully.";
                 return;
             }
 
@@ -1215,7 +1215,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to refresh registered machines from coordinator API {CoordinatorUrl}", _settings.CoordinatorUrl);
-            _registeredMachinesErrorMessage = $"Failed to refresh coordinator directory: {ex.Message}";
+            _registeredMachinesErrorMessage = $"Failed to refresh machines: {ex.Message}";
             _registeredMachines = [];
             _coordinatorReachable = false;
         }
@@ -1238,7 +1238,7 @@
             var rollout = await CoordinatorClient.UpdateMachineApplyIntentAsync(_settings.CoordinatorUrl, machineId, mode);
             if (rollout is null)
             {
-                ToastService.Show("The coordinator could no longer find that machine.", ToastKind.Warning);
+                ToastService.Show("AgentDeck could no longer find that machine. Refresh machines and try again.", ToastKind.Warning);
                 await RefreshCoordinatorDirectoryAsync();
                 return;
             }
@@ -1255,7 +1255,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to update coordinator apply intent for machine {MachineId}", machineId);
-            ToastService.Show($"Failed to update coordinator apply intent: {ex.Message}", ToastKind.Error);
+            ToastService.Show($"Failed to update machine setup preference: {ex.Message}", ToastKind.Error);
         }
         finally
         {
@@ -1276,7 +1276,7 @@
             var retried = await CoordinatorClient.RetryMachineWorkflowPackAsync(_settings.CoordinatorUrl, machineId);
             if (!retried)
             {
-                ToastService.Show("The coordinator could no longer find that machine.", ToastKind.Warning);
+                ToastService.Show("AgentDeck could no longer find that machine. Refresh machines and try again.", ToastKind.Warning);
                 await RefreshCoordinatorDirectoryAsync();
                 return;
             }

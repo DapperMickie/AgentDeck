@@ -19,8 +19,8 @@
     {
         <div class="project-editor__content">
             <div class="dashboard-section-card">
-                <h2>Coordinator required</h2>
-                <p>Set a coordinator URL in <a href="/settings">Settings</a> before editing projects.</p>
+                <h2>Connection required</h2>
+                <p>Connect AgentDeck in <a href="/settings">Settings</a> before editing workspaces.</p>
             </div>
         </div>
     }
@@ -28,8 +28,8 @@
     {
         <div class="project-editor__content">
             <div class="dashboard-section-card">
-                <h2>Project not found</h2>
-                <p>The coordinator does not currently expose project <code>@ProjectId</code>.</p>
+                <h2>Workspace not found</h2>
+                <p>AgentDeck could not find workspace <code>@ProjectId</code>. Refresh the dashboard or check Settings if it should still exist.</p>
             </div>
         </div>
     }
@@ -43,7 +43,7 @@
             <div class="project-page__actions">
                 @if (_isExistingProject)
                 {
-                    <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_editor.ProjectId)">Back to project</a>
+                    <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_editor.ProjectId)">Back to workspace</a>
                 }
                 else
                 {
@@ -61,7 +61,7 @@
                     <div>
                         <span class="eyebrow">Simple setup</span>
                         <h2>Start with a repository or template</h2>
-                        <p>AgentDeck can fill in the raw project fields for you. Advanced IDs and launch commands stay editable below.</p>
+                        <p>AgentDeck can fill in the workspace details for you. Advanced IDs and launch commands stay editable below.</p>
                     </div>
                 </div>
                 <div class="project-editor__grid">
@@ -175,12 +175,12 @@
                         <h2>Ways to run this workspace</h2>
                         <p>Most projects only need one default run profile. Open advanced details to tune commands, devices, or VS Code behavior.</p>
                     </div>
-                    <button class="btn btn-accent" disabled="@_saving" @onclick="AddProfile">Add launch profile</button>
+                    <button class="btn btn-accent" disabled="@_saving" @onclick="AddProfile">Add run option</button>
                 </div>
 
                 @if (_editor.LaunchProfiles.Count == 0)
                 {
-                    <p>No launch profiles are configured yet.</p>
+                    <p>No run options are configured yet.</p>
                 }
                 else
                 {
@@ -193,17 +193,17 @@
                                 <div class="project-editor__profile-body">
                                     <div class="project-session-card__header">
                                         <div>
-                                            <h3>@(string.IsNullOrWhiteSpace(profile.DisplayName) ? "Launch profile" : profile.DisplayName)</h3>
+                                            <h3>@(string.IsNullOrWhiteSpace(profile.DisplayName) ? "Run option" : profile.DisplayName)</h3>
                                             <p>@profile.Mode • @profile.Platform • @profile.LaunchDriver</p>
                                         </div>
-                                        <button class="btn btn-danger" disabled="@_saving" @onclick="() => RemoveProfile(profileIndex)">Delete profile</button>
+                                        <button class="btn btn-danger" disabled="@_saving" @onclick="() => RemoveProfile(profileIndex)">Remove run option</button>
                                     </div>
 
                                     <details class="advanced-panel">
                                         <summary>Advanced launch details</summary>
                                         <div class="project-editor__grid">
                                         <div class="form-field">
-                                            <label>Profile ID</label>
+                                            <label>Run option ID</label>
                                             <input class="input" @bind="profile.Id" />
                                         </div>
                                         <div class="form-field">
@@ -247,7 +247,7 @@
                                             </select>
                                         </div>
                                         <div class="form-field">
-                                            <label>Preferred machine ID</label>
+                                            <label>Preferred machine ID (advanced)</label>
                                             <input class="input" @bind="profile.PreferredMachineId" />
                                         </div>
                                         <div class="form-field">
