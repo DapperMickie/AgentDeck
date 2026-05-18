@@ -11,7 +11,7 @@ AgentDeck is being built to make it easy to:
 - discover what each machine can run, including CLIs, SDKs, IDEs, emulators/simulators, and remote-screen options
 - open a workspace on the best available machine for the requested workflow
 - launch terminals, app/debug workflows, and managed remote screens from one UI
-- keep machine tools, setup catalogs, and updates coordinated from the local AgentDeck service
+- keep machine tools, setup lists, and updates coordinated from the local AgentDeck service
 - support collaboration where one user controls a session while others can observe or request control
 
 ## Non-goals for Now
@@ -93,7 +93,7 @@ From a fresh checkout, the fastest reliable path is:
 
 3. Run the companion app for your platform and paste the AgentDeck service URL in **Settings → Connection**.
 
-Use `http://localhost:5001` only when the companion is running on the same machine as the service. For a phone, tablet, VM, or another laptop, paste a LAN-reachable host name or IP address such as `http://192.168.1.25:5001`.
+Use `http://localhost:5001` only when the companion is running on the same machine as the service. For a phone, tablet, VM, or another laptop, start the service with `AGENTDECK_COORDINATOR_BIND_ADDRESS=0.0.0.0` on a trusted network and paste a LAN-reachable host name or IP address such as `http://192.168.1.25:5001`.
 
 Known-good local verification commands:
 

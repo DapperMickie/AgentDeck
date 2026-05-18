@@ -91,7 +91,7 @@
                 else
                 {
                     <button class="btn btn-accent" @onclick="RequestControlAsync">Request control</button>
-                    <button class="btn btn-danger" @onclick="ForceTakeoverAsync">Force take over</button>
+                    <button class="btn btn-danger" @onclick="ForceTakeoverAsync">Take control from them</button>
                 }
             </div>
         </div>
@@ -255,7 +255,7 @@
                                     <button class="btn btn-danger"
                                             disabled="@_viewerActionInProgress"
                                             @onclick="() => UpdateActiveViewerControlAsync(ProjectSessionControlRequestMode.ForceTakeover)">
-                                        Force take over
+                                        Take control from them
                                     </button>
                                 }
                                 else
@@ -1026,7 +1026,7 @@
 
         return IsCurrentRemoteController(_remoteControlState)
             ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote screen."
-            : $"{controllerLabel} currently controls {activeTarget} on this machine. Taking this remote screen requires force takeover.";
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Taking control will stop their input control, but they can still view.";
     }
 
     private bool CanControlActiveViewer() =>

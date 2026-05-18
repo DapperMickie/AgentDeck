@@ -172,7 +172,7 @@
                                     <button class="btn btn-danger"
                                             disabled="@(!machine.IsOnline || _viewerActionMachineId == machine.MachineId)"
                                             @onclick="() => OpenDesktopViewerAsync(machine, forceTakeover: true)">
-                                        Force take over
+                                        Take control from them
                                     </button>
                                 }
                                 else if (remoteControlState is not null && IsCurrentRemoteController(remoteControlState))
@@ -443,7 +443,7 @@
                                             <button class="btn btn-danger"
                                                     disabled="@(_viewerActionViewerId == viewer.Id)"
                                                     @onclick="() => UpdateExistingViewerControlAsync(viewer, ProjectSessionControlRequestMode.ForceTakeover)">
-                                                Force take over
+                                                Take control from them
                                             </button>
                                         }
                                         else
@@ -1501,7 +1501,7 @@
 
         return IsCurrentRemoteController(state)
             ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote screen."
-            : $"{controllerLabel} currently controls {activeTarget} on this machine. Taking this remote screen requires force takeover.";
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Taking control will stop their input control, but they can still view.";
     }
 
     private static bool CanControlViewer(RemoteViewerSession viewer) =>

@@ -186,8 +186,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                         new CompanionViewerSurfaceSummary
                         {
                             Id = $"{project.Definition.Id}-android-emulator",
-                            Title = "Android emulator viewer",
-                            Description = $"{project.Definition.Name} can expose an Android emulator surface once orchestration is launched.",
+                            Title = "Android emulator screen",
+                            Description = $"{project.Definition.Name} can show an Android emulator remote screen after you launch a run option.",
                             Availability = target.ReadyMachineNames.Count > 0
                                 ? $"Ready on {string.Join(", ", target.ReadyMachineNames)}"
                                 : "No Android-ready machine discovered yet",
@@ -202,8 +202,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                         new CompanionViewerSurfaceSummary
                         {
                             Id = $"{project.Definition.Id}-ios-simulator",
-                            Title = "Apple simulator viewer",
-                            Description = $"{project.Definition.Name} can expose an Apple simulator surface once orchestration is launched.",
+                            Title = "Apple simulator screen",
+                            Description = $"{project.Definition.Name} can show an Apple simulator remote screen after you launch a run option.",
                             Availability = target.ReadyMachineNames.Count > 0
                                 ? $"Ready on {string.Join(", ", target.ReadyMachineNames)}"
                                 : "No Apple simulator-ready machine discovered yet",
@@ -218,8 +218,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                         new CompanionViewerSurfaceSummary
                         {
                             Id = $"{project.Definition.Id}-vscode-debugger",
-                            Title = "VS Code debugger surface",
-                            Description = $"{project.Definition.Name} debug sessions are expected to expose a VS Code-backed viewer surface.",
+                            Title = "VS Code debug screen",
+                            Description = $"{project.Definition.Name} debug sessions can show a VS Code remote screen.",
                             Availability = target.ReadyMachineNames.Count > 0
                                 ? $"Debug-capable target ready on {string.Join(", ", target.ReadyMachineNames)}"
                                 : "No debug-capable machine discovered yet",
@@ -235,7 +235,7 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                         {
                             Id = $"{project.Definition.Id}-{target.Platform}-app-window",
                             Title = $"{target.DisplayName} app window",
-                            Description = $"Desktop/window viewer support for {project.Definition.Name} on {target.DisplayName} is modeled separately from terminals.",
+                            Description = $"{project.Definition.Name} can show a desktop or app-window remote screen on {target.DisplayName}.",
                             Availability = target.ReadyMachineNames.Count > 0
                                 ? $"Potentially hostable on {string.Join(", ", target.ReadyMachineNames)}"
                                 : "No ready machine discovered yet",

@@ -35,6 +35,10 @@
                         <span class="setup-step__status">@step.StatusLabel</span>
                         <strong>@step.Title</strong>
                         <p>@step.Description</p>
+                        @if (!string.IsNullOrWhiteSpace(step.ActionHref) && !string.IsNullOrWhiteSpace(step.ActionLabel))
+                        {
+                            <a class="btn btn-accent" href="@step.ActionHref">@step.ActionLabel</a>
+                        }
                     </article>
                 }
             </div>
@@ -157,6 +161,12 @@
                                         </span>
                                     }
                                 </div>
+                                @if (MachineNeedsToolSetup(machine))
+                                {
+                                    <div class="project-machine-card__actions">
+                                        <a class="btn btn-accent" href="/settings#setup-capabilities">Check and install tools</a>
+                                    </div>
+                                }
                             </article>
                         }
                     </div>
@@ -305,8 +315,10 @@
         yield return new SetupStep(
             "Verify tools",
             _dashboard.Machines.Any(machine => machine.SupportedTargets.Any(target => target.Status == MachineTargetSupportStatus.Supported)) ? "Done" : "Check",
-            "AgentDeck will call out missing tools before you open a workspace.",
-            _dashboard.Machines.Any(machine => machine.SupportedTargets.Any(target => target.Status == MachineTargetSupportStatus.Supported)) ? "complete" : "todo");
+            MachineNeedsToolSetup() ? "Some machines need tools before they can open every workspace." : "AgentDeck will call out missing tools before you open a workspace.",
+            _dashboard.Machines.Any(machine => machine.SupportedTargets.Any(target => target.Status == MachineTargetSupportStatus.Supported)) ? "complete" : "todo",
+            MachineNeedsToolSetup() ? "/settings#setup-capabilities" : null,
+            MachineNeedsToolSetup() ? "Check and install tools" : null);
         yield return new SetupStep(
             "Open a workspace",
             _dashboard.Projects.Count > 0 ? "Done" : "Next",
@@ -369,6 +381,12 @@
             ? "Ready"
             : "Needs setup";
     }
+
+    private bool MachineNeedsToolSetup() =>
+        _dashboard.Machines.Any(MachineNeedsToolSetup);
+
+    private static bool MachineNeedsToolSetup(CompanionMachineSummary machine) =>
+        machine.IsOnline && machine.SupportedTargets.Any(target => target.Status == MachineTargetSupportStatus.RequiresSetup);
 
     private static string GetMachineReadinessSummary(CompanionMachineSummary machine)
     {
@@ -500,8 +518,8 @@
 
     private static string GetWorkflowCatalogStateLabel(RunnerWorkflowCatalogState state) => state switch
     {
-        RunnerWorkflowCatalogState.Matched => "Matched",
-        RunnerWorkflowCatalogState.Mismatched => "Mismatched",
+        RunnerWorkflowCatalogState.Matched => "Current",
+        RunnerWorkflowCatalogState.Mismatched => "Out of date",
         _ => "Unknown"
     };
 
@@ -564,7 +582,7 @@
     private void OnSettingsChanged(object? sender, ConnectionSettings settings) =>
         _ = RefreshDashboardAsync();
 
-    private sealed record SetupStep(string Title, string StatusLabel, string Description, string StateClass);
+    private sealed record SetupStep(string Title, string StatusLabel, string Description, string StateClass, string? ActionHref = null, string? ActionLabel = null);
 
     public async ValueTask DisposeAsync()
     {

@@ -58,7 +58,7 @@
                     }
                     else if (HasAnotherCompanionControllingMachine())
                     {
-                        <button class="btn btn-danger" @onclick="ForceTakeoverAsync" disabled="@_busy">Force take over</button>
+                        <button class="btn btn-danger" @onclick="ForceTakeoverAsync" disabled="@_busy">Take control from them</button>
                     }
                     else if (ViewerClient.CanTakeControlCurrentViewer)
                     {
@@ -479,7 +479,7 @@
         var activeTarget = state.TargetDisplayName ?? state.TargetKind.ToString();
         return IsCurrentRemoteController(state)
             ? $"You currently control {activeTarget} on this machine. Input here is allowed, and Take control will switch the active remote screen."
-            : $"{controllerLabel} currently controls {activeTarget} on this machine. Taking this remote screen requires force takeover.";
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Taking control will stop their input control, but they can still view.";
     }
 
     private async Task RunBusyAsync(Func<Task> action)

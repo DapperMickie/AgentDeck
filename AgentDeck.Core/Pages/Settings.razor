@@ -11,13 +11,13 @@
     <div class="page-header settings-page__header">
         <div>
             <h1>Settings</h1>
-            <p>Connect AgentDeck, create machines, check required tools, manage updates, and keep advanced diagnostics in one place.</p>
+            <p>Connect AgentDeck, manage machines, check required tools, manage updates, and keep advanced diagnostics in one place.</p>
         </div>
     </div>
 
     <nav class="settings-nav" aria-label="Settings sections">
         <a href="#connection">Connection</a>
-        <a href="#machines">Create machines</a>
+        <a href="#machines">Machines</a>
         <a href="#setup-capabilities">Tools</a>
         <a href="#runner-updates">Updates</a>
         <a href="#advanced">Advanced diagnostics</a>
@@ -80,7 +80,7 @@
         }
         else if (_registeredMachines.Count == 0)
         {
-            <p>No machines are visible yet. Create a machine below or start an existing machine and refresh.</p>
+            <p>No machines are visible yet. Provision a machine below or start a machine agent manually and refresh.</p>
         }
         else
         {
@@ -159,11 +159,11 @@
     <div id="machines" class="settings-card settings-page__card settings-card--anchored">
         <div class="settings-card__header settings-page__section-header">
             <div>
-                <h2>Create machines</h2>
-                <p class="settings-card__description">Create new machine capacity, connect existing machines, and choose your default place to open work.</p>
+                <h2>Machines</h2>
+                <p class="settings-card__description">Provision new machine capacity, save existing machine connections, and choose your default place to open work.</p>
             </div>
             <div class="form-actions form-actions--toolbar">
-                <button class="btn btn-accent" @onclick="AddMachine">Add machine</button>
+                <button class="btn btn-accent" @onclick="AddMachine">Add machine profile</button>
                 <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">
                     @(_saving ? "Saving..." : "Save")
                 </button>
@@ -176,8 +176,13 @@
         }
 
         <div class="settings-callout">
-            <strong>Create machine capacity</strong>
+            <strong>Provision a new machine</strong>
             <span>Use configured provider templates to create Linux/Windows/macOS machines on demand. Portainer is the first adapter; unsupported OS/provider combinations stay visible as planning targets instead of becoming dead-end buttons.</span>
+        </div>
+
+        <div class="settings-callout">
+            <strong>Start a machine agent manually</strong>
+            <span>On an existing machine, run <code>Coordinator__CoordinatorUrl=http://SERVICE-HOST:5001 dotnet run --project AgentDeck.Runner/AgentDeck.Runner.csproj</code>, then refresh this page. Use a LAN host/IP when the machine is not the same device as the service.</span>
         </div>
 
         @if (_runnerOrchestrationCatalog.Templates.Count == 0)
@@ -281,6 +286,11 @@
             </div>
         }
 
+        <div class="settings-callout">
+            <strong>Saved machine connections</strong>
+            <span>These profiles are for machines you connect to directly or use as defaults. Shared machines usually appear automatically after they check in with the AgentDeck service.</span>
+        </div>
+
         <div class="machine-layout">
             <div class="machine-list machine-list--settings">
                 @foreach (var machine in _settings.Machines)
@@ -288,7 +298,7 @@
                     <button class="machine-card @(IsSelectedMachine(machine) ? "machine-card--selected" : "")"
                             @onclick="() => SelectMachine(machine.Id)">
                         <span class="machine-card__title">@machine.Name</span>
-                        <span class="machine-card__url">@machine.RunnerUrl</span>
+                        <span class="machine-card__url">@(string.IsNullOrWhiteSpace(machine.RunnerUrl) ? "Uses AgentDeck service discovery" : machine.RunnerUrl)</span>
                         <span class="machine-card__meta">
                             <span class="machine-badge">@GetMachineRoleLabel(machine.Role)</span>
                             @if (string.Equals(_settings.PreferredMachineId, machine.Id, StringComparison.OrdinalIgnoreCase))
@@ -311,12 +321,15 @@
                         <input id="machine-name" type="text" class="input" @bind="SelectedMachine.Name" />
                     </div>
 
-                    <div class="form-field">
-                        <label for="runner-url">Advertised machine agent URL</label>
-                        <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
-                               placeholder="@GetRunnerUrlPlaceholder()" />
-                        <p class="settings-card__description">Informational only. The app does not connect directly to this URL.</p>
-                    </div>
+                    <details class="advanced-panel advanced-panel--compact">
+                        <summary>Advanced direct diagnostics</summary>
+                        <div class="form-field">
+                            <label for="runner-url">Direct machine-agent URL, optional</label>
+                            <input id="runner-url" type="text" class="input" @bind="SelectedMachine.RunnerUrl"
+                                   placeholder="@GetRunnerUrlPlaceholder()" />
+                            <p class="settings-card__description">Usually filled by the machine when it registers. Only edit this for direct diagnostics or standalone development.</p>
+                        </div>
+                    </details>
 
                     <div class="form-field">
                         <label for="machine-role">Machine role</label>
@@ -374,8 +387,8 @@
                     </div>
                 </div>
                     <div class="settings-callout">
-                        <strong>Update lane</strong>
-                        <span>Use this section when AgentDeck has an update or tool pack ready for this machine. General machine editing stays above; setup tools stay below.</span>
+                        <strong>Updates available</strong>
+                        <span>Use this section when AgentDeck has an app update or tool setup update ready for this machine. General machine editing stays above; setup tools stay below.</span>
                     </div>
                     <div class="settings-status-list">
                     <div class="settings-status-row">
@@ -393,7 +406,7 @@
                     @if (SelectedRegisteredMachine?.UpdateRollout is { } rollout)
                     {
                         <div class="settings-status-row">
-                            <span class="settings-status-row__label">Update rollout</span>
+                            <span class="settings-status-row__label">Machine update</span>
                             <strong class="settings-status-row__value">@GetUpdateRolloutLabel(rollout.State)</strong>
                         </div>
                         <div class="settings-status-row">
@@ -408,28 +421,28 @@
                             </div>
                         }
                         <div class="settings-status-row">
-                            <span class="settings-status-row__label">Apply intent</span>
+                            <span class="settings-status-row__label">Install setting</span>
                             <span class="settings-status-row__value">@GetApplyIntentLabel(rollout)</span>
                         </div>
                         <div class="settings-status-row">
-                            <span class="settings-status-row__label">Rollout summary</span>
+                            <span class="settings-status-row__label">Update summary</span>
                             <span class="settings-status-row__value">@rollout.StatusMessage</span>
                         </div>
                         <div class="form-actions form-actions--settings">
                             <button class="btn btn-accent"
                                     disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
                                     @onclick="() => UpdateMachineApplyIntentAsync(SelectedMachine!.Id, MachineUpdateApplyIntentMode.RequestApply)">
-                                Apply update
+                                Install now
                             </button>
                             <button class="btn btn-primary"
                                     disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
                                     @onclick="() => UpdateMachineApplyIntentAsync(SelectedMachine!.Id, MachineUpdateApplyIntentMode.StageOnly)">
-                                Stage only
+                                Download only
                             </button>
                             <button class="btn"
                                     disabled="@(_updateIntentMachineId == SelectedMachine?.Id)"
                                     @onclick="() => UpdateMachineApplyIntentAsync(SelectedMachine!.Id, MachineUpdateApplyIntentMode.Inherit)">
-                                Use service default
+                                Follow service setting
                             </button>
                         </div>
                         @if (!string.IsNullOrWhiteSpace(rollout.BlockingReason))
@@ -471,7 +484,7 @@
                         @if (!string.IsNullOrWhiteSpace(SelectedRegisteredMachine?.DesiredWorkflowPackId))
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Desired tool pack</span>
+                                <span class="settings-status-row__label">Tool setup package</span>
                                 <span class="settings-status-row__value">@GetDesiredWorkflowPackLabel(SelectedRegisteredMachine)</span>
                             </div>
                         }
@@ -479,27 +492,27 @@
                              workflowPackStatus.State != RunnerWorkflowPackState.None)
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Tool pack state</span>
+                                <span class="settings-status-row__label">Tool setup state</span>
                                 <span class="settings-status-row__value">@GetWorkflowPackStateLabel(workflowPackStatus.State)</span>
                             </div>
                             @if (!string.IsNullOrWhiteSpace(workflowPackStatus.StatusMessage))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Tool pack summary</span>
+                                    <span class="settings-status-row__label">Tool setup summary</span>
                                     <span class="settings-status-row__value">@workflowPackStatus.StatusMessage</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(workflowPackStatus.FailureMessage))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Tool pack failure</span>
+                                    <span class="settings-status-row__label">Tool setup failure</span>
                                     <span class="settings-status-row__value">@workflowPackStatus.FailureMessage</span>
                                 </div>
                             }
                             @if (workflowPackStatus.FetchedAt is not null)
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Tool pack fetched</span>
+                                    <span class="settings-status-row__label">Tool setup downloaded</span>
                                     <span class="settings-status-row__value">@workflowPackStatus.FetchedAt.Value.ToLocalTime().ToString("g")</span>
                                 </div>
                             }
@@ -509,7 +522,7 @@
                                     <button class="btn btn-accent"
                                             disabled="@(_workflowPackRetryMachineId == SelectedMachine.Id)"
                                             @onclick="() => RetryWorkflowPackAsync(SelectedMachine.Id)">
-                                        @(_workflowPackRetryMachineId == SelectedMachine.Id ? "Retrying..." : "Retry tool pack")
+                                        @(_workflowPackRetryMachineId == SelectedMachine.Id ? "Retrying..." : "Retry tool setup")
                                     </button>
                                 </div>
                             }
@@ -853,7 +866,7 @@
                         <code class="settings-status-row__value">@GetServiceDiagnosticBundleUrl()</code>
                     </div>
                     <div class="settings-status-row">
-                        <span class="settings-status-row__label">Advertised machine agent URL</span>
+                        <span class="settings-status-row__label">Direct machine-agent URL</span>
                         <code class="settings-status-row__value">@(!string.IsNullOrWhiteSpace(SelectedMachine.RunnerUrl) ? SelectedMachine.RunnerUrl : "Not advertised")</code>
                     </div>
                     <div class="settings-status-row">
@@ -1083,7 +1096,7 @@
     private static string GetMachineRoleDescription(RunnerMachineRole role) => role switch
     {
         RunnerMachineRole.Worker => "Use this machine as shared capacity that checks in with the AgentDeck service.",
-        _ => "Use this machine independently without assigning it to shared machine orchestration yet."
+        _ => "Use this machine independently without assigning it to shared AgentDeck capacity yet."
     };
 
     private static string GetHostPlatformLabel(RunnerHostPlatform platform) => platform switch
@@ -1115,20 +1128,20 @@
     {
         if (rollout.ApplyEligible)
         {
-            return "Apply requested and eligible";
+            return "Install now when ready";
         }
 
         if (rollout.ApplyRequested && rollout.ApplyPermitted)
         {
-            return "Apply requested";
+            return "Install requested";
         }
 
         if (rollout.ApplyRequested)
         {
-            return "Apply requested but blocked by policy";
+            return "Install requested but blocked";
         }
 
-        return rollout.ApplyPermitted ? "Stage only" : "Apply disabled by policy";
+        return rollout.ApplyPermitted ? "Download only" : "Install disabled by policy";
     }
 
     private static string GetDesiredManifestLabel(RunnerUpdateRolloutStatus rollout) =>
@@ -1166,22 +1179,22 @@
 
     private static string GetWorkflowCatalogStateLabel(RunnerWorkflowCatalogState state) => state switch
     {
-        RunnerWorkflowCatalogState.Matched => "Matched",
-        RunnerWorkflowCatalogState.Mismatched => "Mismatched",
+        RunnerWorkflowCatalogState.Matched => "Current",
+        RunnerWorkflowCatalogState.Mismatched => "Out of date",
         _ => "Unknown"
     };
 
     private static string GetCapabilityCatalogStateLabel(RunnerCapabilityCatalogState state) => state switch
     {
-        RunnerCapabilityCatalogState.Matched => "Matched",
-        RunnerCapabilityCatalogState.Mismatched => "Mismatched",
+        RunnerCapabilityCatalogState.Matched => "Current",
+        RunnerCapabilityCatalogState.Mismatched => "Out of date",
         RunnerCapabilityCatalogState.Failed => "Failed",
         _ => "Unknown"
     };
 
     private static string GetSetupCatalogStateLabel(RunnerSetupCatalogState state) => state switch
     {
-        RunnerSetupCatalogState.Matched => "Matched",
+        RunnerSetupCatalogState.Matched => "Current",
         RunnerSetupCatalogState.Failed => "Failed",
         _ => "Unknown"
     };
@@ -1386,11 +1399,11 @@
 
             var actionLabel = mode switch
             {
-                MachineUpdateApplyIntentMode.RequestApply => "requested apply",
-                MachineUpdateApplyIntentMode.StageOnly => "switched to stage-only",
-                _ => "restored the service default"
+                MachineUpdateApplyIntentMode.RequestApply => "will install now when ready",
+                MachineUpdateApplyIntentMode.StageOnly => "will download only",
+                _ => "will follow the service setting"
             };
-            ToastService.Show($"AgentDeck service {actionLabel} for {rollout.MachineName}.", ToastKind.Success);
+            ToastService.Show($"Machine update for {rollout.MachineName} {actionLabel}.", ToastKind.Success);
             await RefreshCoordinatorDirectoryAsync();
         }
         catch (Exception ex)
@@ -1422,7 +1435,7 @@
                 return;
             }
 
-            ToastService.Show("Tool-pack retry requested. The machine will retry on its next check-in.", ToastKind.Success);
+            ToastService.Show("Tool setup retry requested. The machine will retry on its next check-in.", ToastKind.Success);
             await RefreshCoordinatorDirectoryAsync();
         }
         catch (Exception ex)
@@ -1438,7 +1451,7 @@
 
     private static string GetCoordinatorUrlPlaceholder() => "https://agentdeck-service:5001";
 
-    private static string GetRunnerUrlPlaceholder() => "https://machine-host:5000 (informational)";
+    private static string GetRunnerUrlPlaceholder() => "https://machine-host:5000 (direct diagnostics only)";
 
     private void ClearCoordinatorDirectory()
     {
