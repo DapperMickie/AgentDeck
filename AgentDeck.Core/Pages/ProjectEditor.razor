@@ -362,7 +362,7 @@
     [
         new("Blazor app", "Web app with a browser-friendly run profile", ProjectWorkloadKind.Blazor, "dotnet build", "dotnet run"),
         new(".NET MAUI app", "Mobile/desktop app with simulator and device targets", ProjectWorkloadKind.Maui, "dotnet build", "dotnet build"),
-        new("Blank workspace", "Start with a generic shell and fill commands later", ProjectWorkloadKind.Blazor, "echo Ready", null)
+        new("Blank workspace", "Start with a generic shell and fill commands later", ProjectWorkloadKind.Blazor, "echo Ready", null, AllowBlankSource: true)
     ];
 
     private bool _loading = true;
@@ -371,6 +371,7 @@
     private bool _isExistingProject;
     private string? _coordinatorUrl;
     private string _quickRepositoryUrl = string.Empty;
+    private bool _blankSourceMode;
     private ProjectEditorModel _editor = ProjectEditorModel.CreateDefault();
     private IReadOnlyList<ProjectTargetDefinition> _existingTargets = [];
 
@@ -391,6 +392,7 @@
             if (string.IsNullOrWhiteSpace(_coordinatorUrl))
             {
                 _editor = ProjectEditorModel.CreateDefault();
+                _blankSourceMode = false;
                 _existingTargets = [];
                 _isExistingProject = false;
                 return;
@@ -399,6 +401,7 @@
             if (string.IsNullOrWhiteSpace(ProjectId))
             {
                 _editor = ProjectEditorModel.CreateDefault();
+                _blankSourceMode = false;
                 _existingTargets = [];
                 _isExistingProject = false;
                 return;
@@ -410,12 +413,14 @@
             {
                 _projectNotFound = true;
                 _editor = ProjectEditorModel.CreateDefault();
+                _blankSourceMode = false;
                 _existingTargets = [];
                 _isExistingProject = false;
                 return;
             }
 
             _editor = ProjectEditorModel.FromDefinition(project);
+            _blankSourceMode = IsBlankSourceConfigured(_editor);
             _existingTargets = project.Targets;
             _isExistingProject = true;
         }
@@ -443,6 +448,7 @@
             return;
         }
 
+        _blankSourceMode = false;
         _editor.RepositoryUrl = parsed.Value.Url;
         _editor.RepositoryOwner = parsed.Value.Owner;
         _editor.RepositoryName = parsed.Value.Name;
@@ -461,6 +467,15 @@
 
     private void ApplySimpleTemplate(SimpleProjectTemplate template)
     {
+        _blankSourceMode = template.AllowBlankSource;
+        if (_blankSourceMode)
+        {
+            _quickRepositoryUrl = string.Empty;
+            _editor.RepositoryName = string.Empty;
+            _editor.RepositoryOwner = null;
+            _editor.RepositoryUrl = null;
+        }
+
         var projectName = string.IsNullOrWhiteSpace(_editor.Name) || _editor.Name == "New Project"
             ? template.Name
             : _editor.Name;
@@ -533,12 +548,14 @@
                     : $"Will save as {normalizedId}."),
             new ReadinessItem(
                 "Source",
-                !string.IsNullOrWhiteSpace(_editor.RepositoryUrl) || !string.IsNullOrWhiteSpace(_editor.RepositoryName),
+                HasRepositorySource() || _blankSourceMode,
                 !string.IsNullOrWhiteSpace(_editor.RepositoryUrl)
                     ? "Repository URL is ready."
                     : !string.IsNullOrWhiteSpace(_editor.RepositoryName)
                         ? "Repository details are ready."
-                        : "Paste a repo URL or keep this as a blank workspace by naming the repository."),
+                        : _blankSourceMode
+                            ? "Blank workspace selected; AgentDeck will use the workspace name for metadata."
+                            : "Paste a repo URL or choose the Blank workspace template for a local/scratch workspace."),
             new ReadinessItem(
                 "Run option",
                 _editor.LaunchProfiles.Any(profile => !string.IsNullOrWhiteSpace(profile.DisplayName) || !string.IsNullOrWhiteSpace(profile.Id)),
@@ -553,6 +570,12 @@
                     : $"Default branch is {_editor.RepositoryDefaultBranch}.")
         ];
     }
+
+    private bool HasRepositorySource() =>
+        !string.IsNullOrWhiteSpace(_editor.RepositoryUrl) || !string.IsNullOrWhiteSpace(_editor.RepositoryName);
+
+    private static bool IsBlankSourceConfigured(ProjectEditorModel editor) =>
+        string.IsNullOrWhiteSpace(editor.RepositoryUrl) && string.IsNullOrWhiteSpace(editor.RepositoryName);
 
     private async Task SaveAsync()
     {
@@ -776,7 +799,13 @@
         return builder.ToString().Trim('-');
     }
 
-    private readonly record struct SimpleProjectTemplate(string Name, string Description, ProjectWorkloadKind Workload, string BuildCommand, string? LaunchCommand);
+    private readonly record struct SimpleProjectTemplate(
+        string Name,
+        string Description,
+        ProjectWorkloadKind Workload,
+        string BuildCommand,
+        string? LaunchCommand,
+        bool AllowBlankSource = false);
 
     private readonly record struct RepositoryParseResult(string Owner, string Name, string Url);
 
