@@ -298,6 +298,9 @@ public sealed class CoordinatorRunnerConnectionService : BackgroundService, IAsy
         connection.On<WorkspaceInfo?>(nameof(IRunnerControlClient.GetWorkspaceAsync),
             () => Task.FromResult<WorkspaceInfo?>(_workspace.GetWorkspaceInfo()));
 
+        connection.On<InspectWorkspaceRequest, WorkspaceDirectoryInfo?>(nameof(IRunnerControlClient.InspectWorkspaceDirectoryAsync),
+            request => Task.FromResult<WorkspaceDirectoryInfo?>(_workspace.InspectDirectory(request.RelativePath)));
+
         connection.On<OpenProjectOnRunnerRequest, string, OpenProjectOnRunnerResult?>(nameof(IRunnerControlClient.OpenProjectAsync),
             (request, actorId) => OpenProjectAsync(request, actorId));
 

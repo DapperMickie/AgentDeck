@@ -10,4 +10,5 @@ public interface IWorkspaceService
     string ResolveDirectory(string relativePath);
     void CreateDirectory(string relativePath);
     WorkspaceInfo GetWorkspaceInfo();
+    WorkspaceDirectoryInfo InspectDirectory(string relativePath);
 }

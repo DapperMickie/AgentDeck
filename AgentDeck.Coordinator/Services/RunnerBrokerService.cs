@@ -231,6 +231,12 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         return await InvokeRunnerAsync(entry, "read workspace info", client => client.GetWorkspaceAsync(), retryOnReconnect: true, cancellationToken);
     }
 
+    public async Task<WorkspaceDirectoryInfo?> InspectWorkspaceDirectoryAsync(string machineId, InspectWorkspaceRequest request, CancellationToken cancellationToken = default)
+    {
+        var entry = await EnsureEntryAsync(machineId, cancellationToken);
+        return await InvokeRunnerAsync(entry, "inspect workspace directory", client => client.InspectWorkspaceDirectoryAsync(request), retryOnReconnect: true, cancellationToken);
+    }
+
     public async Task<OpenProjectOnRunnerResult?> OpenProjectAsync(string machineId, OpenProjectOnRunnerRequest request, string actorId, CancellationToken cancellationToken = default)
     {
         var entry = await EnsureEntryAsync(machineId, cancellationToken);
