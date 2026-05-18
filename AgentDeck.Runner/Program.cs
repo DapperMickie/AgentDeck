@@ -31,17 +31,32 @@ builder.Services.AddOptions<TrustPolicyOptions>()
 builder.Services.AddOptions<RunnerLocalSecurityPolicyOptions>()
     .Bind(builder.Configuration.GetSection(RunnerLocalSecurityPolicyOptions.SectionName));
 
-builder.WebHost.UseUrls($"http://0.0.0.0:{runnerOptions.Port}");
+builder.WebHost.UseUrls($"http://{runnerOptions.BindAddress}:{runnerOptions.Port}");
 
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
 {
-    if (runnerOptions.AllowedOrigins is ["*"])
+    var allowedOrigins = runnerOptions.AllowedOrigins
+        .Where(static origin => !string.IsNullOrWhiteSpace(origin))
+        .Select(static origin => origin.Trim())
+        .ToArray();
+
+    if (allowedOrigins is ["*"])
+    {
         policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
-    else
-        policy.WithOrigins(runnerOptions.AllowedOrigins)
+    }
+    else if (allowedOrigins.Length > 0)
+    {
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
+    }
+    else
+    {
+        policy.SetIsOriginAllowed(static _ => false)
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    }
 }));
 
 builder.Services.AddSignalR(opts =>

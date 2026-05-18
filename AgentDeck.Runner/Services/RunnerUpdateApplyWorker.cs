@@ -242,7 +242,7 @@ internal static class RunnerUpdateApplyWorker
         var root = document.RootElement;
         var overlay = new Dictionary<string, object?>();
 
-        CopySectionProperties(root, overlay, "Runner", ["WorkspaceRoot", "Port", "AllowedOrigins"]);
+        CopySectionProperties(root, overlay, "Runner", ["WorkspaceRoot", "Port", "BindAddress", "AllowedOrigins"]);
         CopySectionProperties(root, overlay, "Coordinator",
         [
             "MachineId",

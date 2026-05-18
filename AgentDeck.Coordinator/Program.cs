@@ -10,10 +10,13 @@ var coordinatorOptions = builder.Configuration
     .GetSection(CoordinatorOptions.SectionName)
     .Get<CoordinatorOptions>() ?? new CoordinatorOptions();
 
-builder.WebHost.UseUrls($"http://0.0.0.0:{coordinatorOptions.Port}");
+CoordinatorOptions.ApplyEnvironmentOverrides(coordinatorOptions);
+
+builder.WebHost.UseUrls($"http://{coordinatorOptions.BindAddress}:{coordinatorOptions.Port}");
 
 builder.Services.AddOptions<CoordinatorOptions>()
-    .Bind(builder.Configuration.GetSection(CoordinatorOptions.SectionName));
+    .Bind(builder.Configuration.GetSection(CoordinatorOptions.SectionName))
+    .Configure(CoordinatorOptions.ApplyEnvironmentOverrides);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient();
 builder.Services.ConfigureHttpJsonOptions(options =>
