@@ -10,6 +10,12 @@ public interface ICoordinatorApiClient
 
     Task<IReadOnlyList<RegisteredRunnerMachine>> GetMachinesAsync(string coordinatorUrl, CancellationToken cancellationToken = default);
 
+    Task<RunnerOrchestratorCatalog> GetRunnerOrchestrationCatalogAsync(string coordinatorUrl, CancellationToken cancellationToken = default);
+
+    Task<RunnerOrchestratorInstance?> CreateRunnerInstanceAsync(string coordinatorUrl, CreateRunnerOrchestratorInstanceRequest request, CancellationToken cancellationToken = default);
+
+    Task<RunnerOrchestratorInstance?> UpdateRunnerInstanceLifecycleAsync(string coordinatorUrl, string instanceId, RunnerInstanceLifecycleState state, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ProjectDefinition>> GetProjectsAsync(string coordinatorUrl, CancellationToken cancellationToken = default);
 
     Task<ProjectDefinition> UpsertProjectAsync(string coordinatorUrl, ProjectDefinition project, CancellationToken cancellationToken = default);

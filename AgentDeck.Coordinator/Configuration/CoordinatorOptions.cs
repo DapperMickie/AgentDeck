@@ -34,6 +34,8 @@ public sealed class CoordinatorOptions
 
     public TimeSpan WorkerExpiry { get; set; } = TimeSpan.FromSeconds(45);
 
+    public CoordinatorRunnerOrchestrationOptions RunnerOrchestration { get; set; } = new();
+
     public TimeSpan RunnerControlKeepAliveInterval { get; set; } = TimeSpan.FromSeconds(15);
 
     public TimeSpan RunnerControlClientTimeoutInterval { get; set; } = TimeSpan.FromSeconds(60);

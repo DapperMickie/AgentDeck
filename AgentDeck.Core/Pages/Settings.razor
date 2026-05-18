@@ -156,6 +156,72 @@
             <p class="error-message">@_errorMessage</p>
         }
 
+        <div class="settings-callout">
+            <strong>Create runner capacity</strong>
+            <span>Use configured provider templates to create Linux/Windows/macOS runners on demand. Portainer is the first adapter; unsupported OS/provider combinations stay visible as planning targets instead of becoming dead-end buttons.</span>
+        </div>
+
+        @if (_runnerOrchestrationCatalog.Templates.Count == 0)
+        {
+            <p class="settings-card__description">No runner templates are published by the coordinator yet.</p>
+        }
+        else
+        {
+            <div class="project-template-grid">
+                @foreach (var template in _runnerOrchestrationCatalog.Templates.OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    var provider = GetRunnerProvider(template.ProviderId);
+                    <article class="project-template-card">
+                        <div class="project-template-card__header">
+                            <div>
+                                <h3>@template.Name</h3>
+                                <p>@template.HostPlatform • @(provider?.Name ?? template.ProviderId)</p>
+                            </div>
+                            <span class="machine-badge">@template.DefaultLifecyclePolicy</span>
+                        </div>
+                        <p class="project-template-target__note">@(template.Description ?? $"Creates an AgentDeck runner from {template.Image}.")</p>
+                        <p class="project-template-target__note">Capabilities: @string.Join(", ", template.CapabilityProfile)</p>
+                        @if (provider is not null && !provider.Configured)
+                        {
+                            <p class="error-message">@provider.StatusMessage</p>
+                        }
+                        <div class="project-machine-card__actions">
+                            <button class="btn btn-primary"
+                                    disabled="@(_creatingRunnerTemplateId == template.Id || provider is null || !provider.Enabled)"
+                                    @onclick="() => CreateRunnerFromTemplateAsync(template)">
+                                @(_creatingRunnerTemplateId == template.Id ? "Creating..." : "Create runner")
+                            </button>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+
+        @if (_runnerOrchestrationCatalog.Instances.Count > 0)
+        {
+            <div class="machine-list machine-list--settings">
+                @foreach (var instance in _runnerOrchestrationCatalog.Instances.OrderByDescending(instance => instance.UpdatedAt))
+                {
+                    <article class="machine-card">
+                        <span class="machine-card__title">@instance.Name</span>
+                        <span class="machine-card__url">@instance.StatusMessage</span>
+                        <span class="machine-card__meta">
+                            <span class="machine-badge">@instance.HostPlatform</span>
+                            <span class="machine-state machine-state--@(instance.State is RunnerInstanceLifecycleState.Failed or RunnerInstanceLifecycleState.Stopped ? "disconnected" : "connected")">@instance.State</span>
+                            @if (!string.IsNullOrWhiteSpace(instance.MachineId))
+                            {
+                                <span class="machine-badge">@instance.MachineId</span>
+                            }
+                        </span>
+                        @if (instance.Events.Count > 0)
+                        {
+                            <span class="settings-card__description">Latest: @instance.Events[^1].Message</span>
+                        }
+                    </article>
+                }
+            </div>
+        }
+
         <div class="machine-layout">
             <div class="machine-list machine-list--settings">
                 @foreach (var machine in _settings.Machines)
@@ -759,6 +825,8 @@
     private string? _activeCapabilityAction;
     private MachineCapabilityInstallResult? _lastCapabilityInstallResult;
     private IReadOnlyList<RegisteredRunnerMachine> _registeredMachines = [];
+    private RunnerOrchestratorCatalog _runnerOrchestrationCatalog = new();
+    private string? _creatingRunnerTemplateId;
     private bool _registeredMachinesBusy;
     private string? _registeredMachinesErrorMessage;
     private bool _coordinatorReachable;
@@ -1061,6 +1129,50 @@
         return RefreshMachineCapabilitiesAsync();
     }
 
+    private RunnerOrchestratorProvider? GetRunnerProvider(string providerId) =>
+        _runnerOrchestrationCatalog.Providers.FirstOrDefault(provider => string.Equals(provider.Id, providerId, StringComparison.OrdinalIgnoreCase));
+
+    private async Task CreateRunnerFromTemplateAsync(RunnerOrchestratorTemplate template)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.CoordinatorUrl))
+        {
+            ToastService.Show("Set a coordinator URL before creating a runner.", ToastKind.Warning);
+            return;
+        }
+
+        _creatingRunnerTemplateId = template.Id;
+        try
+        {
+            var instance = await CoordinatorClient.CreateRunnerInstanceAsync(
+                _settings.CoordinatorUrl,
+                new CreateRunnerOrchestratorInstanceRequest
+                {
+                    TemplateId = template.Id,
+                    Name = $"{template.Name} {DateTimeOffset.Now:HHmm}",
+                    LifecyclePolicy = template.DefaultLifecyclePolicy,
+                    CoordinatorUrl = _settings.CoordinatorUrl
+                });
+
+            if (instance is null)
+            {
+                ToastService.Show("The coordinator did not return a runner instance.", ToastKind.Warning);
+                return;
+            }
+
+            ToastService.Show($"Runner {instance.Name} is {instance.State}. Refresh the directory once it registers.", instance.State == RunnerInstanceLifecycleState.Failed ? ToastKind.Warning : ToastKind.Success);
+            await RefreshCoordinatorDirectoryAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create runner from template {TemplateId}", template.Id);
+            ToastService.Show($"Failed to create runner: {ex.Message}", ToastKind.Error);
+        }
+        finally
+        {
+            _creatingRunnerTemplateId = null;
+        }
+    }
+
     private async Task RefreshCoordinatorDirectoryAsync()
     {
         _registeredMachinesBusy = true;
@@ -1085,6 +1197,7 @@
             }
 
             _registeredMachines = await CoordinatorClient.GetMachinesAsync(_settings.CoordinatorUrl);
+            _runnerOrchestrationCatalog = await CoordinatorClient.GetRunnerOrchestrationCatalogAsync(_settings.CoordinatorUrl);
             await SyncMachinesFromCoordinatorDirectoryAsync(_registeredMachines);
         }
         catch (Exception ex)
