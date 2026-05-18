@@ -50,7 +50,7 @@
                             @if (!_sessionMachine.ProtocolCompatible)
                             {
                                 <span class="project-target-chip project-target-chip--unsupported">
-                                    Protocol incompatible
+                                    Needs app/machine update
                                 </span>
                             }
                             @if (_sessionMachine.UpdateRollout is { } rollout && ShouldShowUpdateRolloutChip(rollout.State))
@@ -592,8 +592,8 @@
     {
         RunnerUpdateRolloutState.UpToDate => "Up to date",
         RunnerUpdateRolloutState.UpdateAvailable => "Update available",
-        RunnerUpdateRolloutState.ManifestStaged => "Manifest staged",
-        RunnerUpdateRolloutState.PayloadStaged => "Payload staged",
+        RunnerUpdateRolloutState.ManifestStaged => "Update details ready",
+        RunnerUpdateRolloutState.PayloadStaged => "Update downloaded",
         RunnerUpdateRolloutState.ReadyToApply => "Ready to apply",
         RunnerUpdateRolloutState.Applying => "Applying",
         RunnerUpdateRolloutState.Applied => "Applied",
@@ -709,7 +709,7 @@
         ProjectSessionSurfaceKind.VsCode => "VS Code",
         ProjectSessionSurfaceKind.Simulator => "Simulator",
         ProjectSessionSurfaceKind.Emulator => "Emulator",
-        ProjectSessionSurfaceKind.Viewer => "Screen / app window",
+        ProjectSessionSurfaceKind.Viewer => "Remote screen",
         _ => "Workspace item"
     };
 
@@ -769,7 +769,7 @@
             RemoteViewerTargetKind.VsCode => "VS Code",
             RemoteViewerTargetKind.Emulator => "Emulator",
             RemoteViewerTargetKind.Simulator => "Simulator",
-            _ => "Viewer"
+            _ => "Remote screen"
         };
         return $"{label} • {viewer.Provider}";
     }
