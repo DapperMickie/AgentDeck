@@ -36,15 +36,20 @@
         <div class="terminal-page__content">
             <div class="command-bar">
                 <input class="command-bar__input"
-                       placeholder="Send command to terminal..."
+                       placeholder="@GetQuickCommandPlaceholder()"
+                       disabled="@(!IsSessionRunning())"
                        @bind="_quickCommand"
                        @bind:event="oninput"
                        @onkeydown="OnQuickCommandKey" />
-                <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot")'>copilot</button>
-                <button class="command-bar__pill" @onclick='() => SendQuickCommand("copilot --yolo")'>copilot --yolo</button>
-                <button class="command-bar__pill" @onclick='() => SendQuickCommand("clear")'>clear</button>
-                <button class="command-bar__pill" @onclick='() => SendQuickCommand("exit")'>exit</button>
+                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("copilot")'>copilot</button>
+                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("copilot --yolo")'>copilot --yolo</button>
+                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("clear")'>clear</button>
+                <button class="command-bar__pill" disabled="@(!IsSessionRunning())" @onclick='() => SendQuickCommand("exit")'>exit</button>
             </div>
+            @if (!IsSessionRunning())
+            {
+                <p class="project-template-target__note">This terminal has ended. Open a new terminal to send more commands.</p>
+            }
 
             <div class="terminal-area terminal-area--single">
                 <TerminalPanel Session="_session!" IsActive="true" />
@@ -89,6 +94,11 @@
         }
     }
 
+    private bool IsSessionRunning() => _session?.Status == TerminalStatus.Running;
+
+    private string GetQuickCommandPlaceholder() =>
+        IsSessionRunning() ? "Send command to terminal..." : "Terminal is no longer running";
+
     private string GetSubtitle()
     {
         if (_session is null)
@@ -113,7 +123,7 @@
 
     private async Task OnQuickCommandKey(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_quickCommand) && _session is not null)
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_quickCommand) && IsSessionRunning() && _session is not null)
         {
             await Connections.SendInputAsync(_session.Id, _quickCommand + "\n");
             _quickCommand = string.Empty;
@@ -122,7 +132,7 @@
 
     private async Task SendQuickCommand(string command)
     {
-        if (_session is null)
+        if (_session is null || !IsSessionRunning())
         {
             return;
         }
