@@ -189,6 +189,8 @@ After the secrets are configured, trigger **Build iOS IPA** from the Actions tab
 
 ## Configuration
 
+Most local setups only need the quickstart environment variables above: set the AgentDeck service URL, give each machine a stable name, and add an access key if you enabled one. The detailed files below use the internal project names: `AgentDeck.Coordinator` is the AgentDeck service, and `AgentDeck.Runner` is the machine agent.
+
 Coordinator configuration (`AgentDeck.Coordinator/appsettings.json`):
 
 ```json

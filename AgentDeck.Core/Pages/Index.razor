@@ -177,7 +177,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Workspaces</h2>
-                        <p>Import a repo, choose where it should run, and open terminals, apps, or remote screens.</p>
+                        <p>Import source code, choose where it should run, and open terminals, apps, or remote screens.</p>
                     </div>
                     <a class="btn btn-primary" href="/projects/new">Import or create workspace</a>
                 </div>
@@ -205,7 +205,7 @@
                                     <span class="machine-badge">@GetProjectSessionCount(project.Definition.Id) live sessions</span>
                                 </div>
                                 <p class="project-template-target__note">
-                                    Repo @GetRepositoryLabel(project.Definition)
+                                    Source @GetRepositoryLabel(project.Definition)
                                 </p>
                                 @if (project.Definition.Workspaces.Count > 0)
                                 {
@@ -322,7 +322,7 @@
         yield return new SetupStep(
             "Open a workspace",
             _dashboard.Projects.Count > 0 ? "Done" : "Next",
-            _dashboard.Projects.Count > 0 ? "Projects are ready to open." : "Import a repo or start from a template.",
+            _dashboard.Projects.Count > 0 ? "Projects are ready to open." : "Import source code or start from a template.",
             _dashboard.Projects.Count > 0 ? "complete" : "todo");
     }
 
@@ -356,7 +356,7 @@
         }
 
         return _dashboard.Projects.Count == 0
-            ? "Paste a GitHub URL or choose a template. You can keep advanced run-option settings collapsed."
+            ? "Paste a GitHub source URL or choose a template. You can keep advanced run-option settings collapsed."
             : "Pick up where you left off or open a workspace on a ready machine.";
     }
 
@@ -400,12 +400,15 @@
         if (readyTargets > 0)
         {
             return setupTargets > 0
-                ? $"Ready for {readyTargets} target(s); {setupTargets} need tools"
-                : $"Ready for {readyTargets} target(s)";
+                ? $"Ready for {readyTargets} {Pluralize("workspace target", readyTargets)}; {setupTargets} {Pluralize("target", setupTargets)} need tools"
+                : $"Ready for {readyTargets} {Pluralize("workspace target", readyTargets)}";
         }
 
         return setupTargets > 0 ? "Tools need setup before this machine can open workspaces" : "No supported workspace targets advertised yet";
     }
+
+    private static string Pluralize(string singular, int count) =>
+        count == 1 ? singular : $"{singular}s";
 
     private static string GetProjectSessionLocationLabel(ProjectSessionRecord session) =>
         string.IsNullOrWhiteSpace(session.MachineName)
