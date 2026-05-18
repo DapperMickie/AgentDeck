@@ -4,7 +4,7 @@
 {
     <div class="modal-backdrop" @onclick="HandleBackdropClick">
         <div class="modal" @onclick:stopPropagation="true">
-            <h2 class="modal__title">New Terminal</h2>
+            <h2 class="modal__title">New terminal</h2>
 
             <div class="form-group">
                 <label class="form-label">Machine</label>
@@ -23,12 +23,12 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">Working Directory</label>
+                <label class="form-label">Working directory</label>
                 <DirectoryPicker Machine="SelectedMachine" @bind-Value="_workingDir" />
             </div>
 
             <div class="form-group">
-                <label class="form-label">CLI Preset</label>
+                <label class="form-label">Command preset</label>
                 <div class="preset-grid">
                     @foreach (var preset in _presets)
                     {
@@ -47,8 +47,8 @@
                     <label class="yolo-toggle">
                         <input type="checkbox" @bind="_yoloMode" />
                         <span class="yolo-toggle__label">
-                            <span class="yolo-toggle__title">⚡ Yolo mode</span>
-                            <span class="yolo-toggle__subtitle">Runs <code>copilot --yolo</code> — auto-approves all actions</span>
+                            <span class="yolo-toggle__title">⚡ Auto-approve Copilot actions</span>
+                            <span class="yolo-toggle__subtitle">Runs <code>copilot --yolo</code>. Use only in workspaces where you trust the changes.</span>
                         </span>
                     </label>
                 </div>
@@ -58,6 +58,7 @@
             {
                 <div class="form-group">
                     <label class="form-label">Command</label>
+                    <span class="form-hint">Enter the command to start when this terminal opens.</span>
                     <input class="form-input" type="text" @bind="_command" placeholder="e.g. dotnet test --filter MyTests" />
                 </div>
             }
@@ -143,7 +144,7 @@
         var cmd = ResolveCommandText();
         if (string.IsNullOrWhiteSpace(cmd))
         {
-            _error = "Command is required.";
+            _error = "Enter a command for the custom terminal preset.";
             return;
         }
 

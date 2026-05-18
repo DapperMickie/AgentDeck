@@ -234,7 +234,7 @@
                                 {
                                     <button class="btn btn-accent"
                                             @onclick="() => OpenViewerAsync(_activeSurface.Viewer)">
-                                        Open viewer
+                                        Open remote screen
                                     </button>
                                 }
                                 @if (IsActiveViewerControlledByCurrentCompanion())
@@ -247,7 +247,7 @@
                                     <button class="btn btn-danger"
                                             disabled="@_viewerActionInProgress"
                                             @onclick="CloseActiveViewerAsync">
-                                        Close viewer
+                                        Close remote screen
                                     </button>
                                 }
                                 else if (HasAnotherCompanionControllingMachine())
@@ -934,7 +934,7 @@
                 ProjectSessionControlRequestMode.Request => $"You now control {_activeSurface.Viewer.Target.DisplayName}.",
                 ProjectSessionControlRequestMode.ForceTakeover => $"You took control of {_activeSurface.Viewer.Target.DisplayName}.",
                 ProjectSessionControlRequestMode.Yield => $"Yielded control of {_activeSurface.Viewer.Target.DisplayName}.",
-                _ => "Updated viewer control."
+                _ => "Updated remote-screen control."
             }, mode == ProjectSessionControlRequestMode.Yield ? ToastKind.Info : ToastKind.Success);
             await LoadAsync();
         }

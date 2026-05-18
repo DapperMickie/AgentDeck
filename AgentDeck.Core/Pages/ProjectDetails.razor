@@ -179,7 +179,7 @@
                                     <button class="btn btn-danger"
                                             disabled="@(_viewerActionMachineId == machine.MachineId)"
                                             @onclick="() => CloseViewerAsync(machine.MachineId, remoteControlState.ViewerSessionId)">
-                                        Close viewer
+                                        Close remote screen
                                     </button>
                                 }
                             </div>
@@ -335,11 +335,11 @@
                                     <div class="project-machine-card__targets">
                                         @if (!string.IsNullOrWhiteSpace(job.SessionId))
                                         {
-                                            <span class="project-template-profile">Session @job.SessionId[..Math.Min(job.SessionId.Length, 8)]</span>
+                                            <span class="project-template-profile">Terminal @job.SessionId[..Math.Min(job.SessionId.Length, 8)]</span>
                                         }
                                         @if (!string.IsNullOrWhiteSpace(job.ViewerSessionId))
                                         {
-                                            <span class="project-template-profile">Viewer @job.ViewerSessionId[..Math.Min(job.ViewerSessionId.Length, 8)]</span>
+                                            <span class="project-template-profile">Remote screen @job.ViewerSessionId[..Math.Min(job.ViewerSessionId.Length, 8)]</span>
                                         }
                                         @if (job.DeviceSelection?.HasTarget == true)
                                         {
@@ -417,7 +417,7 @@
                                     {
                                         <button class="btn btn-accent"
                                                 @onclick="() => OpenViewerAsync(viewer)">
-                                            Open viewer
+                                            Open remote screen
                                         </button>
                                     }
                                     @if (!string.IsNullOrWhiteSpace(viewer.MachineId) && CanControlViewer(viewer))
@@ -434,7 +434,7 @@
                                             <button class="btn btn-danger"
                                                     disabled="@(_viewerActionViewerId == viewer.Id)"
                                                     @onclick="() => CloseViewerAsync(viewer.MachineId!, viewer.Id)">
-                                                Close viewer
+                                                Close remote screen
                                             </button>
                                         }
                                         else if (remoteControlState is not null && !IsCurrentRemoteController(remoteControlState))
@@ -465,7 +465,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Workspaces</h2>
-                        <p>Coordinator-known workspace mappings for this project.</p>
+                        <p>Saved machine folders for this workspace.</p>
                     </div>
                 </div>
 
@@ -474,8 +474,8 @@
                     <div class="empty-state empty-state--actionable">
                         <div class="empty-icon">⌂</div>
                         <h3>No machine workspace yet</h3>
-                        <p>Open this workspace on a runner to let AgentDeck prepare the project folder and remember where it lives.</p>
-                        <a class="btn btn-primary" href="#workspace-machines">Choose a runner</a>
+                        <p>Open this workspace on a machine to let AgentDeck prepare the folder and remember where it lives.</p>
+                        <a class="btn btn-primary" href="#workspace-machines">Choose a machine</a>
                     </div>
                 }
                 else
@@ -982,7 +982,7 @@
                 ProjectSessionControlRequestMode.Request => $"You now control {viewer.Target.DisplayName}.",
                 ProjectSessionControlRequestMode.ForceTakeover => $"You took control of {viewer.Target.DisplayName}.",
                 ProjectSessionControlRequestMode.Yield => $"Yielded control of {viewer.Target.DisplayName}.",
-                _ => "Updated viewer control."
+                _ => "Updated remote-screen control."
             }, mode == ProjectSessionControlRequestMode.Yield ? ToastKind.Info : ToastKind.Success);
             await LoadAsync();
         }

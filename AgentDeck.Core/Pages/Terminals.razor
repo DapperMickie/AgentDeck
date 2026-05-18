@@ -35,13 +35,27 @@
                     }
                     else if (Connections.ConnectedMachineCount == 0)
                     {
-                        <span>Create or connect a runner in <a href="/settings">Settings</a> to open a terminal.</span>
+                        <span>Create or connect a runner in Settings to open a terminal.</span>
                     }
                     else
                     {
                         <span>Tap <strong>New terminal</strong> to create your first terminal.</span>
                     }
                 </p>
+                <div class="setup-checklist__actions">
+                    @if (SessionState.Sessions.Count > 0)
+                    {
+                        <a class="btn btn-primary" href="/">Open dashboard</a>
+                    }
+                    else if (Connections.ConnectedMachineCount == 0)
+                    {
+                        <a class="btn btn-primary" href="/settings#machines">Create or connect a runner</a>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary" @onclick="OpenNewTerminal">New terminal</button>
+                    }
+                </div>
             </div>
         </div>
     }
