@@ -121,7 +121,7 @@
                                         @if (!machine.ProtocolCompatible)
                                         {
                                             <span class="project-target-chip project-target-chip--unsupported">
-                                                Protocol incompatible
+                                                Needs app/machine update
                                             </span>
                                         }
                                         @if (machine.UpdateRollout is { } rollout)
@@ -461,8 +461,8 @@
     {
         RunnerUpdateRolloutState.UpToDate => "Up to date",
         RunnerUpdateRolloutState.UpdateAvailable => "Update available",
-        RunnerUpdateRolloutState.ManifestStaged => "Manifest staged",
-        RunnerUpdateRolloutState.PayloadStaged => "Payload staged",
+        RunnerUpdateRolloutState.ManifestStaged => "Update details ready",
+        RunnerUpdateRolloutState.PayloadStaged => "Update downloaded",
         RunnerUpdateRolloutState.ReadyToApply => "Ready to apply",
         RunnerUpdateRolloutState.Applying => "Applying",
         RunnerUpdateRolloutState.Applied => "Applied",

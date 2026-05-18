@@ -127,7 +127,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
         var settings = await _settingsService.LoadAsync();
         if (string.IsNullOrWhiteSpace(settings.CoordinatorUrl))
         {
-            throw new InvalidOperationException("Coordinator URL is not configured.");
+            throw new InvalidOperationException("AgentDeck service URL is not configured.");
         }
 
         _client.AccessKey = settings.AccessKey;

@@ -106,36 +106,36 @@ dotnet test AgentDeck.Runner.Tests/AgentDeck.Runner.Tests.csproj --no-build
 
 A full solution build on Linux also targets Android; install the Android SDK or build a specific framework if you only want the desktop companion app.
 
-### Running the Coordinator API
+### Running the AgentDeck service
 
 ```bash
 cd AgentDeck.Coordinator
 dotnet run
 ```
 
-The coordinator starts on `http://localhost:5001` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Use `AGENTDECK_COORDINATOR_PORT` and `AGENTDECK_COORDINATOR_BIND_ADDRESS` to override those startup defaults; for example, set `AGENTDECK_COORDINATOR_BIND_ADDRESS=0.0.0.0` only when you intend to expose the coordinator to other devices on a trusted network. Set `Coordinator:AccessKey` or `AGENTDECK_COORDINATOR_ACCESS_KEY` to require the same shared key on coordinator API and SignalR calls (health checks stay unauthenticated for local readiness probes).
+The AgentDeck service starts on `http://localhost:5001` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Use `AGENTDECK_COORDINATOR_PORT` and `AGENTDECK_COORDINATOR_BIND_ADDRESS` to override those startup defaults; for example, set `AGENTDECK_COORDINATOR_BIND_ADDRESS=0.0.0.0` only when you intend to expose the service to other devices on a trusted network. Set `Coordinator:AccessKey` or `AGENTDECK_COORDINATOR_ACCESS_KEY` to require the same shared key on service API and SignalR calls (health checks stay unauthenticated for local readiness probes).
 
-### Running the Runner
+### Running a machine agent
 
 ```bash
 cd AgentDeck.Runner
 dotnet run
 ```
 
-The runner starts on `http://localhost:5000` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Browser CORS origins are denied by default; configure `AllowedOrigins` only for trusted companion origins, or use `["*"]` for local development experiments. Set `Runner:AccessKey` or `AGENTDECK_ACCESS_KEY` to require the same shared key on direct runner API and SignalR calls; set `Coordinator:AccessKey` or `AGENTDECK_COORDINATOR_ACCESS_KEY` when this runner registers with a protected coordinator.
+The machine agent starts on `http://localhost:5000` by default and binds to loopback (`127.0.0.1`) unless you explicitly opt into a LAN-facing address. Browser CORS origins are denied by default; configure `AllowedOrigins` only for trusted companion origins, or use `["*"]` for local development experiments. Set `Runner:AccessKey` or `AGENTDECK_ACCESS_KEY` to require the same shared key on direct machine-agent API and SignalR calls; set `Coordinator:AccessKey` or `AGENTDECK_COORDINATOR_ACCESS_KEY` when this machine registers with a protected AgentDeck service.
 
 Use these environment variables to override runtime defaults:
 
 - `AGENTDECK_WORKSPACE` sets the workspace root (defaults to `~/AgentDeck`)
 - `AGENTDECK_PORT` sets the HTTP port (defaults to `5000`)
 - `AGENTDECK_BIND_ADDRESS` sets the listening address (defaults to `127.0.0.1`; use `0.0.0.0` only for intentional LAN/container exposure)
-- `AGENTDECK_ACCESS_KEY` sets the optional shared key for direct runner access
-- `AGENTDECK_COORDINATOR_ACCESS_KEY` sets the optional shared key used when the runner talks to a protected coordinator
+- `AGENTDECK_ACCESS_KEY` sets the optional shared key for direct machine-agent access
+- `AGENTDECK_COORDINATOR_ACCESS_KEY` sets the optional shared key used when the machine agent talks to a protected AgentDeck service
 - `AGENTDECK_DEFAULT_SHELL` sets the default shell command
 
 The companion app now starts with an empty AgentDeck service URL plus auto-connect disabled by default. Configure a network-reachable service explicitly instead of assuming `localhost`, which is only valid when the service is actually running on the same device as the app. If the service uses an access key, enter the same key in Settings so app HTTP and hub calls include `X-AgentDeck-Access-Key`.
 
-### Running the Runner in Docker (Linux)
+### Running a machine agent in Docker (Linux)
 
 Build the image from the repository root:
 
@@ -143,7 +143,7 @@ Build the image from the repository root:
 docker build -t agentdeck-runner -f AgentDeck.Runner/Dockerfile .
 ```
 
-Run the container with a mounted workspace and coordinator registration settings. On Docker Desktop, `host.docker.internal` reaches the host coordinator; on native Linux, replace it with a LAN-reachable host name/IP or add Docker's host-gateway mapping for that name.
+Run the container with a mounted workspace and AgentDeck service registration settings. On Docker Desktop, `host.docker.internal` reaches the host service; on native Linux, replace it with a LAN-reachable host name/IP or add Docker's host-gateway mapping for that name.
 
 ```bash
 docker run --rm \
@@ -151,18 +151,18 @@ docker run --rm \
   -e AGENTDECK_WORKSPACE=/workspace \
   -e Coordinator__CoordinatorUrl=http://host.docker.internal:5001 \
   -e Coordinator__MachineId=local-docker \
-  -e Coordinator__MachineName="Local Docker Runner" \
+  -e Coordinator__MachineName="Local Docker machine" \
   -v "$(pwd):/workspace" \
   agentdeck-runner
 ```
 
 The image exposes port `5000`, defaults the workspace to `/workspace`, explicitly sets `AGENTDECK_BIND_ADDRESS=0.0.0.0` so Docker port publishing works, sets `ASPNETCORE_ENVIRONMENT=Production` so detailed error responses are off, and falls back to `/bin/sh` if `/bin/bash` is unavailable. Override with `-e ASPNETCORE_ENVIRONMENT=Development` if you want development-only diagnostics (verbose SignalR errors, dev-only middleware, etc.) — never in a deployment exposed to untrusted networks.
 
-The checked-in runner image now uses a Debian-based self-contained final stage instead of the stock minimal ASP.NET runtime image, includes the native ICU dependency that .NET needs at runtime, and runs as a non-root `agentdeck` user with passwordless `sudo` for machine-setup actions.
+The checked-in machine-agent image now uses a Debian-based self-contained final stage instead of the stock minimal ASP.NET runtime image, includes the native ICU dependency that .NET needs at runtime, and runs as a non-root `agentdeck` user with passwordless `sudo` for machine-setup actions.
 
-If you run the runner inside a container, AgentDeck treats that container as just another machine. Keep `Coordinator__CoordinatorUrl` pointed at the coordinator URL the container can reach, then use the companion app through that coordinator to inspect which supported tools are installed and install missing ones inside that machine.
+If you run the machine agent inside a container, AgentDeck treats that container as just another machine. Keep `Coordinator__CoordinatorUrl` pointed at the AgentDeck service URL the container can reach, then use the companion app through that service to inspect which supported tools are installed and install missing ones inside that machine.
 
-If you override the container user, Linux setup actions still need either `root` or a passwd-backed user with passwordless `sudo`. Arbitrary numeric UIDs that are not present in `/etc/passwd` can run the runner, but they cannot perform privileged package installs through the setup flow.
+If you override the container user, Linux setup actions still need either `root` or a passwd-backed user with passwordless `sudo`. Arbitrary numeric UIDs that are not present in `/etc/passwd` can run the machine agent, but they cannot perform privileged package installs through the setup flow.
 
 ### Running the Companion App (Windows)
 
@@ -338,12 +338,12 @@ The companion app treats all of them the same way: connect to the coordinator, c
 The companion app supports multiple named runner machines.
 
 In **Settings** you can:
-- set the coordinator API URL used for machine discovery and control brokering
-- sync machines from the coordinator directory
+- set the AgentDeck service URL used for machine discovery and control handoff
+- sync machines from the AgentDeck service directory
 - assign each machine a role (`Standalone` or `Worker`)
 - set a default machine for new terminals
 - connect and disconnect each machine independently
-- inspect the coordinator-mediated connection status and hub URL for the selected machine
+- inspect the service-mediated connection status, hub URL, and diagnostic bundle URLs for the selected machine
 
 When you create a new terminal, you choose which machine it should run on.
 
@@ -371,12 +371,12 @@ VS Code-backed debug jobs now build first, materialize `.vscode` debug assets pl
 
 Privileged orchestration, viewer, and machine setup actions now also run through a first-pass trust-policy hook and emit bounded audit records at `/api/audit/events`. Audit entries include the action, actor, remote address, target, and success/denied/failed outcome so later authorization work has a stable trail to build on.
 
-For troubleshooting, both services now expose redacted local diagnostic bundles:
+For troubleshooting, the AgentDeck service and each machine agent expose redacted local diagnostic bundles. The app also shows these URLs in **Settings → Advanced** for the selected machine:
 
-- Coordinator: `GET /api/diagnostics/bundle`
-- Runner: `GET /api/diagnostics/bundle`
+- AgentDeck service: `GET /api/diagnostics/bundle`
+- Machine agent: `GET /api/diagnostics/bundle`
 
-The coordinator bundle captures a point-in-time snapshot of coordinator configuration, desired runner definitions, companions, machines, projects, project sessions, update rollouts, and runner-orchestration state. The runner bundle captures runtime configuration, coordinator connection state, workspace info, terminal sessions, orchestration jobs, viewer sessions, capability/setup/update/workflow status, and recent audit events. Secret-like values are not emitted; access keys and signer/private-key settings are represented as configured/unconfigured booleans or redacted placeholders. Use these bundles when debugging local setup, firewall/bind issues, stale sessions, runner update problems, viewer bootstrap failures, or workflow-pack state without manually collecting many separate endpoints.
+The service bundle captures a point-in-time snapshot of service configuration, desired machine definitions, connected users, machines, workspaces, workspace sessions, update rollouts, and machine-creation state. The machine bundle captures runtime configuration, service connection state, workspace info, terminal sessions, run/debug jobs, remote-screen sessions, capability/setup/update/tool status, and recent audit events. Secret-like values are not emitted; access keys and signer/private-key settings are represented as configured/unconfigured booleans or redacted placeholders. Use these bundles when debugging local setup, firewall/bind issues, stale sessions, machine update problems, remote-screen bootstrap failures, or tool-pack state without manually collecting many separate endpoints.
 
 The runner now also exposes a remote viewer API with provider capabilities and viewer-session records distinct from both jobs and terminal sessions. Runtime viewer readiness is now based on the AgentDeck-managed helper transport for supported desktop, VS Code, emulator, simulator, and window targets. Platform-native remoting fallbacks such as Windows RDP, macOS Screen Sharing, and Linux `x11vnc` are no longer part of the default ready path; they only apply when `DesktopViewerTransport:AllowNativeFallbackProviders` is explicitly enabled for compatibility-only scenarios. When a real managed transport is not available, the session fails explicitly instead of silently satisfying readiness through host-native remoting.
 

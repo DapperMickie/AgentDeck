@@ -403,7 +403,7 @@
                         @if (!string.IsNullOrWhiteSpace(rollout.DesiredManifestId))
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Desired manifest</span>
+                                <span class="settings-status-row__label">Update package</span>
                                 <span class="settings-status-row__value">@GetDesiredManifestLabel(rollout)</span>
                             </div>
                         }
@@ -518,27 +518,27 @@
                              workflowCatalogStatus.State != RunnerWorkflowCatalogState.Unknown)
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Tool catalog state</span>
+                                <span class="settings-status-row__label">Tool list state</span>
                                 <span class="settings-status-row__value">@GetWorkflowCatalogStateLabel(workflowCatalogStatus.State)</span>
                             </div>
                             @if (!string.IsNullOrWhiteSpace(workflowCatalogStatus.LocalCatalogVersion))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Local tool catalog</span>
+                                    <span class="settings-status-row__label">Installed tool list</span>
                                     <span class="settings-status-row__value">@workflowCatalogStatus.LocalCatalogVersion</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(workflowCatalogStatus.DesiredCatalogVersion))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Desired tool catalog</span>
+                                    <span class="settings-status-row__label">Expected tool list</span>
                                     <span class="settings-status-row__value">@workflowCatalogStatus.DesiredCatalogVersion</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(workflowCatalogStatus.StatusMessage))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Tool catalog summary</span>
+                                    <span class="settings-status-row__label">Tool list summary</span>
                                     <span class="settings-status-row__value">@workflowCatalogStatus.StatusMessage</span>
                                 </div>
                             }
@@ -547,27 +547,27 @@
                              capabilityCatalogStatus.State != RunnerCapabilityCatalogState.Unknown)
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Capability catalog state</span>
+                                <span class="settings-status-row__label">Capability list state</span>
                                 <span class="settings-status-row__value">@GetCapabilityCatalogStateLabel(capabilityCatalogStatus.State)</span>
                             </div>
                             @if (!string.IsNullOrWhiteSpace(capabilityCatalogStatus.LocalCatalogVersion))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Local capability catalog</span>
+                                    <span class="settings-status-row__label">Installed capability list</span>
                                     <span class="settings-status-row__value">@capabilityCatalogStatus.LocalCatalogVersion</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(capabilityCatalogStatus.DesiredCatalogVersion))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Desired capability catalog</span>
+                                    <span class="settings-status-row__label">Expected capability list</span>
                                     <span class="settings-status-row__value">@capabilityCatalogStatus.DesiredCatalogVersion</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(capabilityCatalogStatus.StatusMessage))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Capability catalog summary</span>
+                                    <span class="settings-status-row__label">Capability list summary</span>
                                     <span class="settings-status-row__value">@capabilityCatalogStatus.StatusMessage</span>
                                 </div>
                             }
@@ -576,27 +576,27 @@
                              setupCatalogStatus.State != RunnerSetupCatalogState.Unknown)
                         {
                             <div class="settings-status-row">
-                                <span class="settings-status-row__label">Setup catalog state</span>
+                                <span class="settings-status-row__label">Setup list state</span>
                                 <span class="settings-status-row__value">@GetSetupCatalogStateLabel(setupCatalogStatus.State)</span>
                             </div>
                             @if (!string.IsNullOrWhiteSpace(setupCatalogStatus.LocalCatalogVersion))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Local setup catalog</span>
+                                    <span class="settings-status-row__label">Installed setup list</span>
                                     <span class="settings-status-row__value">@setupCatalogStatus.LocalCatalogVersion</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(setupCatalogStatus.DesiredCatalogVersion))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Desired setup catalog</span>
+                                    <span class="settings-status-row__label">Expected setup list</span>
                                     <span class="settings-status-row__value">@setupCatalogStatus.DesiredCatalogVersion</span>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(setupCatalogStatus.StatusMessage))
                             {
                                 <div class="settings-status-row">
-                                    <span class="settings-status-row__label">Setup catalog summary</span>
+                                    <span class="settings-status-row__label">Setup list summary</span>
                                     <span class="settings-status-row__value">@setupCatalogStatus.StatusMessage</span>
                                 </div>
                             }
@@ -849,8 +849,16 @@
                         <code class="settings-status-row__value">@_settings.CoordinatorUrl</code>
                     </div>
                     <div class="settings-status-row">
+                        <span class="settings-status-row__label">Service diagnostic bundle</span>
+                        <code class="settings-status-row__value">@GetServiceDiagnosticBundleUrl()</code>
+                    </div>
+                    <div class="settings-status-row">
                         <span class="settings-status-row__label">Advertised machine agent URL</span>
                         <code class="settings-status-row__value">@(!string.IsNullOrWhiteSpace(SelectedMachine.RunnerUrl) ? SelectedMachine.RunnerUrl : "Not advertised")</code>
+                    </div>
+                    <div class="settings-status-row">
+                        <span class="settings-status-row__label">Machine diagnostic bundle</span>
+                        <code class="settings-status-row__value">@GetMachineDiagnosticBundleUrl(SelectedMachine)</code>
                     </div>
                     @if (SelectedRegisteredMachine is not null)
                     {
@@ -1093,8 +1101,8 @@
     {
         RunnerUpdateRolloutState.UpToDate => "Up to date",
         RunnerUpdateRolloutState.UpdateAvailable => "Update available",
-        RunnerUpdateRolloutState.ManifestStaged => "Manifest staged",
-        RunnerUpdateRolloutState.PayloadStaged => "Payload staged",
+        RunnerUpdateRolloutState.ManifestStaged => "Update details ready",
+        RunnerUpdateRolloutState.PayloadStaged => "Update downloaded",
         RunnerUpdateRolloutState.ReadyToApply => "Ready to apply",
         RunnerUpdateRolloutState.Applying => "Applying",
         RunnerUpdateRolloutState.Applied => "Applied",
@@ -1200,6 +1208,16 @@
         string.IsNullOrWhiteSpace(_settings.CoordinatorUrl)
             ? "(AgentDeck service URL not configured)"
             : $"{_settings.CoordinatorUrl.TrimEnd('/')}/hubs/agent";
+
+    private string GetServiceDiagnosticBundleUrl() =>
+        string.IsNullOrWhiteSpace(_settings.CoordinatorUrl)
+            ? "Set the AgentDeck service URL first"
+            : $"{_settings.CoordinatorUrl.TrimEnd('/')}/api/diagnostics/bundle";
+
+    private static string GetMachineDiagnosticBundleUrl(RunnerMachineSettings machine) =>
+        string.IsNullOrWhiteSpace(machine.RunnerUrl)
+            ? "Machine agent URL not advertised"
+            : $"{machine.RunnerUrl.TrimEnd('/')}/api/diagnostics/bundle";
 
     private Task RefreshMachineCapabilitiesIfPossibleAsync()
     {
@@ -1370,9 +1388,9 @@
             {
                 MachineUpdateApplyIntentMode.RequestApply => "requested apply",
                 MachineUpdateApplyIntentMode.StageOnly => "switched to stage-only",
-                _ => "restored the coordinator default"
+                _ => "restored the service default"
             };
-            ToastService.Show($"Coordinator {actionLabel} for {rollout.MachineName}.", ToastKind.Success);
+            ToastService.Show($"AgentDeck service {actionLabel} for {rollout.MachineName}.", ToastKind.Success);
             await RefreshCoordinatorDirectoryAsync();
         }
         catch (Exception ex)
@@ -1404,7 +1422,7 @@
                 return;
             }
 
-            ToastService.Show("Workflow-pack retry requested. The machine will retry on its next heartbeat.", ToastKind.Success);
+            ToastService.Show("Tool-pack retry requested. The machine will retry on its next check-in.", ToastKind.Success);
             await RefreshCoordinatorDirectoryAsync();
         }
         catch (Exception ex)
@@ -1418,7 +1436,7 @@
         }
     }
 
-    private static string GetCoordinatorUrlPlaceholder() => "https://coordinator-host:5001";
+    private static string GetCoordinatorUrlPlaceholder() => "https://agentdeck-service:5001";
 
     private static string GetRunnerUrlPlaceholder() => "https://machine-host:5000 (informational)";
 

@@ -16,4 +16,4 @@ These larger architecture items remain intentionally out of this slice:
 2. User-managed CLI presets and terminal quick actions.
 3. Auth/authz and AgentDeck service persistence.
 4. Native child-process window inventory per platform for fully automatic managed-terminal window surfacing.
-5. Workflow-pack marketplace/discovery UX in the companion app.
+5. Tool-pack marketplace/discovery UX in the companion app.
