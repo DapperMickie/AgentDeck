@@ -54,6 +54,37 @@ A .NET MAUI + Blazor WebView app that:
 
 ## Getting Started
 
+### Fast local path
+
+From a fresh checkout, the fastest reliable path is:
+
+```bash
+dotnet restore AgentDeck.slnx
+dotnet run --project AgentDeck.Coordinator/AgentDeck.Coordinator.csproj
+```
+
+In a second terminal, start a Linux runner and register it with that coordinator:
+
+```bash
+AGENTDECK_COORDINATOR_URL=http://localhost:5001 \
+AGENTDECK_MACHINE_ID=local-linux \
+AGENTDECK_MACHINE_NAME="Local Linux" \
+dotnet run --project AgentDeck.Runner/AgentDeck.Runner.csproj
+```
+
+Then run the companion for your platform and set the coordinator URL to `http://localhost:5001` in **Settings → Connection**. Use `localhost` only when the companion is on the same machine as the coordinator; phones/tablets should use a LAN-reachable host name or IP address.
+
+Known-good local verification commands:
+
+```bash
+dotnet build AgentDeck.Coordinator/AgentDeck.Coordinator.csproj --no-restore
+dotnet build AgentDeck.Core/AgentDeck.Core.csproj --no-restore
+dotnet build AgentDeck/AgentDeck.csproj -f net10.0 --no-restore
+dotnet test AgentDeck.Runner.Tests/AgentDeck.Runner.Tests.csproj --no-build
+```
+
+A full solution build on Linux also targets Android; install the Android SDK or build a specific framework if you only want the desktop companion.
+
 ### Running the Coordinator API
 
 ```bash

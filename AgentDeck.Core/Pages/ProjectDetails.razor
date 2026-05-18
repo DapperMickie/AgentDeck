@@ -37,8 +37,8 @@
             </div>
             <div class="project-page__actions">
                 <a class="btn btn-accent" href="/">Dashboard</a>
-                <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_project.Definition.Id)/edit">Edit project</a>
-                <button class="btn btn-accent" @onclick="RefreshRuntimeAsync">Refresh runtime state</button>
+                <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_project.Definition.Id)/edit">Edit workspace</a>
+                <button class="btn btn-accent" @onclick="RefreshRuntimeAsync">Refresh open items</button>
             </div>
         </div>
 
@@ -46,8 +46,8 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Open on machine</h2>
-                        <p>Project opening initializes a coordinator-managed workspace and creates the first terminal-backed project session on that worker.</p>
+                        <h2>Where do you want to run this?</h2>
+                        <p>Pick a ready machine. AgentDeck will prepare the workspace and open the first terminal for you.</p>
                     </div>
                 </div>
 
@@ -133,12 +133,12 @@
                                 <button class="btn btn-primary"
                                         disabled="@(_openingMachineId == machine.MachineId || !CanOpenProjectOnMachine(machine))"
                                         @onclick="() => OpenProjectAsync(machine.MachineId, navigateToSession: true)">
-                                    @(_openingMachineId == machine.MachineId ? "Opening..." : "Open project")
+                                    @(_openingMachineId == machine.MachineId ? "Opening..." : "Open workspace")
                                 </button>
                                 <button class="btn btn-accent"
                                         disabled="@(!machine.IsOnline || _viewerActionMachineId == machine.MachineId)"
                                         @onclick="() => OpenDesktopViewerAsync(machine, forceTakeover: false)">
-                                    @(_viewerActionMachineId == machine.MachineId ? "Working..." : "Open desktop viewer")
+                                    @(_viewerActionMachineId == machine.MachineId ? "Working..." : "Open desktop")
                                 </button>
                                 @if (remoteControlState is not null && !IsCurrentRemoteController(remoteControlState))
                                 {
@@ -165,8 +165,8 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Launch profiles</h2>
-                        <p>Queue real run and debug jobs through the coordinator, with host selection, device selection, and live viewer/job state tied to the selected machine.</p>
+                        <h2>Run or debug</h2>
+                        <p>Choose the machine and device AgentDeck should use. Detailed job and viewer state stays available after launch.</p>
                     </div>
                 </div>
 

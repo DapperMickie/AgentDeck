@@ -100,8 +100,8 @@
             <section class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
-                        <h2>Surface tabs</h2>
-                        <p>Project-session tabs now combine coordinator-registered surfaces with live runtime surfaces discovered from the selected machine's jobs and viewer sessions for this project.</p>
+                        <h2>Things open for this workspace</h2>
+                        <p>Terminals, app windows, desktops, VS Code, emulators, simulators, logs, and job output for this session.</p>
                     </div>
                 </div>
                 @if (!string.IsNullOrWhiteSpace(_runtimeLoadError))
@@ -114,15 +114,19 @@
                     {
                         <button class="surface-tab @(surface.Id == _activeSurfaceId ? "surface-tab--active" : "")"
                                 @onclick="() => SelectSurface(surface.Id)">
-                            <span>@surface.DisplayName</span>
-                            <span class="surface-tab__kind">@surface.Kind</span>
+                            <span>@GetSurfaceIcon(surface.Kind) @surface.DisplayName</span>
+                            <span class="surface-tab__kind">@GetSurfaceKindLabel(surface.Kind)</span>
                         </button>
                     }
                 </div>
 
                 @if (_activeSurface is null)
                 {
-                    <p>Select a surface to inspect it.</p>
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">▣</div>
+                        <h3>Choose something to open</h3>
+                        <p>Select a terminal, desktop, app window, editor, emulator, simulator, log, or job output surface.</p>
+                    </div>
                 }
                 else if (_activeSurface.Kind == ProjectSessionSurfaceKind.Terminal && _attachedTerminalSession is not null)
                 {
@@ -153,8 +157,8 @@
                         </div>
                         <dl class="surface-details-list">
                             <div>
-                                <dt>Kind</dt>
-                                <dd>@_activeSurface.Kind</dd>
+                                <dt>Type</dt>
+                                <dd>@GetSurfaceKindLabel(_activeSurface.Kind)</dd>
                             </div>
                             <div>
                                 <dt>Machine</dt>
@@ -681,12 +685,32 @@
 
     private static string GetSurfaceDescription(SurfaceTab surface) => surface.Kind switch
     {
-        ProjectSessionSurfaceKind.Terminal => "Terminal tabs stay dedicated to shell output and input.",
-        ProjectSessionSurfaceKind.VsCode => "VS Code runtime surfaces are derived from active debug/viewer sessions on this machine.",
-        ProjectSessionSurfaceKind.Simulator => "Simulator runtime surfaces follow the current project job and viewer state.",
-        ProjectSessionSurfaceKind.Emulator => "Emulator runtime surfaces follow the current project job and viewer state.",
-        ProjectSessionSurfaceKind.Viewer => "Viewer tabs capture desktop or window remoting state associated with this project session.",
-        _ => "Coordinator-registered project surface."
+        ProjectSessionSurfaceKind.Terminal => "A shell for commands, agents, builds, and logs.",
+        ProjectSessionSurfaceKind.VsCode => "Editor or debugging window for this workspace.",
+        ProjectSessionSurfaceKind.Simulator => "Apple simulator connected to the current run/debug job.",
+        ProjectSessionSurfaceKind.Emulator => "Android emulator connected to the current run/debug job.",
+        ProjectSessionSurfaceKind.Viewer => "Remote desktop, browser, or app window for this workspace.",
+        _ => "Workspace item opened by the coordinator."
+    };
+
+    private static string GetSurfaceKindLabel(ProjectSessionSurfaceKind kind) => kind switch
+    {
+        ProjectSessionSurfaceKind.Terminal => "Terminal",
+        ProjectSessionSurfaceKind.VsCode => "VS Code",
+        ProjectSessionSurfaceKind.Simulator => "Simulator",
+        ProjectSessionSurfaceKind.Emulator => "Emulator",
+        ProjectSessionSurfaceKind.Viewer => "Screen / app window",
+        _ => "Workspace item"
+    };
+
+    private static string GetSurfaceIcon(ProjectSessionSurfaceKind kind) => kind switch
+    {
+        ProjectSessionSurfaceKind.Terminal => "⌁",
+        ProjectSessionSurfaceKind.VsCode => "⌘",
+        ProjectSessionSurfaceKind.Simulator => "▱",
+        ProjectSessionSurfaceKind.Emulator => "▰",
+        ProjectSessionSurfaceKind.Viewer => "◱",
+        _ => "•"
     };
 
     private static ProjectSessionSurfaceKind? MapViewerKind(RemoteViewerTargetKind kind) => kind switch

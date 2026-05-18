@@ -2414,3 +2414,136 @@ html, body {
         display: inline;
     }
 }
+
+/* Guided setup and first-run polish */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #93c5fd;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-checklist {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.setup-checklist__intro,
+.setup-step,
+.setup-wizard-card {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.9));
+  box-shadow: 0 20px 50px rgba(2, 6, 23, 0.26);
+}
+
+.setup-checklist__intro {
+  border-radius: 1.25rem;
+  padding: 1.25rem;
+}
+
+.setup-checklist__intro h2 {
+  margin: 0.35rem 0;
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+}
+
+.setup-checklist__intro p,
+.setup-step p,
+.form-hint {
+  color: #cbd5e1;
+}
+
+.setup-checklist__actions,
+.inline-action-field {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.inline-action-field .input {
+  flex: 1 1 18rem;
+}
+
+.setup-checklist__steps {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.setup-step {
+  border-radius: 1rem;
+  padding: 0.9rem;
+}
+
+.setup-step__status {
+  display: inline-flex;
+  margin-bottom: 0.4rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.16);
+  color: #bfdbfe;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.setup-step--complete .setup-step__status {
+  background: rgba(34, 197, 94, 0.16);
+  color: #bbf7d0;
+}
+
+.empty-state--actionable {
+  align-items: flex-start;
+  text-align: left;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.project-template-card--button {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-template-card--button:hover,
+.project-template-card--button:focus-visible {
+  border-color: rgba(96, 165, 250, 0.75);
+  transform: translateY(-1px);
+}
+
+.project-template-grid--compact {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.advanced-panel {
+  margin-top: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 1rem;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.38);
+}
+
+.advanced-panel summary {
+  cursor: pointer;
+  color: #bfdbfe;
+  font-weight: 700;
+}
+
+@media (max-width: 820px) {
+  .setup-checklist {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-checklist__actions .btn,
+  .inline-action-field .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
