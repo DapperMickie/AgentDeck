@@ -51,11 +51,22 @@
                     </div>
                 </div>
 
-                <div class="project-machine-grid">
-                    @foreach (var machine in _dashboard.Machines.OrderByDescending(machine => machine.IsOnline).ThenBy(machine => machine.MachineName, StringComparer.OrdinalIgnoreCase))
-                    {
-                        var remoteControlState = GetMachineRemoteControlState(machine.MachineId);
-                        <article class="project-machine-card">
+                @if (_dashboard.Machines.Count == 0)
+                {
+                    <div class="empty-state empty-state--actionable">
+                        <div class="empty-icon">▣</div>
+                        <h3>No runner machines yet</h3>
+                        <p>Create or connect a runner in Settings, then return here to open this workspace.</p>
+                        <a class="btn btn-primary" href="/settings#machines">Create or connect a runner</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="project-machine-grid">
+                        @foreach (var machine in _dashboard.Machines.OrderByDescending(machine => machine.IsOnline).ThenBy(machine => machine.MachineName, StringComparer.OrdinalIgnoreCase))
+                        {
+                            var remoteControlState = GetMachineRemoteControlState(machine.MachineId);
+                            <article class="project-machine-card">
                             <div class="project-machine-card__header">
                                 <div>
                                     <h3>@machine.MachineName</h3>
@@ -157,9 +168,10 @@
                                     </button>
                                 }
                             </div>
-                        </article>
-                    }
-                </div>
+                            </article>
+                        }
+                    </div>
+                }
             </section>
 
             <section class="dashboard-section-card">
