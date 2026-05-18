@@ -176,6 +176,48 @@ public static class CoordinatorEndpointModules
         app.MapGet("/api/updates/rollouts", async (IWorkerRegistryService registry, CancellationToken cancellationToken) =>
             Results.Ok(await registry.GetUpdateRolloutsAsync(cancellationToken)));
 
+        app.MapGet("/api/runner-orchestration", (IRunnerOrchestrationService orchestration) =>
+            Results.Ok(orchestration.GetCatalog()));
+
+        app.MapGet("/api/runner-orchestration/providers/{providerId}", (string providerId, IRunnerOrchestrationService orchestration) =>
+            orchestration.GetProvider(providerId) is { } provider
+                ? Results.Ok(provider)
+                : Results.NotFound());
+
+        app.MapGet("/api/runner-orchestration/templates/{templateId}", (string templateId, IRunnerOrchestrationService orchestration) =>
+            orchestration.GetTemplate(templateId) is { } template
+                ? Results.Ok(template)
+                : Results.NotFound());
+
+        app.MapGet("/api/runner-orchestration/instances/{instanceId}", (string instanceId, IRunnerOrchestrationService orchestration) =>
+            orchestration.GetInstance(instanceId) is { } instance
+                ? Results.Ok(instance)
+                : Results.NotFound());
+
+        app.MapGet("/api/runner-orchestration/instances/{instanceId}/events", async (string instanceId, IRunnerOrchestrationService orchestration, CancellationToken cancellationToken) =>
+            Results.Ok(await orchestration.GetInstanceEventsAsync(instanceId, cancellationToken)));
+
+        app.MapPost("/api/runner-orchestration/instances", async (CreateRunnerOrchestratorInstanceRequest request, IRunnerOrchestrationService orchestration, CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await orchestration.CreateInstanceAsync(request, cancellationToken));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { message = ex.Message });
+            }
+        });
+
+        app.MapPost("/api/runner-orchestration/instances/{instanceId}/lifecycle/{state}", async (string instanceId, RunnerInstanceLifecycleState state, IRunnerOrchestrationService orchestration, CancellationToken cancellationToken) =>
+            await orchestration.UpdateInstanceLifecycleAsync(instanceId, state, cancellationToken) is { } instance
+                ? Results.Ok(instance)
+                : Results.NotFound());
+
         app.MapGet("/api/machines/{machineId}/updates/rollout", async (string machineId, IWorkerRegistryService registry, CancellationToken cancellationToken) =>
             await registry.GetUpdateRolloutAsync(machineId, cancellationToken) is { } rollout
                 ? Results.Ok(rollout)

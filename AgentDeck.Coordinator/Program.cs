@@ -40,6 +40,7 @@ builder.Services.AddSingleton<IProjectRegistryService, ProjectRegistryService>()
 builder.Services.AddSingleton<IProjectSessionRegistryService, ProjectSessionRegistryService>();
 builder.Services.AddSingleton<IProjectOpenService, ProjectOpenService>();
 builder.Services.AddSingleton<IMachineRemoteControlRegistryService, MachineRemoteControlRegistryService>();
+builder.Services.AddSingleton<IRunnerOrchestrationService, RunnerOrchestrationService>();
 builder.Services.AddSingleton<RunnerBrokerService>();
 builder.Services.AddSingleton<IRunnerBrokerService>(static services => services.GetRequiredService<RunnerBrokerService>());
 

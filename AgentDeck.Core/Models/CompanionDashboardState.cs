@@ -10,6 +10,7 @@ public sealed class CompanionDashboardState
     public bool CoordinatorReachable { get; init; }
     public string? CoordinatorErrorMessage { get; init; }
     public IReadOnlyList<CompanionMachineSummary> Machines { get; init; } = [];
+    public RunnerOrchestratorCatalog RunnerOrchestration { get; init; } = new();
     public IReadOnlyList<CompanionProjectSummary> Projects { get; init; } = [];
     public IReadOnlyList<ProjectSessionRecord> ProjectSessions { get; init; } = [];
     public IReadOnlyList<CompanionViewerSurfaceSummary> ViewerSurfaces { get; init; } = [];

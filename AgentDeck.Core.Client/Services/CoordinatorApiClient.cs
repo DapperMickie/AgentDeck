@@ -52,6 +52,66 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         }
     }
 
+    public async Task<RunnerOrchestratorCatalog> GetRunnerOrchestrationCatalogAsync(string coordinatorUrl, CancellationToken cancellationToken = default)
+    {
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            return await httpClient.GetFromJsonAsync<RunnerOrchestratorCatalog>("api/runner-orchestration", cancellationToken) ?? new RunnerOrchestratorCatalog();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator runner orchestration catalog lookup failed for {CoordinatorUrl}", coordinatorUrl);
+            throw;
+        }
+    }
+
+    public async Task<RunnerOrchestratorInstance?> CreateRunnerInstanceAsync(string coordinatorUrl, CreateRunnerOrchestratorInstanceRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync("api/runner-orchestration/instances", request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = await TryReadErrorMessageAsync(response, cancellationToken);
+                throw new InvalidOperationException(message ?? $"Coordinator rejected runner creation with HTTP {(int)response.StatusCode}.");
+            }
+
+            return await response.Content.ReadFromJsonAsync<RunnerOrchestratorInstance>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            _logger.LogError(ex, "Coordinator runner creation failed for template {TemplateId}", request.TemplateId);
+            throw;
+        }
+    }
+
+    public async Task<RunnerOrchestratorInstance?> UpdateRunnerInstanceLifecycleAsync(string coordinatorUrl, string instanceId, RunnerInstanceLifecycleState state, CancellationToken cancellationToken = default)
+    {
+        using var httpClient = CreateClient(coordinatorUrl);
+        try
+        {
+            using var response = await httpClient.PostAsync(
+                $"api/runner-orchestration/instances/{Uri.EscapeDataString(instanceId)}/lifecycle/{state}",
+                content: null,
+                cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<RunnerOrchestratorInstance>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Coordinator runner lifecycle update failed for instance {InstanceId}", instanceId);
+            throw;
+        }
+    }
+
     public async Task<IReadOnlyList<ProjectDefinition>> GetProjectsAsync(string coordinatorUrl, CancellationToken cancellationToken = default)
     {
         using var httpClient = CreateClient(coordinatorUrl);

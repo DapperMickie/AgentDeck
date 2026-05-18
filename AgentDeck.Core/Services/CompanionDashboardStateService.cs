@@ -31,6 +31,7 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
         var coordinatorReachable = false;
         string? coordinatorError = null;
         IReadOnlyList<RegisteredRunnerMachine> registeredMachines = [];
+        RunnerOrchestratorCatalog runnerOrchestration = new();
         IReadOnlyList<ProjectDefinition> projects = [];
         IReadOnlyList<ProjectSessionRecord> projectSessions = [];
 
@@ -42,6 +43,7 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                 if (coordinatorReachable)
                 {
                     registeredMachines = await _coordinator.GetMachinesAsync(settings.CoordinatorUrl, cancellationToken);
+                    runnerOrchestration = await _coordinator.GetRunnerOrchestrationCatalogAsync(settings.CoordinatorUrl, cancellationToken);
                     projects = await _coordinator.GetProjectsAsync(settings.CoordinatorUrl, cancellationToken);
                     projectSessions = await _coordinator.GetProjectSessionsAsync(settings.CoordinatorUrl, cancellationToken: cancellationToken);
                 }
@@ -105,6 +107,7 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
             CoordinatorReachable = coordinatorReachable,
             CoordinatorErrorMessage = coordinatorError,
             Machines = machines,
+            RunnerOrchestration = runnerOrchestration,
             Projects = projectSummaries,
             ProjectSessions = projectSessions,
             ViewerSurfaces = viewerSurfaces,
