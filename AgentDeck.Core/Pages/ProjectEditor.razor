@@ -252,8 +252,9 @@
                                             </select>
                                         </div>
                                         <div class="form-field">
-                                            <label>Preferred machine ID (advanced)</label>
-                                            <input class="input" @bind="profile.PreferredMachineId" />
+                                            <label>Preferred machine (advanced)</label>
+                                            <input class="input" @bind="profile.PreferredMachineId" placeholder="Optional machine ID" />
+                                            <span class="form-hint">Leave blank to let AgentDeck choose any ready machine with this run option.</span>
                                         </div>
                                         <div class="form-field">
                                             <label>Default device profile</label>
@@ -277,7 +278,7 @@
                                             <input class="input" @bind="profile.DebugConfigurationName" />
                                         </div>
                                         <div class="form-field">
-                                            <label>Device catalog</label>
+                                            <label>Device list source</label>
                                             <select class="input" @bind="profile.DeviceCatalogText">
                                                 <option value="">None</option>
                                                 @foreach (var catalogKind in DeviceCatalogOptions)
@@ -285,6 +286,7 @@
                                                     <option value="@catalogKind.ToString()">@catalogKind</option>
                                                 }
                                             </select>
+                                            <span class="form-hint">Choose where AgentDeck should look for emulator or simulator devices.</span>
                                         </div>
                                         <div class="form-field project-editor__field--full">
                                             <label>Notes</label>

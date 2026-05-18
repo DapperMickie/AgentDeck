@@ -127,7 +127,7 @@
                     {
                         <div>
                             <dt>Controller</dt>
-                            <dd>@(IsCurrentRemoteController(remoteControlState) ? "You" : (remoteControlState.ControllerDisplayName ?? remoteControlState.ControllerCompanionId))</dd>
+                            <dd>@(IsCurrentRemoteController(remoteControlState) ? "You" : GetControllerDisplayLabel(remoteControlState))</dd>
                         </div>
                     }
                     <div>
@@ -427,6 +427,9 @@
     private bool IsCurrentRemoteController(MachineRemoteControlState state) =>
         !string.IsNullOrWhiteSpace(AgentClient.CompanionId) &&
         string.Equals(state.ControllerCompanionId, AgentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
+
+    private static string GetControllerDisplayLabel(MachineRemoteControlState state) =>
+        string.IsNullOrWhiteSpace(state.ControllerDisplayName) ? "Another user" : state.ControllerDisplayName;
 
     private string GetViewerPlaceholderMessage()
     {

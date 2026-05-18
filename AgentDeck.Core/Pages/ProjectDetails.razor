@@ -1425,7 +1425,7 @@
 
         if (machine.UpdateRollout is { State: RunnerUpdateRolloutState.Blocked })
         {
-            return "Runner update rollout is currently blocked for this machine.";
+            return "Machine update is currently blocked for this machine.";
         }
 
         if (machine.UpdateRollout is { State: RunnerUpdateRolloutState.Failed })
@@ -1471,9 +1471,10 @@
         }
 
         var targetLabel = state.TargetDisplayName ?? "Remote screen";
+        var controllerLabel = string.IsNullOrWhiteSpace(state.ControllerDisplayName) ? "another user" : state.ControllerDisplayName;
         return IsCurrentRemoteController(state)
             ? $"{targetLabel} is currently controlled by you."
-            : $"{targetLabel} is currently controlled by {state.ControllerDisplayName ?? state.ControllerCompanionId}. Open will be rejected unless you force takeover.";
+            : $"{targetLabel} is currently controlled by {controllerLabel}. Take control when you need to interact.";
     }
 
     private string? GetViewerControlNotice(RemoteViewerSession viewer)
@@ -1489,7 +1490,7 @@
             return null;
         }
 
-        var controllerLabel = state.ControllerDisplayName ?? state.ControllerCompanionId;
+        var controllerLabel = string.IsNullOrWhiteSpace(state.ControllerDisplayName) ? "Another user" : state.ControllerDisplayName;
         var activeTarget = state.TargetDisplayName ?? "another remote screen";
         if (string.Equals(state.ViewerSessionId, viewer.Id, StringComparison.OrdinalIgnoreCase))
         {
@@ -1499,8 +1500,8 @@
         }
 
         return IsCurrentRemoteController(state)
-            ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote target."
-            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this remote screen requires force takeover.";
+            ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote screen."
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Taking this remote screen requires force takeover.";
     }
 
     private static bool CanControlViewer(RemoteViewerSession viewer) =>
