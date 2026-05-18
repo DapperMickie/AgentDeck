@@ -2,12 +2,12 @@
 
 <div class="form-group">
     <select class="form-input" value="@_selected" @onchange="OnSelectChanged">
-        <option value="">— root —</option>
+        <option value="">— workspace root —</option>
         @if (_workspace is not null)
         {
-            @foreach (var dir in _workspace.Directories)
+            @foreach (var entry in GetDirectoryChoices())
             {
-                <option value="@dir">@dir</option>
+                <option value="@entry.Value">@entry.Label</option>
             }
         }
     </select>
@@ -17,6 +17,10 @@
            value="@Value"
            @oninput="OnInputChanged"
            placeholder="Working directory (empty = workspace root)" />
+    @if (_workspace is not null)
+    {
+        <span class="form-hint">Repository details are best-effort snapshots from the selected machine.</span>
+    }
     @if (!string.IsNullOrWhiteSpace(_errorMessage))
     {
         <div class="error-message">@_errorMessage</div>
@@ -65,4 +69,76 @@
         var val = e.Value?.ToString() ?? "";
         await ValueChanged.InvokeAsync(val);
     }
+
+    private IEnumerable<DirectoryChoice> GetDirectoryChoices()
+    {
+        if (_workspace is null)
+        {
+            yield break;
+        }
+
+        if (_workspace.Entries.Count > 0)
+        {
+            foreach (var entry in _workspace.Entries.OrderBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                yield return new DirectoryChoice(entry.RelativePath, GetDirectoryEntryLabel(entry));
+            }
+
+            yield break;
+        }
+
+        foreach (var directory in _workspace.Directories.OrderBy(directory => directory, StringComparer.OrdinalIgnoreCase))
+        {
+            yield return new DirectoryChoice(directory, directory);
+        }
+    }
+
+    private static string GetDirectoryEntryLabel(WorkspaceDirectoryInfo entry)
+    {
+        if (entry.Repository is not { IsRepository: true } repository)
+        {
+            return entry.Name;
+        }
+
+        var details = new List<string>();
+        if (!string.IsNullOrWhiteSpace(repository.Branch))
+        {
+            details.Add(repository.Branch!);
+        }
+        else if (!string.IsNullOrWhiteSpace(repository.HeadSha))
+        {
+            details.Add(repository.HeadSha![..Math.Min(7, repository.HeadSha.Length)]);
+        }
+
+        if (repository.ModifiedCount > 0)
+        {
+            details.Add($"modified {repository.ModifiedCount}");
+        }
+
+        if (repository.UntrackedCount > 0)
+        {
+            details.Add($"untracked {repository.UntrackedCount}");
+        }
+
+        if (repository.AheadBy > 0)
+        {
+            details.Add($"ahead {repository.AheadBy}");
+        }
+
+        if (repository.BehindBy > 0)
+        {
+            details.Add($"behind {repository.BehindBy}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(repository.ScanError))
+        {
+            details.Add("Git status unavailable");
+        }
+
+        return details.Count == 0
+            ? $"{entry.Name} — Git repo"
+            : $"{entry.Name} — {string.Join(" • ", details)}";
+    }
+
+    private sealed record DirectoryChoice(string Value, string Label);
 }

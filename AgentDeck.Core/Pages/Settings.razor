@@ -182,7 +182,7 @@
 
         <div class="settings-callout">
             <strong>Start a machine agent manually</strong>
-            <span>On an existing machine, run <code>Coordinator__CoordinatorUrl=http://SERVICE-HOST:5001 dotnet run --project AgentDeck.Runner/AgentDeck.Runner.csproj</code>, then refresh this page. Use a LAN host/IP when the machine is not the same device as the service.</span>
+            <span>From the repository root on an existing machine, run <code>Coordinator__CoordinatorUrl=http://SERVICE-HOST:5001 Coordinator__MachineId=my-machine Coordinator__MachineName=&quot;My machine&quot; dotnet run --project AgentDeck.Runner/AgentDeck.Runner.csproj</code>, then refresh this page. Use a LAN host/IP when the machine is not the same device as the service.</span>
         </div>
 
         @if (_runnerOrchestrationCatalog.Templates.Count == 0)

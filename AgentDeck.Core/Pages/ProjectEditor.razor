@@ -38,7 +38,7 @@
         <div class="page-header project-editor__header">
             <div>
                 <h1>@(_isExistingProject ? "Edit workspace" : "Import workspace")</h1>
-                <p>Paste a repo, pick a template, and only open advanced run settings if you need them.</p>
+                <p>Paste a source URL, pick a template, and only open advanced run settings if you need them.</p>
             </div>
             <div class="project-page__actions">
                 @if (_isExistingProject)
@@ -60,18 +60,18 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <span class="eyebrow">Simple setup</span>
-                        <h2>Start with a repository or template</h2>
+                        <h2>Start with source code or a template</h2>
                         <p>AgentDeck can fill in the workspace details for you. Advanced IDs and run commands stay editable below.</p>
                     </div>
                 </div>
                 <div class="project-editor__grid">
                     <div class="form-field project-editor__field--full">
-                        <label for="quick-repo-url">GitHub or Git repository URL</label>
+                        <label for="quick-repo-url">GitHub or Git source URL</label>
                         <div class="inline-action-field">
                             <input id="quick-repo-url" class="input" @bind="_quickRepositoryUrl" placeholder="https://github.com/owner/repo" />
-                            <button class="btn btn-primary" type="button" @onclick="ApplyRepositoryUrl">Use repo</button>
+                            <button class="btn btn-primary" type="button" @onclick="ApplyRepositoryUrl">Use source</button>
                         </div>
-                        <span class="form-hint">Supports GitHub HTTPS, SSH, and owner/repo shorthand.</span>
+                        <span class="form-hint">Supports GitHub HTTPS, SSH, and owner/repository shorthand.</span>
                     </div>
                 </div>
                 <div class="project-template-grid project-template-grid--compact">
@@ -149,21 +149,21 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Source</h2>
-                        <p>Leave the repository URL empty for a blank workspace; set it to clone automatically when opened on a machine.</p>
+                        <p>Leave the source URL empty for a blank workspace; set it to clone automatically when opened on a machine.</p>
                     </div>
                 </div>
 
                 <div class="project-editor__grid">
                     <div class="form-field">
-                        <label for="repo-name">Repository name</label>
+                        <label for="repo-name">Source name</label>
                         <input id="repo-name" class="input" @bind="_editor.RepositoryName" />
                     </div>
                     <div class="form-field">
-                        <label for="repo-owner">Repository owner</label>
+                        <label for="repo-owner">Source owner</label>
                         <input id="repo-owner" class="input" @bind="_editor.RepositoryOwner" />
                     </div>
                     <div class="form-field project-editor__field--full">
-                        <label for="repo-url">Repository URL</label>
+                        <label for="repo-url">Source URL</label>
                         <input id="repo-url" class="input" @bind="_editor.RepositoryUrl" />
                     </div>
                 </div>
@@ -452,7 +452,7 @@
         var parsed = ParseRepositoryInput(_quickRepositoryUrl);
         if (parsed is null)
         {
-            Toasts.Show("Paste a GitHub URL, git URL, or owner/repo shorthand.", ToastKind.Warning);
+            Toasts.Show("Paste a GitHub URL, Git URL, or owner/repository shorthand.", ToastKind.Warning);
             return;
         }
 
@@ -571,12 +571,12 @@
                 "Source",
                 HasRepositorySource() || _blankSourceMode,
                 !string.IsNullOrWhiteSpace(_editor.RepositoryUrl)
-                    ? "Repository URL is ready."
+                    ? "Source URL is ready."
                     : !string.IsNullOrWhiteSpace(_editor.RepositoryName)
-                        ? "Repository details are ready."
+                        ? "Source details are ready."
                         : _blankSourceMode
                             ? "Blank workspace selected; AgentDeck will use the workspace name for metadata."
-                            : "Paste a repo URL or choose the Blank workspace template for a local/scratch workspace."),
+                            : "Paste a source URL or choose the Blank workspace template for a local/scratch workspace."),
             new ReadinessItem(
                 "Run option",
                 _editor.LaunchProfiles.Any(profile => !string.IsNullOrWhiteSpace(profile.DisplayName) || !string.IsNullOrWhiteSpace(profile.Id)),
