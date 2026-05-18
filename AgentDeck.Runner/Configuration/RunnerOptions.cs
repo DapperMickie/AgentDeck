@@ -19,6 +19,9 @@ public sealed class RunnerOptions
     /// <summary>Address the Kestrel server listens on. Defaults to loopback; use 0.0.0.0 or a LAN IP only when intentionally exposing the runner.</summary>
     public string BindAddress { get; set; } = "127.0.0.1";
 
+    /// <summary>Optional shared key required on direct runner HTTP and SignalR requests.</summary>
+    public string? AccessKey { get; set; }
+
     /// <summary>Origins allowed for browser CORS. Empty denies browser origins; use ["*"] only for explicit development scenarios.</summary>
     public string[] AllowedOrigins { get; set; } = [];
 
@@ -46,6 +49,10 @@ public sealed class RunnerOptions
         var bindAddress = Environment.GetEnvironmentVariable(BindAddressEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(bindAddress))
             options.BindAddress = bindAddress.Trim();
+
+        var accessKey = Environment.GetEnvironmentVariable("AGENTDECK_ACCESS_KEY");
+        if (!string.IsNullOrWhiteSpace(accessKey))
+            options.AccessKey = accessKey.Trim();
 
         var defaultShell = Environment.GetEnvironmentVariable(DefaultShellEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(defaultShell))

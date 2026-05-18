@@ -1,6 +1,7 @@
 using AgentDeck.Runner.Configuration;
 using AgentDeck.Runner.Services;
 using AgentDeck.Runner.Endpoints;
+using AgentDeck.Shared;
 using AgentDeck.Shared.Protocol;
 using System.Text.Json.Serialization;
 
@@ -25,7 +26,8 @@ builder.Services.AddOptions<RunnerOptions>()
 builder.Services.AddOptions<DesktopViewerTransportOptions>()
     .Bind(builder.Configuration.GetSection(DesktopViewerTransportOptions.SectionName));
 builder.Services.AddOptions<WorkerCoordinatorOptions>()
-    .Bind(builder.Configuration.GetSection(WorkerCoordinatorOptions.SectionName));
+    .Bind(builder.Configuration.GetSection(WorkerCoordinatorOptions.SectionName))
+    .Configure(WorkerCoordinatorOptions.ApplyEnvironmentOverrides);
 builder.Services.AddOptions<TrustPolicyOptions>()
     .Bind(builder.Configuration.GetSection(TrustPolicyOptions.SectionName));
 builder.Services.AddOptions<RunnerLocalSecurityPolicyOptions>()
@@ -108,6 +110,30 @@ builder.Services.AddHostedService<WorkerCoordinatorRegistrationService>();
 builder.Services.AddHostedService(sp => (RunnerLaunchedApplicationService)sp.GetRequiredService<IRunnerLaunchedApplicationService>());
 
 var app = builder.Build();
+
+if (AgentDeckAccessKey.IsConfigured(runnerOptions.AccessKey))
+{
+    app.Use(async (context, next) =>
+    {
+        if (HttpMethods.IsOptions(context.Request.Method) ||
+            (HttpMethods.IsGet(context.Request.Method) && context.Request.Path.Equals("/health", StringComparison.OrdinalIgnoreCase)))
+        {
+            await next(context);
+            return;
+        }
+
+        var suppliedAccessKey = context.Request.Headers[AgentDeckHeaderNames.AccessKey].FirstOrDefault()
+            ?? context.Request.Query["access_key"].FirstOrDefault();
+        if (!AgentDeckAccessKey.Matches(runnerOptions.AccessKey, suppliedAccessKey))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { message = "AgentDeck access key is required." });
+            return;
+        }
+
+        await next(context);
+    });
+}
 
 app.MapRunnerEndpoints();
 

@@ -686,8 +686,11 @@
             Id = profileId,
             DisplayName = NormalizeText(editor.DisplayName) ?? profileId,
             Platform = editor.Platform,
+            WorkloadId = NormalizeText(editor.WorkloadId),
             Mode = editor.Mode,
             LaunchDriver = editor.LaunchDriver,
+            LaunchDriverId = NormalizeText(editor.LaunchDriverId),
+            RequiredSurfaceKinds = editor.RequiredSurfaceKinds.ToArray(),
             PreferredMachineRole = editor.PreferredMachineRole,
             PreferredMachineId = NormalizeText(editor.PreferredMachineId),
             BuildCommand = NormalizeText(editor.BuildCommand) ?? "dotnet build",
@@ -892,8 +895,11 @@
         public string Id { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
         public ApplicationTargetPlatform Platform { get; set; }
+        public string? WorkloadId { get; set; }
         public ProjectLaunchMode Mode { get; set; }
         public ProjectLaunchDriver LaunchDriver { get; set; } = ProjectLaunchDriver.DirectCommand;
+        public string? LaunchDriverId { get; set; }
+        public IReadOnlyList<ProjectSessionSurfaceKind> RequiredSurfaceKinds { get; set; } = [];
         public RunnerMachineRole PreferredMachineRole { get; set; } = RunnerMachineRole.Worker;
         public string? PreferredMachineId { get; set; }
         public string BuildCommand { get; set; } = "dotnet build";
@@ -946,8 +952,11 @@
                 Id = profile.Id,
                 DisplayName = profile.DisplayName,
                 Platform = profile.Platform,
+                WorkloadId = profile.WorkloadId,
                 Mode = profile.Mode,
                 LaunchDriver = profile.LaunchDriver,
+                LaunchDriverId = profile.LaunchDriverId,
+                RequiredSurfaceKinds = profile.RequiredSurfaceKinds.ToArray(),
                 PreferredMachineRole = profile.PreferredMachineRole,
                 PreferredMachineId = profile.PreferredMachineId,
                 BuildCommand = profile.BuildCommand,

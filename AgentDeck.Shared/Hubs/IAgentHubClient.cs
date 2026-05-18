@@ -16,4 +16,7 @@ public interface IAgentHubClient
 
     /// <summary>Called when a terminal session has been closed and removed.</summary>
     Task SessionClosedAsync(string sessionId);
+
+    /// <summary>Called when an orchestration job has changed state on a runner.</summary>
+    Task OrchestrationJobUpdatedAsync(OrchestrationJob job);
 }

@@ -8,8 +8,11 @@ public sealed class ProjectLaunchProfile
     public string Id { get; init; } = string.Empty;
     public string DisplayName { get; init; } = string.Empty;
     public ApplicationTargetPlatform Platform { get; init; }
+    public string? WorkloadId { get; init; }
     public ProjectLaunchMode Mode { get; init; }
     public ProjectLaunchDriver LaunchDriver { get; init; } = ProjectLaunchDriver.DirectCommand;
+    public string? LaunchDriverId { get; init; }
+    public IReadOnlyList<ProjectSessionSurfaceKind> RequiredSurfaceKinds { get; init; } = [];
     public RunnerMachineRole PreferredMachineRole { get; init; } = RunnerMachineRole.Worker;
     public string? PreferredMachineId { get; init; }
     public string BuildCommand { get; init; } = string.Empty;

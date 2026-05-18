@@ -1,4 +1,5 @@
 @page "/projects/{ProjectId}"
+@implements IDisposable
 @inject ICompanionDashboardStateService DashboardState
 @inject ICoordinatorApiClient CoordinatorClient
 @inject IConnectionSettingsService SettingsService
@@ -562,6 +563,11 @@
     private string? _coordinatorUrl;
     private string? _loadError;
 
+    protected override void OnInitialized()
+    {
+        AgentClient.OrchestrationJobUpdated += OnOrchestrationJobUpdated;
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         await LoadAsync();
@@ -866,19 +872,23 @@
                 deviceSelection = await BuildDeviceSelectionAsync(profile, machineId);
             }
 
+            var project = _project ?? throw new InvalidOperationException("Project details are no longer loaded.");
             machine = availableMachines.FirstOrDefault(candidate => string.Equals(candidate.MachineId, machineId, StringComparison.OrdinalIgnoreCase)) ?? machine;
             var request = new CreateOrchestrationJobRequest
             {
-                ProjectId = _project.Definition.Id,
-                ProjectName = _project.Definition.Name,
+                ProjectId = project.Definition.Id,
+                ProjectName = project.Definition.Name,
                 ProjectSessionId = projectSession.Id,
                 TerminalSessionId = terminalSurface.ReferenceId,
                 LaunchProfileId = profile.Id,
                 LaunchProfileName = profile.DisplayName,
                 WorkingDirectory = workspace.ProjectPath,
                 Platform = profile.Platform,
+                WorkloadId = profile.WorkloadId,
                 Mode = profile.Mode,
                 LaunchDriver = profile.LaunchDriver,
+                LaunchDriverId = profile.LaunchDriverId,
+                RequiredSurfaceKinds = profile.RequiredSurfaceKinds.ToArray(),
                 TargetMachineRole = machine?.Role ?? RunnerMachineRole.Worker,
                 TargetMachineId = machineId,
                 TargetMachineName = machine?.MachineName,
@@ -1564,6 +1574,34 @@
     private bool IsCurrentRemoteController(MachineRemoteControlState state) =>
         !string.IsNullOrWhiteSpace(AgentClient.CompanionId) &&
         string.Equals(state.ControllerCompanionId, AgentClient.CompanionId, StringComparison.OrdinalIgnoreCase);
+
+    private async void OnOrchestrationJobUpdated(object? sender, OrchestrationJob job)
+    {
+        if (!string.Equals(job.ProjectId, ProjectId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await InvokeAsync(() =>
+        {
+            UpsertRuntimeJob(job);
+            StateHasChanged();
+        });
+    }
+
+    private void UpsertRuntimeJob(OrchestrationJob job)
+    {
+        var jobs = _projectJobs.Where(existing => !string.Equals(existing.Id, job.Id, StringComparison.OrdinalIgnoreCase)).ToList();
+        jobs.Add(job);
+        _projectJobs = jobs
+            .OrderByDescending(candidate => candidate.UpdatedAt)
+            .ToArray();
+    }
+
+    public void Dispose()
+    {
+        AgentClient.OrchestrationJobUpdated -= OnOrchestrationJobUpdated;
+    }
 
     private static string GetShortId(string value) =>
         value.Length <= 8 ? value : value[..8];

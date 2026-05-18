@@ -130,6 +130,7 @@ public sealed class RunnerConnectionManager : IRunnerConnectionManager, IAsyncDi
             throw new InvalidOperationException("Coordinator URL is not configured.");
         }
 
+        _client.AccessKey = settings.AccessKey;
         await _client.ConnectAsync(settings.CoordinatorUrl, cancellationToken);
         await _client.AttachMachineAsync(machine.Id);
         lock (_lock)

@@ -69,8 +69,13 @@ public static class ProjectTemplateCatalog
             Id = $"{target.Workload.ToString().ToLowerInvariant()}-{target.Platform.ToString().ToLowerInvariant()}-{mode.ToString().ToLowerInvariant()}",
             DisplayName = $"{target.DisplayName} {modeLabel}",
             Platform = target.Platform,
+            WorkloadId = target.Workload.ToString(),
             Mode = mode,
             LaunchDriver = launchDriver,
+            LaunchDriverId = launchDriver.ToString(),
+            RequiredSurfaceKinds = requiresVsCode
+                ? [ProjectSessionSurfaceKind.Terminal, ProjectSessionSurfaceKind.VsCode]
+                : [ProjectSessionSurfaceKind.Terminal],
             PreferredMachineRole = RunnerMachineRole.Worker,
             BuildCommand = "dotnet build",
             LaunchCommand = launchDriver == ProjectLaunchDriver.DirectCommand ? BuildLaunchCommand(target) : null,

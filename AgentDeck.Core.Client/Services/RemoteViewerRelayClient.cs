@@ -383,6 +383,10 @@ public sealed class RemoteViewerRelayClient : IAsyncDisposable
             {
                 options.Headers[AgentDeck.Shared.AgentDeckHeaderNames.Companion] = companionId;
                 options.Headers[AgentDeck.Shared.AgentDeckHeaderNames.Actor] = companionId;
+                if (!string.IsNullOrWhiteSpace(_agentClient.AccessKey))
+                {
+                    options.Headers[AgentDeck.Shared.AgentDeckHeaderNames.AccessKey] = _agentClient.AccessKey.Trim();
+                }
             })
             .WithAutomaticReconnect()
             .Build();

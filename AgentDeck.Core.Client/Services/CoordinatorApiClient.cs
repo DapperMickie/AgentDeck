@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Net.Http.Json;
+using AgentDeck.Shared;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
 using Microsoft.Extensions.Logging;
@@ -644,8 +645,13 @@ public sealed class CoordinatorApiClient : ICoordinatorApiClient
         client.BaseAddress = new Uri(AppendTrailingSlash(coordinatorUrl.Trim()), UriKind.Absolute);
         if (!string.IsNullOrWhiteSpace(_agentDeckClient.CompanionId))
         {
-            client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeck.Shared.AgentDeckHeaderNames.Companion, _agentDeckClient.CompanionId);
-            client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeck.Shared.AgentDeckHeaderNames.Actor, _agentDeckClient.CompanionId);
+            client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeckHeaderNames.Companion, _agentDeckClient.CompanionId);
+            client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeckHeaderNames.Actor, _agentDeckClient.CompanionId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_agentDeckClient.AccessKey))
+        {
+            client.DefaultRequestHeaders.TryAddWithoutValidation(AgentDeckHeaderNames.AccessKey, _agentDeckClient.AccessKey.Trim());
         }
 
         return client;

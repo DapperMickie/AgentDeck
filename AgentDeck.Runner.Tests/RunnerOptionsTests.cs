@@ -9,6 +9,7 @@ public sealed class RunnerOptionsTests : IDisposable
     private readonly string? _port = Environment.GetEnvironmentVariable(RunnerOptions.PortEnvironmentVariable);
     private readonly string? _bindAddress = Environment.GetEnvironmentVariable(RunnerOptions.BindAddressEnvironmentVariable);
     private readonly string? _defaultShell = Environment.GetEnvironmentVariable(RunnerOptions.DefaultShellEnvironmentVariable);
+    private readonly string? _accessKey = Environment.GetEnvironmentVariable("AGENTDECK_ACCESS_KEY");
 
     public RunnerOptionsTests()
     {
@@ -16,6 +17,7 @@ public sealed class RunnerOptionsTests : IDisposable
         Environment.SetEnvironmentVariable(RunnerOptions.PortEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RunnerOptions.BindAddressEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RunnerOptions.DefaultShellEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable("AGENTDECK_ACCESS_KEY", null);
     }
 
     [Fact]
@@ -38,11 +40,23 @@ public sealed class RunnerOptionsTests : IDisposable
         Assert.Equal("0.0.0.0", options.BindAddress);
     }
 
+    [Fact]
+    public void ApplyEnvironmentOverrides_TrimsOptionalAccessKey()
+    {
+        Environment.SetEnvironmentVariable("AGENTDECK_ACCESS_KEY", "  secret  ");
+        var options = new RunnerOptions();
+
+        RunnerOptions.ApplyEnvironmentOverrides(options);
+
+        Assert.Equal("secret", options.AccessKey);
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(RunnerOptions.WorkspaceEnvironmentVariable, _workspaceRoot);
         Environment.SetEnvironmentVariable(RunnerOptions.PortEnvironmentVariable, _port);
         Environment.SetEnvironmentVariable(RunnerOptions.BindAddressEnvironmentVariable, _bindAddress);
         Environment.SetEnvironmentVariable(RunnerOptions.DefaultShellEnvironmentVariable, _defaultShell);
+        Environment.SetEnvironmentVariable("AGENTDECK_ACCESS_KEY", _accessKey);
     }
 }

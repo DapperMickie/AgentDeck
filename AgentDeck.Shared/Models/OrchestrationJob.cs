@@ -12,8 +12,11 @@ public sealed class OrchestrationJob
     public required string LaunchProfileId { get; init; }
     public required string LaunchProfileName { get; init; }
     public ApplicationTargetPlatform Platform { get; init; }
+    public string? WorkloadId { get; init; }
     public ProjectLaunchMode Mode { get; init; }
     public ProjectLaunchDriver LaunchDriver { get; init; }
+    public string? LaunchDriverId { get; init; }
+    public IReadOnlyList<ProjectSessionSurfaceKind> RequiredSurfaceKinds { get; init; } = [];
     public RunnerMachineRole TargetMachineRole { get; init; } = RunnerMachineRole.Worker;
     public string? TargetMachineId { get; init; }
     public string? TargetMachineName { get; init; }

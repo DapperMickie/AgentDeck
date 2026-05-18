@@ -116,12 +116,13 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
         await _agentHubContext.Clients.All.SessionClosedAsync(sessionId.Trim());
     }
 
-    public Task PublishOrchestrationJobUpdatedAsync(string machineId, OrchestrationJob job, CancellationToken cancellationToken = default)
+    public async Task PublishOrchestrationJobUpdatedAsync(string machineId, OrchestrationJob job, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(job);
-        CacheOrchestrationJob(machineId, job);
-        _logger.LogDebug("Runner {MachineId} published orchestration job update for {JobId}", machineId, job.Id);
-        return Task.CompletedTask;
+        var sanitized = CloneOrchestrationJob(job);
+        CacheOrchestrationJob(machineId, sanitized);
+        _logger.LogDebug("Runner {MachineId} published orchestration job update for {JobId}", machineId, sanitized.Id);
+        await _agentHubContext.Clients.All.OrchestrationJobUpdatedAsync(sanitized);
     }
 
     public Task PublishViewerSessionUpdatedAsync(string machineId, RemoteViewerSession session, CancellationToken cancellationToken = default)
@@ -815,8 +816,11 @@ public sealed class RunnerBrokerService : IRunnerBrokerService
             LaunchProfileId = job.LaunchProfileId,
             LaunchProfileName = job.LaunchProfileName,
             Platform = job.Platform,
+            WorkloadId = job.WorkloadId,
             Mode = job.Mode,
             LaunchDriver = job.LaunchDriver,
+            LaunchDriverId = job.LaunchDriverId,
+            RequiredSurfaceKinds = job.RequiredSurfaceKinds.ToArray(),
             TargetMachineRole = job.TargetMachineRole,
             TargetMachineId = job.TargetMachineId,
             TargetMachineName = job.TargetMachineName,
