@@ -1,3 +1,4 @@
+using AgentDeck.Coordinator.Configuration;
 using AgentDeck.Coordinator.Hubs;
 using AgentDeck.Coordinator.Services;
 using System.Runtime.ExceptionServices;
@@ -5,6 +6,8 @@ using System.Text;
 using AgentDeck.Shared;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
+using Microsoft.Extensions.Options;
+using System.Runtime.InteropServices;
 
 namespace AgentDeck.Coordinator.Endpoints;
 
@@ -13,6 +16,88 @@ public static class CoordinatorEndpointModules
     public static WebApplication MapCoordinatorEndpoints(this WebApplication app)
     {
         app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }));
+
+        app.MapGet("/api/diagnostics/bundle", async (
+            IOptions<CoordinatorOptions> coordinatorOptions,
+            ICompanionRegistryService companions,
+            IWorkerRegistryService workers,
+            IProjectRegistryService projects,
+            IProjectSessionRegistryService sessions,
+            IRunnerDefinitionCatalogService definitions,
+            IRunnerOrchestrationService orchestration,
+            CancellationToken cancellationToken) =>
+        {
+            var options = coordinatorOptions.Value;
+            var desiredUpdate = definitions.GetDesiredUpdateManifest();
+            var desiredWorkflowPack = definitions.GetDesiredWorkflowPack();
+            var desiredCapabilityCatalog = definitions.GetDesiredCapabilityCatalog();
+            var desiredSetupCatalog = definitions.GetDesiredSetupCatalog();
+
+            var bundle = new AgentDeckDiagnosticBundle
+            {
+                Component = "coordinator",
+                GeneratedAt = DateTimeOffset.UtcNow.ToString("O"),
+                MachineName = Environment.MachineName,
+                OperatingSystem = RuntimeInformation.OSDescription,
+                ProcessArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
+                FrameworkDescription = RuntimeInformation.FrameworkDescription,
+                Configuration = new Dictionary<string, object?>
+                {
+                    ["coordinator"] = new Dictionary<string, object?>
+                    {
+                        ["port"] = options.Port,
+                        ["bindAddress"] = options.BindAddress,
+                        ["publicBaseUrl"] = options.PublicBaseUrl,
+                        ["desiredRunnerVersion"] = options.DesiredRunnerVersion,
+                        ["minimumSupportedProtocolVersion"] = options.MinimumSupportedProtocolVersion,
+                        ["maximumSupportedProtocolVersion"] = options.MaximumSupportedProtocolVersion,
+                        ["workflowCatalogVersion"] = options.WorkflowCatalogVersion,
+                        ["accessKeyConfigured"] = AgentDeckAccessKey.IsConfigured(options.AccessKey),
+                        ["workerHeartbeatInterval"] = options.WorkerHeartbeatInterval,
+                        ["workerExpiry"] = options.WorkerExpiry,
+                        ["runnerControlMaximumReceiveMessageSize"] = options.RunnerControlMaximumReceiveMessageSize
+                    },
+                    ["securityPolicy"] = options.SecurityPolicy is null
+                        ? null
+                        : new Dictionary<string, object?>
+                        {
+                            ["policyVersion"] = options.SecurityPolicy.PolicyVersion,
+                            ["allowUpdateStaging"] = options.SecurityPolicy.AllowUpdateStaging,
+                            ["requireCoordinatorOriginForArtifacts"] = options.SecurityPolicy.RequireCoordinatorOriginForArtifacts,
+                            ["requireUpdateArtifactChecksum"] = options.SecurityPolicy.RequireUpdateArtifactChecksum,
+                            ["requireSignedUpdateManifest"] = options.SecurityPolicy.RequireSignedUpdateManifest,
+                            ["requireManifestProvenance"] = options.SecurityPolicy.RequireManifestProvenance,
+                            ["trustedManifestSignerIds"] = options.SecurityPolicy.TrustedManifestSigners.Select(static signer => signer.SignerId).ToArray(),
+                            ["allowWorkflowPackExecution"] = options.SecurityPolicy.AllowWorkflowPackExecution,
+                            ["allowUpdateApply"] = options.SecurityPolicy.AllowUpdateApply
+                        },
+                    ["desiredDefinitions"] = new Dictionary<string, object?>
+                    {
+                        ["updateManifest"] = new { desiredUpdate.ManifestId, desiredUpdate.Version, signerId = desiredUpdate.Signature?.SignerId, signed = desiredUpdate.Signature is not null },
+                        ["workflowPack"] = new { desiredWorkflowPack.PackId, desiredWorkflowPack.Version, signerId = desiredWorkflowPack.Signature?.SignerId, signed = desiredWorkflowPack.Signature is not null },
+                        ["capabilityCatalog"] = new { desiredCapabilityCatalog.CatalogId, desiredCapabilityCatalog.Version, signerId = desiredCapabilityCatalog.Signature?.SignerId, signed = desiredCapabilityCatalog.Signature is not null },
+                        ["setupCatalog"] = new { desiredSetupCatalog.CatalogId, desiredSetupCatalog.Version, signerId = desiredSetupCatalog.Signature?.SignerId, signed = desiredSetupCatalog.Signature is not null }
+                    }
+                },
+                State = new Dictionary<string, object?>
+                {
+                    ["companions"] = companions.GetCompanions(),
+                    ["machines"] = await workers.GetMachinesAsync(cancellationToken),
+                    ["projects"] = projects.GetProjects(),
+                    ["projectSessions"] = sessions.GetSessions(),
+                    ["updateRollouts"] = await workers.GetUpdateRolloutsAsync(cancellationToken),
+                    ["runnerOrchestration"] = orchestration.GetCatalog()
+                },
+                KnownLimitations =
+                [
+                    "Coordinator registries are process-local; this bundle is a point-in-time memory snapshot, not durable HA state.",
+                    "Secrets are represented as configured/unconfigured booleans or redacted placeholders, not raw values.",
+                    "Project repository dirty-state tracking, local pairing, and broader coordinator/Core integration tests remain follow-up work."
+                ]
+            };
+
+            return Results.Ok(bundle);
+        });
 
         app.MapGet("/artifacts/{**artifactPath}", (string artifactPath, ICoordinatorArtifactService artifacts) =>
         {

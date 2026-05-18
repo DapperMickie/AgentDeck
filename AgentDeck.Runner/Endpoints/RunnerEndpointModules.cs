@@ -1,7 +1,11 @@
 using AgentDeck.Runner.Hubs;
+using AgentDeck.Runner.Configuration;
 using AgentDeck.Runner.Services;
+using AgentDeck.Shared;
 using AgentDeck.Shared.Enums;
 using AgentDeck.Shared.Models;
+using Microsoft.Extensions.Options;
+using System.Runtime.InteropServices;
 
 namespace AgentDeck.Runner.Endpoints;
 
@@ -257,6 +261,102 @@ public static class RunnerEndpointModules
         app.MapGet("/api/workspace", (IWorkspaceService workspace) =>
             Results.Ok(workspace.GetWorkspaceInfo()));
 
+        app.MapGet("/api/diagnostics/bundle", async (
+            IOptions<RunnerOptions> runnerOptions,
+            IOptions<WorkerCoordinatorOptions> coordinatorOptions,
+            IOptions<TrustPolicyOptions> trustPolicyOptions,
+            IOptions<RunnerLocalSecurityPolicyOptions> localSecurityOptions,
+            IWorkspaceService workspace,
+            IAgentSessionStore sessions,
+            IOrchestrationJobService jobs,
+            IRemoteViewerSessionService viewers,
+            IMachineCapabilityService capabilities,
+            IRunnerWorkflowCatalogService workflowCatalog,
+            IRunnerCapabilityCatalogService capabilityCatalog,
+            IRunnerSetupCatalogService setupCatalog,
+            IRunnerUpdateStagingService updateStaging,
+            IRunnerWorkflowPackService workflowPacks,
+            IRunnerAuditService audit,
+            CoordinatorRunnerConnectionState coordinatorConnection,
+            CancellationToken cancellationToken) =>
+        {
+            var runner = runnerOptions.Value;
+            var coordinator = coordinatorOptions.Value;
+            var localSecurity = localSecurityOptions.Value;
+            var trustPolicy = trustPolicyOptions.Value;
+            var capabilitySnapshot = await capabilities.GetSnapshotAsync(cancellationToken);
+
+            var bundle = CreateBaseBundle("runner") with
+            {
+                Configuration = new Dictionary<string, object?>
+                {
+                    ["runner"] = new Dictionary<string, object?>
+                    {
+                        ["workspaceRoot"] = runner.WorkspaceRoot,
+                        ["port"] = runner.Port,
+                        ["bindAddress"] = runner.BindAddress,
+                        ["allowedOrigins"] = runner.AllowedOrigins,
+                        ["accessKeyConfigured"] = AgentDeckAccessKey.IsConfigured(runner.AccessKey),
+                        ["defaultShell"] = runner.DefaultShell
+                    },
+                    ["coordinator"] = new Dictionary<string, object?>
+                    {
+                        ["coordinatorUrl"] = coordinator.CoordinatorUrl,
+                        ["machineId"] = coordinator.MachineId,
+                        ["machineName"] = coordinator.MachineName,
+                        ["protocolVersion"] = coordinator.ProtocolVersion,
+                        ["workflowCatalogVersion"] = coordinator.WorkflowCatalogVersion,
+                        ["controlChannelTransport"] = coordinator.ControlChannelTransport.ToString(),
+                        ["accessKeyConfigured"] = AgentDeckAccessKey.IsConfigured(coordinator.AccessKey)
+                    },
+                    ["trustPolicy"] = new Dictionary<string, object?>
+                    {
+                        ["actorHeaderName"] = trustPolicy.ActorHeaderName,
+                        ["requireActorHeaderForPrivilegedActions"] = trustPolicy.RequireActorHeaderForPrivilegedActions,
+                        ["requireLoopbackForMachineSetup"] = trustPolicy.RequireLoopbackForMachineSetup,
+                        ["requireLoopbackForDesktopViewerBootstrap"] = trustPolicy.RequireLoopbackForDesktopViewerBootstrap
+                    },
+                    ["localSecurityPolicy"] = new Dictionary<string, object?>
+                    {
+                        ["requireSignedUpdateManifest"] = localSecurity.RequireSignedUpdateManifest,
+                        ["requireManifestProvenance"] = localSecurity.RequireManifestProvenance,
+                        ["requireSignedWorkflowPacks"] = localSecurity.RequireSignedWorkflowPacks,
+                        ["requireSignedCapabilityCatalogs"] = localSecurity.RequireSignedCapabilityCatalogs,
+                        ["requireSignedSetupCatalogs"] = localSecurity.RequireSignedSetupCatalogs,
+                        ["allowDevSignerInProduction"] = localSecurity.AllowDevSignerInProduction,
+                        ["trustedSignerIds"] = localSecurity.TrustedSignerIds
+                    }
+                },
+                State = new Dictionary<string, object?>
+                {
+                    ["coordinatorConnection"] = new Dictionary<string, object?>
+                    {
+                        ["state"] = coordinatorConnection.Connection?.State.ToString() ?? "Disconnected",
+                        ["connectionId"] = coordinatorConnection.Connection?.ConnectionId
+                    },
+                    ["workspace"] = workspace.GetWorkspaceInfo(),
+                    ["terminalSessions"] = sessions.GetAll(),
+                    ["orchestrationJobs"] = jobs.GetAll(),
+                    ["viewerSessions"] = viewers.GetAll(),
+                    ["capabilities"] = capabilitySnapshot,
+                    ["workflowCatalogStatus"] = await workflowCatalog.GetCurrentStatusAsync(cancellationToken),
+                    ["capabilityCatalogStatus"] = await capabilityCatalog.GetCurrentStatusAsync(cancellationToken),
+                    ["setupCatalogStatus"] = await setupCatalog.GetCurrentStatusAsync(cancellationToken),
+                    ["updateStatus"] = await updateStaging.GetCurrentStatusAsync(cancellationToken),
+                    ["workflowPackStatus"] = await workflowPacks.GetCurrentStatusAsync(cancellationToken),
+                    ["recentAuditEvents"] = audit.GetRecent()
+                },
+                KnownLimitations =
+                [
+                    "Diagnostic bundles are local snapshots and do not include durable terminal scrollback beyond current in-memory session state.",
+                    "Secrets are represented as configured/unconfigured booleans or redacted placeholders, not raw values.",
+                    "Coordinator persistence/HA and full project repository dirty-state tracking remain follow-up work."
+                ]
+            };
+
+            return Results.Ok(bundle);
+        });
+
         app.MapPost("/api/projects/open", async (OpenProjectOnRunnerRequest request, IProjectWorkspaceBootstrapService bootstrap, CancellationToken cancellationToken) =>
         {
             try
@@ -338,4 +438,14 @@ public static class RunnerEndpointModules
             },
             statusCode: StatusCodes.Status403Forbidden);
     }
+
+    private static AgentDeckDiagnosticBundle CreateBaseBundle(string component) => new()
+    {
+        Component = component,
+        GeneratedAt = DateTimeOffset.UtcNow.ToString("O"),
+        MachineName = Environment.MachineName,
+        OperatingSystem = RuntimeInformation.OSDescription,
+        ProcessArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
+        FrameworkDescription = RuntimeInformation.FrameworkDescription
+    };
 }
