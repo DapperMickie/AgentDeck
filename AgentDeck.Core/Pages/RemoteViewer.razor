@@ -14,7 +14,7 @@
         <div class="project-page__content">
             <div class="empty-state">
                 <div class="empty-icon">◌</div>
-                <h2>Loading viewer</h2>
+                <h2>Loading remote screen</h2>
             </div>
         </div>
     }
@@ -23,7 +23,7 @@
         <div class="project-page__content">
             <div class="empty-state">
                 <div class="empty-icon">⌂</div>
-                <h2>Viewer session not found</h2>
+                <h2>Remote screen not found</h2>
                 <p>That remote screen is no longer available. Go back to the workspace and open it again.</p>
                 <button class="btn btn-accent" @onclick="NavigateBack">Back</button>
             </div>
@@ -288,7 +288,7 @@
             var closed = await CoordinatorClient.CloseMachineViewerSessionAsync(_coordinatorUrl, MachineId, ViewerSessionId);
             if (closed is not null)
             {
-                Toasts.Show(closed.StatusMessage ?? "Viewer session closed.", ToastKind.Info);
+                Toasts.Show(closed.StatusMessage ?? "Remote screen closed.", ToastKind.Info);
             }
 
             NavigateBack();
@@ -432,7 +432,7 @@
     {
         if (ViewerClient.CurrentSession is null)
         {
-            return "The viewer session no longer exists.";
+            return "The remote screen no longer exists.";
         }
 
         if (!ViewerClient.SupportsInAppViewer)
@@ -458,8 +458,8 @@
         if (state is null)
         {
             return ViewerClient.CanSendInput
-                ? "You can interact with this viewer session."
-                : "This viewer session is currently view-only.";
+                ? "You can interact with this remote screen."
+                : "This remote screen is currently view-only.";
         }
 
         var controllerLabel = string.IsNullOrWhiteSpace(state.ControllerDisplayName)
@@ -469,14 +469,14 @@
         if (string.Equals(state.ViewerSessionId, ViewerClient.CurrentSession.Id, StringComparison.OrdinalIgnoreCase))
         {
             return IsCurrentRemoteController(state)
-                ? "You currently control this viewer session."
-                : $"{controllerLabel} currently controls this viewer session.";
+                ? "You currently control this remote screen."
+                : $"{controllerLabel} currently controls this remote screen.";
         }
 
         var activeTarget = state.TargetDisplayName ?? state.TargetKind.ToString();
         return IsCurrentRemoteController(state)
             ? $"You currently control {activeTarget} on this machine. Input here is allowed, and Take control will switch the active remote target."
-            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this viewer requires force takeover.";
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this remote screen requires force takeover.";
     }
 
     private async Task RunBusyAsync(Func<Task> action)

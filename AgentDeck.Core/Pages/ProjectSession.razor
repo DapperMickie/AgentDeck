@@ -83,7 +83,7 @@
             </div>
             <div class="project-page__actions">
                 <a class="btn btn-accent" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Project</a>
-                <button class="btn btn-accent" @onclick="RefreshAsync">Refresh surfaces</button>
+                <button class="btn btn-accent" @onclick="RefreshAsync">Refresh live items</button>
                 @if (IsController())
                 {
                     <button class="btn btn-accent" @onclick="YieldControlAsync">Yield control</button>
@@ -126,14 +126,14 @@
                         <div class="empty-icon">▣</div>
                         @if (_surfaceTabs.Count == 0)
                         {
-                            <h3>No surfaces open yet</h3>
+                            <h3>No live items open yet</h3>
                             <p>Open this workspace or choose a run option from the workspace page to create terminals, remote screens, jobs, and other live items.</p>
                             <a class="btn btn-primary" href="/projects/@Uri.EscapeDataString(_projectSession.ProjectId)">Open workspace actions</a>
                         }
                         else
                         {
                             <h3>Choose something to open</h3>
-                            <p>Select a terminal, desktop, app window, editor, emulator, simulator, log, or job output surface.</p>
+                            <p>Select a terminal, desktop, app window, editor, emulator, simulator, log, or job output item.</p>
                         }
                     </div>
                 }
@@ -148,10 +148,10 @@
                             <button class="btn btn-accent"
                                     disabled="@_viewerActionInProgress"
                                     @onclick="CreateManagedTerminalWindowViewerAsync">
-                                @(_viewerActionInProgress ? "Requesting viewer..." : "Add managed window viewer")
+                                @(_viewerActionInProgress ? "Requesting remote screen..." : "Add managed window")
                             </button>
                         </div>
-                        <p class="surface-details-card__note">First-pass window surfacing creates a managed viewer tied to this terminal session. Automatic child-window discovery remains platform dependent.</p>
+                        <p class="surface-details-card__note">First-pass window capture creates a managed remote screen tied to this terminal session. Automatic child-window discovery remains platform dependent.</p>
                     }
                 }
                 else
@@ -356,7 +356,7 @@
             {
                 _runtimeJobs = [];
                 _runtimeViewers = [];
-                _runtimeLoadError = $"Runtime surfaces are temporarily unavailable: {ex.Message}";
+                _runtimeLoadError = $"Live items are temporarily unavailable: {ex.Message}";
             }
 
             BuildSurfaceTabs();
@@ -852,7 +852,7 @@
         }
         catch (InvalidOperationException ex)
         {
-            return $"Project-session control updated, but viewer handoff for {viewer.Target.DisplayName} did not: {ex.Message}";
+            return $"Workspace control updated, but remote-screen handoff for {viewer.Target.DisplayName} did not: {ex.Message}";
         }
         catch (Exception ex)
         {
@@ -899,7 +899,7 @@
                 });
 
             Toasts.Show(
-                session?.StatusMessage ?? "Requested a managed window viewer for this terminal.",
+                session?.StatusMessage ?? "Requested a managed window for this terminal.",
                 session?.Status == RemoteViewerSessionStatus.Failed ? ToastKind.Warning : ToastKind.Info);
             await LoadAsync();
         }
@@ -984,7 +984,7 @@
             }
             else
             {
-                Toasts.Show(session.StatusMessage ?? "Viewer session closed.", ToastKind.Info);
+                Toasts.Show(session.StatusMessage ?? "Remote screen closed.", ToastKind.Info);
             }
 
             await LoadAsync();
@@ -1020,13 +1020,13 @@
         if (string.Equals(_remoteControlState.ViewerSessionId, _activeSurface.Viewer.Id, StringComparison.OrdinalIgnoreCase))
         {
             return IsActiveViewerControlledByCurrentCompanion()
-                ? "You currently control this viewer session."
-                : $"{controllerLabel} currently controls this viewer session.";
+                ? "You currently control this remote screen."
+                : $"{controllerLabel} currently controls this remote screen.";
         }
 
         return IsCurrentRemoteController(_remoteControlState)
             ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote target."
-            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this viewer requires force takeover.";
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this remote screen requires force takeover.";
     }
 
     private bool CanControlActiveViewer() =>

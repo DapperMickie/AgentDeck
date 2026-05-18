@@ -52,9 +52,9 @@
                     <label for="coordinator-access-key">Shared access key</label>
                     <input id="coordinator-access-key" type="password" class="input" @bind="_settings.AccessKey"
                            autocomplete="off"
-                           placeholder="Optional key configured on the coordinator/runner" />
+                           placeholder="Optional key configured on the AgentDeck service" />
                 </div>
-                <p class="settings-card__description">Use a coordinator host or IP that is reachable from this client. Only use localhost when the coordinator is actually running on this same device. If the service is configured with an access key, enter the same key here.</p>
+                <p class="settings-card__description">Use an AgentDeck service host or IP that is reachable from this client. Only use localhost when the service is running on this same device. If the service requires an access key, enter the same key here.</p>
             </div>
 
         <div class="settings-status-list">
@@ -182,7 +182,7 @@
 
         @if (_runnerOrchestrationCatalog.Templates.Count == 0)
         {
-            <p class="settings-card__description">No runner templates are published by the coordinator yet.</p>
+            <p class="settings-card__description">No runner templates are published by the AgentDeck service yet.</p>
         }
         else
         {
@@ -240,9 +240,9 @@
                         </select>
                     </div>
                     <div class="form-field project-editor__field--full">
-                        <label for="runner-create-coordinator">Coordinator URL</label>
+                        <label for="runner-create-coordinator">AgentDeck service URL</label>
                         <input id="runner-create-coordinator" class="input" @bind="_runnerCreateCoordinatorUrl" />
-                        <p class="settings-card__description">Use a URL the new runner can reach, not necessarily the client-local URL.</p>
+                        <p class="settings-card__description">Use a service URL the new runner can reach. For a runner in a container or on another machine, use a LAN host/IP instead of this client's localhost.</p>
                     </div>
                 </div>
                 <div class="form-actions form-actions--settings">
@@ -845,7 +845,7 @@
                         <code class="settings-status-row__value">@SelectedMachine!.Id</code>
                     </div>
                     <div class="settings-status-row">
-                        <span class="settings-status-row__label">Coordinator URL</span>
+                        <span class="settings-status-row__label">AgentDeck service URL</span>
                         <code class="settings-status-row__value">@_settings.CoordinatorUrl</code>
                     </div>
                     <div class="settings-status-row">

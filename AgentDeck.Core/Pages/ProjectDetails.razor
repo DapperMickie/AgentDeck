@@ -194,7 +194,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Run or debug</h2>
-                        <p>Choose the machine and device AgentDeck should use. Detailed job and viewer state stays available after launch.</p>
+                        <p>Choose the machine and device AgentDeck should use. Detailed run and remote-screen state stays available after launch.</p>
                     </div>
                 </div>
 
@@ -956,7 +956,7 @@
             Toasts.Show(
                 !string.IsNullOrWhiteSpace(session.ConnectionUri)
                     ? $"Viewer ready: {session.ConnectionUri}"
-                    : session.StatusMessage ?? $"Opened desktop viewer on {machine.MachineName}.",
+                    : session.StatusMessage ?? $"Opened desktop remote screen on {machine.MachineName}.",
                 session.Status == RemoteViewerSessionStatus.Ready ? ToastKind.Success : ToastKind.Info);
             await LoadAsync();
         }
@@ -1030,7 +1030,7 @@
                 return;
             }
 
-            Toasts.Show(session.StatusMessage ?? "Viewer session closed.", ToastKind.Info);
+            Toasts.Show(session.StatusMessage ?? "Remote screen closed.", ToastKind.Info);
             await LoadAsync();
         }
         catch (InvalidOperationException ex)
@@ -1264,11 +1264,11 @@
 
     private static string GetViewerTargetLabel(RemoteViewerTargetKind targetKind) => targetKind switch
     {
-        RemoteViewerTargetKind.Window => "Window viewer",
-        RemoteViewerTargetKind.VsCode => "VS Code viewer",
-        RemoteViewerTargetKind.Emulator => "Emulator viewer",
-        RemoteViewerTargetKind.Simulator => "Simulator viewer",
-        RemoteViewerTargetKind.Desktop => "Desktop viewer",
+        RemoteViewerTargetKind.Window => "Window",
+        RemoteViewerTargetKind.VsCode => "VS Code",
+        RemoteViewerTargetKind.Emulator => "Emulator",
+        RemoteViewerTargetKind.Simulator => "Simulator",
+        RemoteViewerTargetKind.Desktop => "Desktop",
         _ => targetKind.ToString()
     };
 
@@ -1282,8 +1282,8 @@
     private string GetProjectSessionMeta(ProjectSessionRecord session)
     {
         var viewerSummary = session.ViewerCompanionIds.Count == 1
-            ? "1 viewer"
-            : $"{session.ViewerCompanionIds.Count} viewers";
+            ? "1 observer"
+            : $"{session.ViewerCompanionIds.Count} observers";
         return $"{viewerSummary} • updated {session.UpdatedAt.ToLocalTime():g}";
     }
 
@@ -1405,7 +1405,7 @@
     {
         if (!machine.ProtocolCompatible)
         {
-            return "Coordinator-managed project actions are disabled until this runner's protocol compatibility is restored.";
+            return "Workspace actions are disabled until this machine gets the required AgentDeck compatibility update.";
         }
 
         if (machine.WorkflowCatalogStatus?.State == RunnerWorkflowCatalogState.Mismatched)
@@ -1415,12 +1415,12 @@
 
         if (machine.WorkflowPackStatus?.State == RunnerWorkflowPackState.Failed)
         {
-            return "The assigned workflow pack last failed on this runner. Retry or repair setup before relying on it for project work.";
+            return "The assigned tool pack last failed on this machine. Retry or repair setup before relying on it for workspace work.";
         }
 
         if (machine.WorkflowPackStatus?.State == RunnerWorkflowPackState.Blocked)
         {
-            return "The assigned workflow pack is currently blocked by control-plane policy or local machine state.";
+            return "The assigned tool pack is currently blocked by service policy or local machine state.";
         }
 
         if (machine.UpdateRollout is { State: RunnerUpdateRolloutState.Blocked })
@@ -1430,7 +1430,7 @@
 
         if (machine.UpdateRollout is { State: RunnerUpdateRolloutState.Failed })
         {
-            return "Runner update rollout last failed on this machine.";
+            return "The runner update last failed on this machine.";
         }
 
         return null;
@@ -1470,7 +1470,7 @@
             return null;
         }
 
-        var targetLabel = state.TargetDisplayName ?? "Remote viewer";
+        var targetLabel = state.TargetDisplayName ?? "Remote screen";
         return IsCurrentRemoteController(state)
             ? $"{targetLabel} is currently controlled by you."
             : $"{targetLabel} is currently controlled by {state.ControllerDisplayName ?? state.ControllerCompanionId}. Open will be rejected unless you force takeover.";
@@ -1490,17 +1490,17 @@
         }
 
         var controllerLabel = state.ControllerDisplayName ?? state.ControllerCompanionId;
-        var activeTarget = state.TargetDisplayName ?? "another viewer";
+        var activeTarget = state.TargetDisplayName ?? "another remote screen";
         if (string.Equals(state.ViewerSessionId, viewer.Id, StringComparison.OrdinalIgnoreCase))
         {
             return IsCurrentRemoteController(state)
-                ? "You currently control this viewer session."
-                : $"{controllerLabel} currently controls this viewer session.";
+                ? "You currently control this remote screen."
+                : $"{controllerLabel} currently controls this remote screen.";
         }
 
         return IsCurrentRemoteController(state)
             ? $"You currently control {activeTarget} on this machine. Taking control here will switch the active remote target."
-            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this viewer requires force takeover.";
+            : $"{controllerLabel} currently controls {activeTarget} on this machine. Requesting this remote screen requires force takeover.";
     }
 
     private static bool CanControlViewer(RemoteViewerSession viewer) =>
