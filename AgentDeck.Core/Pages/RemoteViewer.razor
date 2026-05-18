@@ -24,7 +24,7 @@
             <div class="empty-state">
                 <div class="empty-icon">⌂</div>
                 <h2>Viewer session not found</h2>
-                <p>The coordinator could no longer find that viewer session.</p>
+                <p>That remote screen is no longer available. Go back to the workspace and open it again.</p>
                 <button class="btn btn-accent" @onclick="NavigateBack">Back</button>
             </div>
         </div>
@@ -183,7 +183,7 @@
             _machineHostPlatform = AgentDeck.Shared.Enums.RunnerHostPlatform.Unknown;
             if (string.IsNullOrWhiteSpace(_coordinatorUrl))
             {
-                Toasts.Show("Connect to a coordinator before opening viewers.", ToastKind.Warning);
+                Toasts.Show("Connect AgentDeck in Settings before opening remote screens.", ToastKind.Warning);
                 await ViewerClient.DisconnectAsync();
                 return;
             }

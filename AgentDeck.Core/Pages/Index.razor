@@ -67,7 +67,7 @@
         {
             <section class="dashboard-section-card">
                 <h2>Coordinator required</h2>
-                <p>Set a coordinator URL in <a href="/settings">Settings</a> to load project, machine, and session state.</p>
+                <p>Connect AgentDeck in <a href="/settings">Settings</a> to load workspaces, machines, and open sessions.</p>
             </section>
         }
         else if (!_dashboard.CoordinatorReachable)
@@ -283,7 +283,7 @@
         yield return new SetupStep(
             "Connect",
             _dashboard.CoordinatorReachable ? "Done" : _dashboard.CoordinatorConfigured ? "Fix" : "Start",
-            _dashboard.CoordinatorReachable ? "Coordinator is reachable." : "Connect to a coordinator so AgentDeck can load projects and machines.",
+            _dashboard.CoordinatorReachable ? "AgentDeck is connected." : "Connect AgentDeck so it can load workspaces and machines.",
             _dashboard.CoordinatorReachable ? "complete" : "todo");
         yield return new SetupStep(
             "Create a runner",
@@ -322,8 +322,8 @@
         if (!_dashboard.CoordinatorReachable)
         {
             return _dashboard.CoordinatorConfigured
-                ? "The saved coordinator URL did not respond. Check the URL or start the coordinator."
-                : "Add the coordinator URL once, then AgentDeck can discover runners and projects for you.";
+                ? "The saved connection did not respond. Check the URL or start the AgentDeck service."
+                : "Add the service URL once, then AgentDeck can discover runners and workspaces for you.";
         }
 
         if (!_dashboard.Machines.Any(machine => machine.IsOnline))
@@ -396,7 +396,7 @@
     {
         if (!_dashboard.CoordinatorConfigured)
         {
-            return "Add a coordinator URL in Settings";
+            return "Add the AgentDeck service URL in Settings";
         }
 
         return _dashboard.CoordinatorReachable

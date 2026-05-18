@@ -23,7 +23,7 @@
         <div class="project-page__content">
             <div class="empty-state">
                 <div class="empty-icon">⌂</div>
-                <h2>Project not found</h2>
+                <h2>Workspace not found</h2>
                 <p>Return to the <a href="/">dashboard</a> to pick another workspace.</p>
             </div>
         </div>
@@ -323,7 +323,7 @@
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Viewer session entry points</h2>
-                        <p>Viewer sessions created by runner execution, surfaced here through the coordinator rather than direct machine access.</p>
+                        <p>Remote screens created by runs and debug sessions. AgentDeck routes them safely through the app connection.</p>
                     </div>
                 </div>
 
@@ -704,7 +704,7 @@
             var result = await CoordinatorClient.OpenProjectOnMachineAsync(_coordinatorUrl, _project.Definition.Id, machineId);
             if (result is null)
             {
-                Toasts.Show("The coordinator could not open that project on the selected machine.", ToastKind.Error);
+                Toasts.Show("AgentDeck could not open that workspace on the selected machine. Refresh machines or choose another ready machine.", ToastKind.Error);
                 return;
             }
 
@@ -816,7 +816,7 @@
             var job = await CoordinatorClient.QueueMachineOrchestrationJobAsync(_coordinatorUrl, machineId, request);
             if (job is null)
             {
-                Toasts.Show("The coordinator could not queue that launch.", ToastKind.Error);
+                Toasts.Show("AgentDeck could not start that run. Check the selected machine and run option, then try again.", ToastKind.Error);
                 return;
             }
 
@@ -863,7 +863,7 @@
             });
             if (session is null)
             {
-                Toasts.Show("The coordinator could not create that viewer session.", ToastKind.Error);
+                Toasts.Show("AgentDeck could not open that remote screen. Check the machine is online, then try again.", ToastKind.Error);
                 return;
             }
 
@@ -939,7 +939,7 @@
             var session = await CoordinatorClient.CloseMachineViewerSessionAsync(_coordinatorUrl, machineId, viewerSessionId);
             if (session is null)
             {
-                Toasts.Show("The coordinator could no longer find that viewer session.", ToastKind.Warning);
+                Toasts.Show("That remote screen is no longer available. Refresh open items and try again.", ToastKind.Warning);
                 await LoadAsync();
                 return;
             }
@@ -1018,7 +1018,7 @@
             var cancelledJob = await CoordinatorClient.CancelMachineOrchestrationJobAsync(_coordinatorUrl, job.TargetMachineId, job.Id);
             if (cancelledJob is null)
             {
-                Toasts.Show("The coordinator could no longer find that job to cancel.", ToastKind.Warning);
+                Toasts.Show("That run is no longer available to cancel. Refresh open items.", ToastKind.Warning);
                 await LoadAsync();
                 return;
             }
@@ -1324,7 +1324,7 @@
 
         if (machine.WorkflowCatalogStatus?.State == RunnerWorkflowCatalogState.Mismatched)
         {
-            return "The runner workflow catalog does not match the coordinator's desired version.";
+            return "This machine's tool list is out of date. Open Settings to refresh or update it.";
         }
 
         if (machine.WorkflowPackStatus?.State == RunnerWorkflowPackState.Failed)

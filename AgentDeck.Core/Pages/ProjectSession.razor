@@ -212,7 +212,7 @@
                             _attachedTerminalSession is null &&
                             _activeSurface.Job is null)
                         {
-                            <p class="surface-details-card__note">This terminal surface is registered with the coordinator, but this companion is not currently attached to its live terminal stream.</p>
+                            <p class="surface-details-card__note">This terminal belongs to the workspace, but this app is not currently attached to its live stream. Reopen the terminal from the workspace if it should still be running.</p>
                         }
                         else if (_activeSurface.Job is not null || _activeSurface.Viewer is not null)
                         {
@@ -642,12 +642,12 @@
 
         if (!_sessionMachine.ProtocolCompatible)
         {
-            return "This session is hosted on a runner that is currently protocol-incompatible with the coordinator.";
+            return "This workspace is on a machine that needs an AgentDeck compatibility update.";
         }
 
         if (_sessionMachine.WorkflowCatalogStatus?.State == RunnerWorkflowCatalogState.Mismatched)
         {
-            return "The host runner workflow catalog does not match the coordinator's desired version.";
+            return "This machine's tool list is out of date. Open Settings to refresh or update it.";
         }
 
         if (_sessionMachine.WorkflowPackStatus?.State == RunnerWorkflowPackState.Failed)
@@ -690,7 +690,7 @@
         ProjectSessionSurfaceKind.Simulator => "Apple simulator connected to the current run/debug job.",
         ProjectSessionSurfaceKind.Emulator => "Android emulator connected to the current run/debug job.",
         ProjectSessionSurfaceKind.Viewer => "Remote desktop, browser, or app window for this workspace.",
-        _ => "Workspace item opened by the coordinator."
+        _ => "Workspace item opened by AgentDeck."
     };
 
     private static string GetSurfaceKindLabel(ProjectSessionSurfaceKind kind) => kind switch
@@ -970,7 +970,7 @@
             var session = await CoordinatorClient.CloseMachineViewerSessionAsync(_coordinatorUrl, _activeSurface.MachineId, _activeSurface.Viewer.Id);
             if (session is null)
             {
-                Toasts.Show("The coordinator could no longer find that viewer session.", ToastKind.Warning);
+                Toasts.Show("That remote screen is no longer available. Refresh open items and try again.", ToastKind.Warning);
             }
             else
             {
