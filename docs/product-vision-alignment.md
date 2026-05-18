@@ -5,8 +5,8 @@ AgentDeck is being steered toward "any workflow / any CLI / any IDE" rather than
 - **Settings IA:** Settings now has first-class lanes for Connection, Machines, Setup & Capabilities, Runner Updates, and Advanced diagnostics.
 - **Projects-first navigation:** The main dashboard remains project-led, with mobile navigation explicitly exposing Projects as the primary entry point.
 - **Capability breadth:** The default capability catalog now probes Git, Docker CLI, Java JDK, Go, and PowerShell 7 in addition to the existing GitHub, Copilot, Node, Python, and .NET checks.
-- **Viewer lifecycle trust:** Closed, failed, unavailable, stale, or offline-machine viewer sessions are filtered out of live project/process surface tabs.
-- **Managed terminal window surfacing:** Project-session terminals can request a managed window viewer tied to the owning terminal session. Automatic child-window discovery remains platform-specific follow-up work.
+- **Remote-screen lifecycle trust:** Closed, failed, unavailable, stale, or offline-machine remote screens are filtered out of live workspace/process tabs.
+- **Managed terminal window capture:** Workspace terminals can request a managed window tied to the owning terminal session. Automatic child-window discovery remains platform-specific follow-up work.
 
 ## Deferred follow-up
 
