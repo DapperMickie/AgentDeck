@@ -221,8 +221,8 @@ public sealed class CompanionDashboardStateService : ICompanionDashboardStateSer
                             Title = "VS Code debug screen",
                             Description = $"{project.Definition.Name} debug sessions can show a VS Code remote screen.",
                             Availability = target.ReadyMachineNames.Count > 0
-                                ? $"Debug-capable target ready on {string.Join(", ", target.ReadyMachineNames)}"
-                                : "No debug-capable machine discovered yet",
+                                ? $"VS Code remote screen ready on {string.Join(", ", target.ReadyMachineNames)}"
+                                : "No machine with VS Code remote-screen support discovered yet",
                             AvailabilityClass = target.ReadyMachineNames.Count > 0 ? "supported" : "unsupported"
                         });
                 }
