@@ -164,7 +164,7 @@
                                 @if (MachineNeedsToolSetup(machine))
                                 {
                                     <div class="project-machine-card__actions">
-                                        <a class="btn btn-accent" href="/settings#setup-capabilities">Check and install tools</a>
+                                        <a class="btn btn-accent" href="/settings#setup-capabilities">Open tool setup in Settings</a>
                                     </div>
                                 }
                             </article>
@@ -363,7 +363,7 @@
     private string GetNextActionHref() =>
         !_dashboard.CoordinatorReachable || !_dashboard.Machines.Any(machine => machine.IsOnline)
             ? "/settings"
-            : _dashboard.Projects.Count == 0 ? "/projects/new" : "/#workspaces";
+            : _dashboard.Projects.Count == 0 ? "/projects/new" : "#workspaces";
 
     private string GetNextActionLabel() =>
         !_dashboard.CoordinatorReachable ? "Open connection setup" :
