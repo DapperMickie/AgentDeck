@@ -135,12 +135,32 @@ Use these environment variables to override runtime defaults:
 
 The companion app now starts with an empty AgentDeck service URL plus auto-connect disabled by default. Configure a network-reachable service explicitly instead of assuming `localhost`, which is only valid when the service is actually running on the same device as the app. If the service uses an access key, enter the same key in Settings so app HTTP and hub calls include `X-AgentDeck-Access-Key`.
 
+### Running the AgentDeck service in Docker (Linux)
+
+Build the coordinator image from the repository root:
+
+```bash
+docker build -t docker.robsengaming.com/agentdeck-coordinator:latest -f AgentDeck.Coordinator/Dockerfile .
+```
+
+Run the service with a persistent artifact volume:
+
+```bash
+docker run --rm \
+  -p 5001:5001 \
+  -e AGENTDECK_COORDINATOR_BIND_ADDRESS=0.0.0.0 \
+  -v agentdeck-artifacts:/app/artifacts \
+  docker.robsengaming.com/agentdeck-coordinator:latest
+```
+
+The image exposes port `5001`, binds to `0.0.0.0` for container port publishing, runs as a non-root `agentdeck` user, and stores coordinator artifacts under `/app/artifacts`.
+
 ### Running a machine agent in Docker (Linux)
 
 Build the image from the repository root:
 
 ```bash
-docker build -t agentdeck-runner -f AgentDeck.Runner/Dockerfile .
+docker build -t docker.robsengaming.com/agentdeck-runner:latest -f AgentDeck.Runner/Dockerfile .
 ```
 
 Run the container with a mounted workspace and AgentDeck service registration settings. On Docker Desktop, `host.docker.internal` reaches the host service; on native Linux, replace it with a LAN-reachable host name/IP or add Docker's host-gateway mapping for that name.
@@ -153,7 +173,7 @@ docker run --rm \
   -e Coordinator__MachineId=local-docker \
   -e Coordinator__MachineName="Local Docker machine" \
   -v "$(pwd):/workspace" \
-  agentdeck-runner
+  docker.robsengaming.com/agentdeck-runner:latest
 ```
 
 The image exposes port `5000`, defaults the workspace to `/workspace`, explicitly sets `AGENTDECK_BIND_ADDRESS=0.0.0.0` so Docker port publishing works, sets `ASPNETCORE_ENVIRONMENT=Production` so detailed error responses are off, and falls back to `/bin/sh` if `/bin/bash` is unavailable. Override with `-e ASPNETCORE_ENVIRONMENT=Development` if you want development-only diagnostics (verbose SignalR errors, dev-only middleware, etc.) — never in a deployment exposed to untrusted networks.

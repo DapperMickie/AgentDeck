@@ -30,7 +30,7 @@ public sealed class CoordinatorRunnerOrchestratorTemplateOptions
     public string? Description { get; init; }
     public RunnerHostPlatform HostPlatform { get; init; } = RunnerHostPlatform.Linux;
     public string Architecture { get; init; } = "amd64";
-    public string Image { get; init; } = "ghcr.io/dappermickie/agentdeck-runner:latest";
+    public string Image { get; init; } = "docker.robsengaming.com/agentdeck-runner:latest";
     public string WorkspaceRoot { get; init; } = "/workspace";
     public string? WorkspaceVolume { get; init; } = "agentdeck-workspaces";
     public int RunnerPort { get; init; } = 5000;
