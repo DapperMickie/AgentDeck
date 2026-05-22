@@ -1274,7 +1274,9 @@ select.form-input {
     position: static;
     inset: auto;
     display: block;
+    width: 100%;
     max-width: 100%;
+    min-height: 2.35rem;
     appearance: auto;
 }
 
