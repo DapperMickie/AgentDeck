@@ -94,11 +94,17 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
     // Do NOT fit here — the caller calls fitAndGetSize() after joining the
     // session so the actual cols/rows are sent to the runner atomically.
 
-    // Keyboard input → .NET callback
-    term.onData(data => {
+    const sendTerminalInput = data => {
+        if (!data) {
+            return;
+        }
+
         dotnetRef.invokeMethodAsync('OnTerminalInput', data)
             .catch(err => console.warn('[AgentDeck] OnTerminalInput failed:', err));
-    });
+    };
+
+    // Keyboard input → .NET callback
+    term.onData(sendTerminalInput);
 
     // Resize → .NET callback
     term.onResize(({ cols, rows }) => {
@@ -115,7 +121,8 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
         resizeObserver: null,
         resizeHandler: null,
         viewportResizeHandler: null,
-        pasteHandler: null
+        pasteHandler: null,
+        pasteTargets: []
     });
 
     const entry = terminals.get(sessionId);
@@ -126,10 +133,39 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
         }
 
         event.preventDefault();
-        dotnetRef.invokeMethodAsync('OnTerminalInput', text)
-            .catch(err => console.warn('[AgentDeck] terminal paste failed:', err));
+        event.stopPropagation();
+        sendTerminalInput(text);
     };
-    term.element?.addEventListener('paste', entry.pasteHandler);
+
+    const addPasteTarget = target => {
+        if (!target || entry.pasteTargets.includes(target)) {
+            return;
+        }
+
+        target.addEventListener('paste', entry.pasteHandler, true);
+        entry.pasteTargets.push(target);
+    };
+
+    addPasteTarget(container);
+    addPasteTarget(term.element);
+    addPasteTarget(term.textarea);
+    addPasteTarget(container.querySelector('.xterm-helper-textarea'));
+
+    term.attachCustomKeyEventHandler(event => {
+        if (event.type !== 'keydown' || event.key?.toLowerCase() !== 'v' || (!event.ctrlKey && !event.metaKey)) {
+            return true;
+        }
+
+        if (!navigator.clipboard?.readText) {
+            return true;
+        }
+
+        navigator.clipboard.readText()
+            .then(sendTerminalInput)
+            .catch(err => console.warn('[AgentDeck] clipboard paste failed:', err));
+        event.preventDefault();
+        return false;
+    });
 }
 
 /**
@@ -237,7 +273,10 @@ export function disposeTerminal(sessionId) {
     if (entry) {
         unregisterAutoFit(sessionId);
         if (entry.pasteHandler) {
-            try { entry.term.element?.removeEventListener('paste', entry.pasteHandler); } catch (_) {}
+            for (const target of entry.pasteTargets || []) {
+                try { target.removeEventListener('paste', entry.pasteHandler, true); } catch (_) {}
+            }
+            entry.pasteTargets = [];
             entry.pasteHandler = null;
         }
         try { entry.term.dispose(); } catch (_) {}
