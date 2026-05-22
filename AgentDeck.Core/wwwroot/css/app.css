@@ -1269,6 +1269,15 @@ main {
 
 .input:focus { border-color: var(--color-accent); }
 
+select.input,
+select.form-input {
+    position: static;
+    inset: auto;
+    display: block;
+    max-width: 100%;
+    appearance: auto;
+}
+
 .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: var(--color-text); font-size: 0.875rem; }
 
 .form-actions { display: flex; gap: 0.75rem; margin-top: 1.25rem; }
