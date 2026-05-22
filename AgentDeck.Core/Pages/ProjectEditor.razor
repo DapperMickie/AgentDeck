@@ -131,7 +131,7 @@
                     </div>
                     <div class="form-field">
                         <label for="project-workload">Workload</label>
-                        <select id="project-workload" class="input" @bind="_editor.Workload">
+                        <select id="project-workload" class="input" value="@_editor.Workload" @onchange="OnWorkloadChanged">
                             @foreach (var workload in WorkloadOptions)
                             {
                                 <option value="@workload">@workload</option>
@@ -519,6 +519,28 @@
         }
 
         Toasts.Show($"Applied {template.Name} template.", ToastKind.Success);
+    }
+
+    private void OnWorkloadChanged(ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<ProjectWorkloadKind>(args.Value?.ToString(), ignoreCase: true, out var workload) ||
+            workload == _editor.Workload)
+        {
+            return;
+        }
+
+        _editor.Workload = workload;
+        if (_isExistingProject)
+        {
+            return;
+        }
+
+        var definition = ProjectTemplateCatalog.CreateDefault(workload, _editor.Name);
+        _existingTargets = definition.Targets;
+        _editor.LaunchProfiles = definition.LaunchProfiles
+            .Select(ProjectLaunchProfileEditor.FromDefinition)
+            .ToList();
+        Toasts.Show($"Loaded {workload} run defaults.", ToastKind.Success);
     }
 
     private void RemoveProfile(int index)
