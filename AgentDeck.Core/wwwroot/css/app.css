@@ -1528,7 +1528,15 @@ main {
 
 .settings-status-row {
     display: grid;
-    gap: 0.35rem;
+    grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr);
+    align-items: start;
+    gap: 0.35rem 1rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.settings-status-row:last-child {
+    border-bottom: none;
 }
 
 .settings-status-row__label {
@@ -1540,6 +1548,12 @@ main {
 
 .settings-status-row__value {
     overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+    .settings-status-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 .legacy-settings {
