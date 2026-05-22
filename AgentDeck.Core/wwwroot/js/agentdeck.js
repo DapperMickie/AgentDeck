@@ -58,6 +58,11 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
         cursorBlink: true,
         cursorStyle: 'bar',
         scrollback: 5000,
+        // PTY output can contain bare LF characters. In a terminal emulator LF
+        // advances the row but does not reset the cursor column, which makes
+        // plain-text output stair-step. Treat LF as CRLF for display so new
+        // lines start at column zero while preserving normal ANSI behavior.
+        convertEol: true,
         theme: theme || {
             background:   '#1e1e2e',
             foreground:   '#cdd6f4',
