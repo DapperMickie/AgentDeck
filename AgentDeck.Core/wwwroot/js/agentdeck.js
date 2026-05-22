@@ -22,7 +22,14 @@ function scheduleFit(entry) {
             return;
         }
 
+        const previousCols = entry.term.cols;
+        const previousRows = entry.term.rows;
         try { entry.fitAddon.fit(); } catch (_) {}
+
+        if (entry.term.cols !== previousCols || entry.term.rows !== previousRows) {
+            entry.dotnetRef.invokeMethodAsync('OnTerminalResize', entry.term.cols, entry.term.rows)
+                .catch(err => console.warn('[AgentDeck] OnTerminalResize failed:', err));
+        }
     });
 }
 
