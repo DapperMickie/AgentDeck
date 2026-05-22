@@ -173,7 +173,7 @@
                 }
             </section>
 
-            <section class="dashboard-section-card">
+            <section id="workspaces" class="dashboard-section-card">
                 <div class="dashboard-section-card__header">
                     <div>
                         <h2>Workspaces</h2>
@@ -363,7 +363,7 @@
     private string GetNextActionHref() =>
         !_dashboard.CoordinatorReachable || !_dashboard.Machines.Any(machine => machine.IsOnline)
             ? "/settings"
-            : _dashboard.Projects.Count == 0 ? "/projects/new" : "/";
+            : _dashboard.Projects.Count == 0 ? "/projects/new" : "/#workspaces";
 
     private string GetNextActionLabel() =>
         !_dashboard.CoordinatorReachable ? "Open connection setup" :
