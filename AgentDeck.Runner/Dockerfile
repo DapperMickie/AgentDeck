@@ -23,6 +23,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         libicu72 \
+        libx11-6 \
+        libxext6 \
+        libxrender1 \
+        libxtst6 \
         sudo \
         wget \
     && useradd --create-home --shell /bin/sh agentdeck \
