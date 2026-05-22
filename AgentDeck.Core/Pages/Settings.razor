@@ -350,8 +350,8 @@
                     </div>
 
                     <div class="form-actions form-actions--settings">
-                        <button class="btn btn-accent" @onclick="() => SetPreferredMachine(SelectedMachine.Id)">
-                            Use for new terminals
+                        <button class="btn btn-accent" disabled="@IsPreferredMachine(SelectedMachine.Id)" @onclick="() => SetPreferredMachine(SelectedMachine.Id)">
+                            @(IsPreferredMachine(SelectedMachine.Id) ? "Used for new terminals" : "Use for new terminals")
                         </button>
 
                         @if (Connections.GetConnectionState(SelectedMachine.Id) == HubConnectionState.Connected)
@@ -1019,10 +1019,14 @@
     private bool IsSelectedMachine(RunnerMachineSettings machine) =>
         string.Equals(machine.Id, _selectedMachineId, StringComparison.OrdinalIgnoreCase);
 
+    private bool IsPreferredMachine(string machineId) =>
+        string.Equals(machineId, _settings.PreferredMachineId, StringComparison.OrdinalIgnoreCase);
+
     private void SetPreferredMachine(string machineId)
     {
         _settings.PreferredMachineId = machineId;
         _selectedMachineId = machineId;
+        ToastService.Show("New terminals will use this machine by default.", ToastKind.Success);
     }
 
     private async Task DeleteMachineAsync(string machineId)
