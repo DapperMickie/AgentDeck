@@ -93,7 +93,15 @@ public static class ProjectTemplateCatalog
     private static string BuildLaunchCommand(ProjectTargetDefinition target) => target.Workload switch
     {
         ProjectWorkloadKind.Blazor => "dotnet run",
-        ProjectWorkloadKind.Maui => "dotnet build -t:Run",
+        ProjectWorkloadKind.Maui => target.Platform switch
+        {
+            ApplicationTargetPlatform.Android => "dotnet build -t:Run -f net10.0-android",
+            ApplicationTargetPlatform.iOS => "dotnet build -t:Run -f net10.0-ios",
+            ApplicationTargetPlatform.MacOS => "dotnet build -t:Run -f net10.0-maccatalyst",
+            ApplicationTargetPlatform.Windows => "dotnet build -t:Run -f net10.0-windows10.0.19041.0",
+            ApplicationTargetPlatform.Linux => "dotnet build -t:Run",
+            _ => "dotnet build -t:Run"
+        },
         _ => "dotnet run"
     };
 
