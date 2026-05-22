@@ -109,8 +109,22 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
         fitFrame: null,
         resizeObserver: null,
         resizeHandler: null,
-        viewportResizeHandler: null
+        viewportResizeHandler: null,
+        pasteHandler: null
     });
+
+    const entry = terminals.get(sessionId);
+    entry.pasteHandler = event => {
+        const text = event.clipboardData?.getData('text/plain');
+        if (!text) {
+            return;
+        }
+
+        event.preventDefault();
+        dotnetRef.invokeMethodAsync('OnTerminalInput', text)
+            .catch(err => console.warn('[AgentDeck] terminal paste failed:', err));
+    };
+    term.element?.addEventListener('paste', entry.pasteHandler);
 }
 
 /**
@@ -217,6 +231,10 @@ export function disposeTerminal(sessionId) {
     const entry = terminals.get(sessionId);
     if (entry) {
         unregisterAutoFit(sessionId);
+        if (entry.pasteHandler) {
+            try { entry.term.element?.removeEventListener('paste', entry.pasteHandler); } catch (_) {}
+            entry.pasteHandler = null;
+        }
         try { entry.term.dispose(); } catch (_) {}
         // Release the .NET reference immediately rather than waiting for JS GC,
         // since the term.onData/onResize closures captured it.
