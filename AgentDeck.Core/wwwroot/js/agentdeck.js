@@ -151,11 +151,7 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
     addPasteTarget(term.textarea);
     addPasteTarget(container.querySelector('.xterm-helper-textarea'));
 
-    term.attachCustomKeyEventHandler(event => {
-        if (event.type !== 'keydown' || event.key?.toLowerCase() !== 'v' || (!event.ctrlKey && !event.metaKey)) {
-            return true;
-        }
-
+    const pasteFromClipboard = event => {
         if (!navigator.clipboard?.readText) {
             return true;
         }
@@ -165,6 +161,58 @@ export function createTerminal(elementId, sessionId, dotnetRef, theme) {
             .catch(err => console.warn('[AgentDeck] clipboard paste failed:', err));
         event.preventDefault();
         return false;
+    };
+
+    const sendShortcut = (event, data) => {
+        sendTerminalInput(data);
+        event.preventDefault();
+        return false;
+    };
+
+    term.attachCustomKeyEventHandler(event => {
+        if (event.type !== 'keydown') {
+            return true;
+        }
+
+        const key = event.key?.toLowerCase();
+
+        if ((event.ctrlKey || event.metaKey) && key === 'v') {
+            return pasteFromClipboard(event);
+        }
+
+        if (event.shiftKey && event.key === 'Insert') {
+            return pasteFromClipboard(event);
+        }
+
+        if (event.ctrlKey && event.key === 'Backspace') {
+            // Readline-compatible previous-word delete.
+            return sendShortcut(event, '\x17');
+        }
+
+        if (event.ctrlKey && event.key === 'Delete') {
+            // xterm sequence for Ctrl+Delete / delete next word in readline-aware apps.
+            return sendShortcut(event, '\x1b[3;5~');
+        }
+
+        if (event.altKey && event.key === 'Backspace') {
+            // Meta+Backspace is the common terminal binding for backward-kill-word.
+            return sendShortcut(event, '\x1b\x7f');
+        }
+
+        if (event.altKey && key === 'b') {
+            return sendShortcut(event, '\x1bb');
+        }
+
+        if (event.altKey && key === 'f') {
+            return sendShortcut(event, '\x1bf');
+        }
+
+        if (event.shiftKey && event.key === 'Backspace') {
+            // Preserve shifted backspace as an explicit DEL instead of letting the browser decide.
+            return sendShortcut(event, '\x7f');
+        }
+
+        return true;
     });
 }
 
